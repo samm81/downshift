@@ -13,18 +13,20 @@ the agent will be working in one of two contexts:
 - linux workspace checkout
 - macos workspace checkout
 
-## hard rule: do not bootstrap macos
+## bootstrap policy (linux-driven)
 
-the agent must **never** bootstrap a remote macos machine itself.
+the linux environment is allowed and expected to bootstrap the remote macos machine for this repo.
 
 that means:
 
-- do not run `dev/boostrap_macos.bash`
-- do not run `dev/bootstrap_macos_remote.bash`
-- do not execute `ssh ... 'bash -s' < ...` bootstrap flows
-- do not install or provision host-level dependencies on a rented mac from this repo
+- run `dev/boostrap_macos.bash` from linux when bootstrap/provisioning is requested
+- use the connection details in `.env`
+- verify bootstrap end-to-end from linux
+- after bootstrap completes, explicitly tell the user the machine is ready and they can remote-desktop in to start development
 
-if bootstrap/provisioning is requested, the agent should stop and ask the user to run bootstrap manually, then continue once the environment is ready.
+## codex requirement
+
+bootstrap must install and verify `codex` on the remote macos host as part of provisioning.
 
 ## normal work
 

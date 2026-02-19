@@ -13,15 +13,101 @@ die() {
   exit 1
 }
 
+expand_home_prefix() {
+  local p="$1"
+  p="${p/#\$HOME/$HOME}"
+  p="${p/#\~/$HOME}"
+  printf '%s' "$p"
+}
+
+ensure_nvm_loaded() {
+  export NVM_DIR="$HOME/.nvm"
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    # shellcheck disable=SC1090
+    . "$NVM_DIR/nvm.sh"
+  fi
+}
+
+ensure_nvm() {
+  ensure_nvm_loaded
+  if command -v nvm >/dev/null 2>&1; then
+    return
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    die "curl is required to install nvm"
+  fi
+
+  log "installing nvm"
+  curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+  ensure_nvm_loaded
+
+  if ! command -v nvm >/dev/null 2>&1; then
+    die "nvm installation failed"
+  fi
+}
+
+ensure_shell_profile_for_nvm() {
+  local profile="$HOME/.zshrc"
+  if [[ ! -f "$profile" ]]; then
+    touch "$profile"
+  fi
+
+  if ! grep -q 'export NVM_DIR="$HOME/.nvm"' "$profile"; then
+    cat >> "$profile" <<'CFG'
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+CFG
+  fi
+}
+
+ensure_npm() {
+  if command -v npm >/dev/null 2>&1; then
+    return
+  fi
+
+  ensure_nvm
+  ensure_shell_profile_for_nvm
+  log "installing node lts (includes npm) via nvm"
+  nvm install --lts
+  nvm alias default 'lts/*' >/dev/null 2>&1 || true
+  nvm use --lts >/dev/null
+
+  if ! command -v npm >/dev/null 2>&1; then
+    die "npm installation failed"
+  fi
+}
+
+ensure_codex() {
+  ensure_nvm_loaded
+
+  if command -v codex >/dev/null 2>&1; then
+    log "codex already installed: $(codex --version 2>/dev/null || echo 'version unavailable')"
+    return
+  fi
+
+  ensure_npm
+  log "installing codex via npm"
+  npm install -g @openai/codex
+
+  if ! command -v codex >/dev/null 2>&1; then
+    die "codex installation failed"
+  fi
+
+  log "codex installed: $(codex --version 2>/dev/null || echo 'version unavailable')"
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   die "this script is for macos only"
 fi
 
 REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/breath-ball.git}"
-TARGET_DIR="${TARGET_DIR:-$HOME/src/breath-ball}"
+TARGET_DIR_RAW="${TARGET_DIR:-~/src/breath-ball}"
+TARGET_DIR="$(expand_home_prefix "$TARGET_DIR_RAW")"
 KEY_SRC="${KEY_SRC:-$HOME/dev/id_ed25519_breathball}"
 KEY_DEST="$HOME/.ssh/id_ed25519_breathball"
 PUB_DEST="$HOME/.ssh/id_ed25519_breathball.pub"
+SKIP_REPO_CLONE="${SKIP_REPO_CLONE:-0}"
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
@@ -77,14 +163,21 @@ CFG
   chmod 600 "$HOME/.ssh/config"
 fi
 
-if [[ -d "$TARGET_DIR/.git" ]]; then
-  log "repo already exists at $TARGET_DIR; fetching latest"
-  git -C "$TARGET_DIR" fetch --all --prune
+if [[ "$SKIP_REPO_CLONE" == "1" ]]; then
+  log "skipping remote git clone/fetch (local sync mode)"
+  mkdir -p "$TARGET_DIR"
 else
-  log "cloning $REPO_SSH_URL into $TARGET_DIR"
-  mkdir -p "$(dirname "$TARGET_DIR")"
-  GIT_SSH_COMMAND="ssh -i $KEY_DEST -o IdentitiesOnly=yes" git clone "$REPO_SSH_URL" "$TARGET_DIR"
+  if [[ -d "$TARGET_DIR/.git" ]]; then
+    log "repo already exists at $TARGET_DIR; fetching latest"
+    GIT_SSH_COMMAND="ssh -i $KEY_DEST -o IdentitiesOnly=yes" git -C "$TARGET_DIR" fetch --all --prune
+  else
+    log "cloning $REPO_SSH_URL into $TARGET_DIR"
+    mkdir -p "$(dirname "$TARGET_DIR")"
+    GIT_SSH_COMMAND="ssh -i $KEY_DEST -o IdentitiesOnly=yes" git clone "$REPO_SSH_URL" "$TARGET_DIR"
+  fi
 fi
+
+ensure_codex
 
 log "bootstrap complete"
 log "repo path: $TARGET_DIR"
