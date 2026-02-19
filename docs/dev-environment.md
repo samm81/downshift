@@ -20,6 +20,7 @@ this installs and verifies:
 - `pre-commit`
 - `node` / `npm`
 - `codex`
+- `rustc` / `cargo`
 
 ## daily checks
 

@@ -14,6 +14,28 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
+ensure_rust() {
+  if have cargo && have rustc; then
+    return
+  fi
+
+  have curl || die "curl is required to install rust toolchain"
+
+  log "installing rust toolchain with rustup"
+  curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+}
+
+load_rust_env_if_present() {
+  if have cargo && have rustc; then
+    return
+  fi
+
+  if [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+  fi
+}
+
 load_brew_env_if_present() {
   if have brew; then
     return
@@ -42,11 +64,13 @@ install_prereqs() {
   install_with_brew shellcheck
   install_with_brew shfmt
   install_with_brew pre-commit
+  ensure_rust
+  load_rust_env_if_present
 }
 
 verify_tools() {
   local missing=()
-  for tool in shellcheck shfmt pre-commit node npm codex; do
+  for tool in shellcheck shfmt pre-commit node npm codex cargo rustc; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -71,6 +95,8 @@ show_versions() {
   log "node: $(node --version)"
   log "npm: $(npm --version)"
   log "codex: $(codex --version)"
+  log "cargo: $(cargo --version)"
+  log "rustc: $(rustc --version)"
 }
 
 install_prereqs

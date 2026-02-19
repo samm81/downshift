@@ -1,8 +1,9 @@
-use wry::application::dpi::LogicalSize;
-use wry::application::event::{Event, WindowEvent};
-use wry::application::event_loop::{ControlFlow, EventLoop};
-use wry::application::window::WindowBuilder;
-use wry::webview::WebViewBuilder;
+use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
+use wry::{WebView, WebViewBuilder};
 
 const WINDOW_SIZE: f64 = 220.0;
 const BREATH_HTML: &str = r#"<!doctype html>
@@ -51,31 +52,57 @@ const BREATH_HTML: &str = r#"<!doctype html>
   </body>
 </html>"#;
 
-fn main() -> wry::Result<()> {
-  let event_loop = EventLoop::new();
+#[derive(Default)]
+struct App {
+  window: Option<Window>,
+  window_id: Option<WindowId>,
+  webview: Option<WebView>,
+}
 
-  let window = WindowBuilder::new()
-    .with_title("breath-ball")
-    .with_decorations(false)
-    .with_transparent(true)
-    .with_resizable(false)
-    .with_inner_size(LogicalSize::new(WINDOW_SIZE, WINDOW_SIZE))
-    .build(&event_loop)?;
-
-  let _webview = WebViewBuilder::new(window)?
-    .with_html(BREATH_HTML)?
-    .with_transparent(true)
-    .build()?;
-
-  event_loop.run(move |event, _, control_flow| {
-    *control_flow = ControlFlow::Wait;
-
-    if let Event::WindowEvent {
-      event: WindowEvent::CloseRequested,
-      ..
-    } = event
-    {
-      *control_flow = ControlFlow::Exit;
+impl ApplicationHandler for App {
+  fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    if self.window.is_some() {
+      return;
     }
-  });
+
+    let window_attributes = Window::default_attributes()
+      .with_title("breath-ball")
+      .with_decorations(false)
+      .with_transparent(true)
+      .with_resizable(false)
+      .with_inner_size(LogicalSize::new(WINDOW_SIZE, WINDOW_SIZE));
+
+    let window = event_loop
+      .create_window(window_attributes)
+      .expect("failed to create app window");
+
+    let window_id = window.id();
+
+    let webview = WebViewBuilder::new()
+      .with_html(BREATH_HTML)
+      .with_transparent(true)
+      .build(&window)
+      .expect("failed to create webview");
+
+    self.window = Some(window);
+    self.window_id = Some(window_id);
+    self.webview = Some(webview);
+  }
+
+  fn window_event(
+    &mut self,
+    event_loop: &ActiveEventLoop,
+    window_id: WindowId,
+    event: WindowEvent,
+  ) {
+    if Some(window_id) == self.window_id && matches!(event, WindowEvent::CloseRequested) {
+      event_loop.exit();
+    }
+  }
+}
+
+fn main() {
+  let event_loop = EventLoop::new().expect("failed to create event loop");
+  let mut app = App::default();
+  event_loop.run_app(&mut app).expect("failed to run app");
 }
