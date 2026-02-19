@@ -8,10 +8,8 @@ breath-ball is a tiny desktop breathing companion. it renders a small, gentle vi
 
 the agent runs in an already-provisioned development environment.
 
-the agent will be working in one of two contexts:
-
-- linux workspace checkout
-- macos workspace checkout
+linux is used only as an orchestration host to provision a remote mac.
+all actual development work happens on the macos checkout.
 
 ## bootstrap policy (linux-driven)
 
@@ -19,14 +17,14 @@ the linux environment is allowed and expected to bootstrap the remote macos mach
 
 that means:
 
-- run `dev/boostrap_macos.bash` from linux when bootstrap/provisioning is requested
+- run `dev/linux/bootstrap_macos.bash` from linux when bootstrap/provisioning is requested
 - use the connection details in `.env`
 - verify bootstrap end-to-end from linux
 - after bootstrap completes, explicitly tell the user the machine is ready and they can remote-desktop in to start development
 
 ## codex requirement
 
-bootstrap must install and verify `codex` on the remote macos host as part of provisioning.
+the mac provisioning flow must install and verify `codex` on the remote macos host.
 
 ## normal work
 

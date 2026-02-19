@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# local launcher script
+# linux-side launcher script (provisioning/orchestration only)
 # usage:
-#   ./dev/boostrap_macos.bash user@MAC_HOST
+#   ./dev/linux/bootstrap_macos.bash user@MAC_HOST
 #
 # optional env overrides:
 #   REPO_SSH_URL            (default: git@github.com:dwsk/breath-ball.git)
@@ -14,8 +14,8 @@ set -euo pipefail
 #   SYNC_CODEX_PROFILE      (1|0, default: 1; sync config/auth/skills into ~/.codex on remote)
 #
 # this wrapper reads local key files and passes them to the remote helper:
-#   ./dev/id_ed25519_breathball
-#   ./dev/id_ed25519_breathball.pub
+#   ./dev/linux/id_ed25519_breathball
+#   ./dev/linux/id_ed25519_breathball.pub
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 user@MAC_HOST" >&2
@@ -24,8 +24,8 @@ fi
 
 REMOTE="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-HELPER="$SCRIPT_DIR/bootstrap_macos_remote.bash"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+HELPER="$REPO_ROOT/dev/mac/bootstrap_macos_remote.bash"
 LOCAL_KEY="$SCRIPT_DIR/id_ed25519_breathball"
 LOCAL_PUB="$SCRIPT_DIR/id_ed25519_breathball.pub"
 
@@ -39,10 +39,10 @@ if [[ ! -f "$LOCAL_KEY" ]]; then
   exit 1
 fi
 
-PRIVATE_B64="$(base64 < "$LOCAL_KEY" | tr -d '\n')"
+PRIVATE_B64="$(base64 <"$LOCAL_KEY" | tr -d '\n')"
 PUBLIC_B64=""
 if [[ -f "$LOCAL_PUB" ]]; then
-  PUBLIC_B64="$(base64 < "$LOCAL_PUB" | tr -d '\n')"
+  PUBLIC_B64="$(base64 <"$LOCAL_PUB" | tr -d '\n')"
 fi
 
 REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/breath-ball.git}"
@@ -67,7 +67,7 @@ fi
 
 "${SSH_CMD[@]}" -t "$REMOTE" \
   "BREATHBALL_PRIVATE_KEY_B64='$PRIVATE_B64' BREATHBALL_PUBLIC_KEY_B64='$PUBLIC_B64' REPO_SSH_URL='$REPO_SSH_URL' TARGET_DIR='$TARGET_DIR' SKIP_REPO_CLONE='$SKIP_REPO_CLONE' bash -s" \
-  < "$HELPER"
+  <"$HELPER"
 
 if [[ "$REPO_SOURCE_MODE" == "local-sync" ]]; then
   echo "[bootstrap] syncing local checkout to remote target"
@@ -75,8 +75,8 @@ if [[ "$REPO_SOURCE_MODE" == "local-sync" ]]; then
   tar \
     --exclude='.git/index.lock' \
     --exclude='Session.vim' \
-    -C "$REPO_ROOT" -cf - . \
-    | "${SSH_CMD[@]}" "$REMOTE" \
+    -C "$REPO_ROOT" -cf - . |
+    "${SSH_CMD[@]}" "$REMOTE" \
       "TARGET_DIR='$TARGET_DIR' /bin/bash -lc 'TARGET_DIR_RESOLVED=\"\${TARGET_DIR/#\\\$HOME/\$HOME}\"; TARGET_DIR_RESOLVED=\"\${TARGET_DIR_RESOLVED/#\~/\$HOME}\"; mkdir -p \"\$TARGET_DIR_RESOLVED\"; tar -xf - -C \"\$TARGET_DIR_RESOLVED\"'"
 
   echo "[bootstrap] local sync complete"
@@ -99,11 +99,16 @@ if [[ "$SYNC_CODEX_PROFILE" == "1" ]]; then
     cp -R "$HOME/.codex/skills" "$TMP_DIR/.codex/skills"
   fi
 
-  tar -C "$TMP_DIR" -cf - .codex \
-    | "${SSH_CMD[@]}" "$REMOTE" \
+  tar -C "$TMP_DIR" -cf - .codex |
+    "${SSH_CMD[@]}" "$REMOTE" \
       "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; tar -xf - -C \"\$HOME\"'"
 
   echo "[bootstrap] codex profile sync complete"
 fi
 
 echo "[bootstrap] complete: remote machine is ready for remote-desktop development"
+echo "[bootstrap] next (run on remote mac):"
+echo "[bootstrap]   ssh $REMOTE"
+echo "[bootstrap]   cd $TARGET_DIR"
+echo "[bootstrap]   ./dev/mac/bootstrap_homebrew.bash"
+echo "[bootstrap]   ./dev/mac/setup_dev_env.bash"

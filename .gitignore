@@ -1,0 +1,10 @@
+.DS_Store
+.env
+node_modules/
+.venv/
+venv/
+*.log
+
+# local secrets and keys
+dev/linux/id_ed25519_breathball
+dev/linux/id_ed25519_breathball.pub

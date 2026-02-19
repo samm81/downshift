@@ -1,0 +1,17 @@
+{
+  "name": "breath-ball-dev-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "development tooling for breath-ball",
+  "scripts": {
+    "fmt:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -w -i 2 -ci",
+    "fmt:check:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -d -i 2 -ci",
+    "lint:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shellcheck --external-sources",
+    "lint:md": "markdownlint-cli2",
+    "lint": "npm run lint:shell && npm run lint:md",
+    "check": "npm run fmt:check:shell && npm run lint"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.21.0"
+  }
+}

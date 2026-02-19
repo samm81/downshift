@@ -1,0 +1,26 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: shfmt
+        name: shfmt
+        entry: bash -lc "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -d -i 2 -ci"
+        language: system
+        pass_filenames: false
+      - id: shellcheck
+        name: shellcheck
+        entry: bash -lc "find dev -type f -name '*.bash' -print0 | xargs -0 shellcheck --external-sources"
+        language: system
+        pass_filenames: false
+      - id: markdownlint
+        name: markdownlint-cli2
+        entry: ./node_modules/.bin/markdownlint-cli2
+        language: system
+        pass_filenames: false

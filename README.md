@@ -17,3 +17,7 @@ the default rhythm is **5.5 seconds in / 5.5 seconds out** (11-second cycle), in
 ## disclaimer
 
 this is a wellness-oriented companion, not a medical device or medical advice.
+
+## development
+
+development setup and quality tooling are documented in `docs/dev-environment.md`.
