@@ -11,8 +11,8 @@ set -euo pipefail
 #   MACOS_REMOTE_SSH_IDENTITY (path to ssh key used to connect to the remote host)
 #   SSH_OPTS                (extra ssh flags; if set, takes precedence over auto ssh flags)
 #   REPO_SOURCE_MODE        (local-sync|remote-git, default: local-sync)
-#   SYNC_CODEX_PROFILE      (1|0, default: 1; sync config/auth/skills into ~/.codex on remote)
-#   SYNC_GIT_CONFIG         (1|0, default: 1; copy ~/.config/git/config to remote ~/.gitconfig)
+#   LINK_REPO_CODEX_CONFIG  (1|0, default: 1; link ~/.codex/config.toml -> repo dev/codex/config.toml)
+#   SYNC_GIT_CONFIG         (1|0, default: 1; sync ~/.config/git/config to remote ~/.gitconfig)
 #   LOCAL_GIT_CONFIG        (default: ~/.config/git/config)
 #
 # this wrapper reads local key files and passes them to the remote helper:
@@ -50,21 +50,17 @@ fi
 REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/breath-ball.git}"
 TARGET_DIR="${TARGET_DIR:-~/src/breath-ball}"
 REPO_SOURCE_MODE="${REPO_SOURCE_MODE:-local-sync}"
-SYNC_CODEX_PROFILE="${SYNC_CODEX_PROFILE:-1}"
+LINK_REPO_CODEX_CONFIG="${LINK_REPO_CODEX_CONFIG:-1}"
 SYNC_GIT_CONFIG="${SYNC_GIT_CONFIG:-1}"
 LOCAL_GIT_CONFIG="${LOCAL_GIT_CONFIG:-$HOME/.config/git/config}"
 
 if [[ -n "${SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
   SSH_CMD=(ssh ${SSH_OPTS})
-  # shellcheck disable=SC2206
-  SCP_CMD=(scp ${SSH_OPTS})
 else
   SSH_CMD=(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
-  SCP_CMD=(scp -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
   if [[ -n "${MACOS_REMOTE_SSH_IDENTITY:-}" ]]; then
     SSH_CMD+=(-i "$MACOS_REMOTE_SSH_IDENTITY" -o IdentitiesOnly=yes)
-    SCP_CMD+=(-i "$MACOS_REMOTE_SSH_IDENTITY" -o IdentitiesOnly=yes)
   fi
 fi
 
@@ -90,28 +86,10 @@ if [[ "$REPO_SOURCE_MODE" == "local-sync" ]]; then
   echo "[bootstrap] local sync complete"
 fi
 
-if [[ "$SYNC_CODEX_PROFILE" == "1" ]]; then
-  echo "[bootstrap] syncing codex profile (config/auth/skills)"
-
-  TMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$TMP_DIR"' EXIT
-
-  mkdir -p "$TMP_DIR/.codex"
-  if [[ -f "$HOME/.codex/config.toml" ]]; then
-    cp "$HOME/.codex/config.toml" "$TMP_DIR/.codex/config.toml"
-  fi
-  if [[ -f "$HOME/.codex/auth.json" ]]; then
-    cp "$HOME/.codex/auth.json" "$TMP_DIR/.codex/auth.json"
-  fi
-  if [[ -d "$HOME/.codex/skills" ]]; then
-    cp -R "$HOME/.codex/skills" "$TMP_DIR/.codex/skills"
-  fi
-
-  tar -C "$TMP_DIR" -cf - .codex |
-    "${SSH_CMD[@]}" "$REMOTE" \
-      "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; tar -xf - -C \"\$HOME\"'"
-
-  echo "[bootstrap] codex profile sync complete"
+if [[ "$LINK_REPO_CODEX_CONFIG" == "1" ]]; then
+  echo "[bootstrap] linking remote codex config to repo config.toml"
+  "${SSH_CMD[@]}" "$REMOTE" \
+    "TARGET_DIR='$TARGET_DIR' /bin/bash -lc 'TARGET_DIR_RESOLVED=\"\${TARGET_DIR/#\\\$HOME/\$HOME}\"; TARGET_DIR_RESOLVED=\"\${TARGET_DIR_RESOLVED/#\~/\$HOME}\"; mkdir -p \"\$HOME/.codex\"; ln -sfn \"\$TARGET_DIR_RESOLVED/dev/codex/config.toml\" \"\$HOME/.codex/config.toml\"; echo \"[bootstrap] codex config link: \$HOME/.codex/config.toml -> \$TARGET_DIR_RESOLVED/dev/codex/config.toml\"'"
 fi
 
 if [[ "$SYNC_GIT_CONFIG" == "1" ]]; then

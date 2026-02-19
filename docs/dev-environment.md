@@ -35,7 +35,7 @@ this runs:
 
 ## mcp servers
 
-the following global codex mcp servers are useful for this repo:
+the following codex mcp servers are useful for this repo:
 
 - `filesystem`: local repo file access
 - `git`: repo-aware git operations
@@ -48,6 +48,8 @@ verify:
 ```bash
 codex mcp list
 ```
+
+note: this repo owns codex config at `dev/codex/config.toml`; bootstrap links `~/.codex/config.toml` to that file on the remote mac.
 
 for github server auth, set:
 
