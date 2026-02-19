@@ -1,0 +1,10 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+model = "gpt-5.3-codex"
+personality = "pragmatic"
+
+[projects."/Users/m1/src/breath-ball"]
+trust_level = "trusted"
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
