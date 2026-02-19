@@ -34,6 +34,21 @@ this runs:
 - shell lint (`shellcheck`)
 - markdown lint (`markdownlint-cli2`)
 
+## gui smoke test (macos)
+
+to quickly verify the gui app launches and animates:
+
+```bash
+./dev/mac/smoke_gui.bash
+```
+
+optional args:
+
+- first arg: screenshot count (default `3`, minimum `2`)
+- second arg: interval seconds between screenshots (default `1`)
+
+the script writes screenshots and a summary result file under `logs/gui-smoke-*/`.
+
 ## mcp servers
 
 the following codex mcp servers are useful for this repo:
