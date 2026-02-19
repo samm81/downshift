@@ -122,6 +122,8 @@ if [[ "$SYNC_GIT_CONFIG" == "1" ]]; then
   fi
 
   "${SCP_CMD[@]}" "$LOCAL_GIT_CONFIG" "$REMOTE:~/.gitconfig"
+  "${SSH_CMD[@]}" "$REMOTE" \
+    "/bin/bash -lc 'git config --global commit.gpgsign false; git config --global --unset-all user.signingkey || true; git config --global tag.gpgsign false'"
   echo "[bootstrap] git config sync complete"
 fi
 
