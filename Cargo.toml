@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 winit = "0.30"
-wry = "0.53"
+wry = { version = "0.53", features = ["transparent"] }
