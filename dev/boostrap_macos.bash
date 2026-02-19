@@ -11,6 +11,7 @@ set -euo pipefail
 #   MACOS_REMOTE_SSH_IDENTITY (path to ssh key used to connect to the remote host)
 #   SSH_OPTS                (extra ssh flags; if set, takes precedence over auto ssh flags)
 #   REPO_SOURCE_MODE        (local-sync|remote-git, default: local-sync)
+#   SYNC_CODEX_PROFILE      (1|0, default: 1; sync config/auth/skills into ~/.codex on remote)
 #
 # this wrapper reads local key files and passes them to the remote helper:
 #   ./dev/id_ed25519_breathball
@@ -47,6 +48,7 @@ fi
 REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/breath-ball.git}"
 TARGET_DIR="${TARGET_DIR:-~/src/breath-ball}"
 REPO_SOURCE_MODE="${REPO_SOURCE_MODE:-local-sync}"
+SYNC_CODEX_PROFILE="${SYNC_CODEX_PROFILE:-1}"
 
 if [[ -n "${SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
@@ -78,6 +80,30 @@ if [[ "$REPO_SOURCE_MODE" == "local-sync" ]]; then
       "TARGET_DIR='$TARGET_DIR' /bin/bash -lc 'TARGET_DIR_RESOLVED=\"\${TARGET_DIR/#\\\$HOME/\$HOME}\"; TARGET_DIR_RESOLVED=\"\${TARGET_DIR_RESOLVED/#\~/\$HOME}\"; mkdir -p \"\$TARGET_DIR_RESOLVED\"; tar -xf - -C \"\$TARGET_DIR_RESOLVED\"'"
 
   echo "[bootstrap] local sync complete"
+fi
+
+if [[ "$SYNC_CODEX_PROFILE" == "1" ]]; then
+  echo "[bootstrap] syncing codex profile (config/auth/skills)"
+
+  TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TMP_DIR"' EXIT
+
+  mkdir -p "$TMP_DIR/.codex"
+  if [[ -f "$HOME/.codex/config.toml" ]]; then
+    cp "$HOME/.codex/config.toml" "$TMP_DIR/.codex/config.toml"
+  fi
+  if [[ -f "$HOME/.codex/auth.json" ]]; then
+    cp "$HOME/.codex/auth.json" "$TMP_DIR/.codex/auth.json"
+  fi
+  if [[ -d "$HOME/.codex/skills" ]]; then
+    cp -R "$HOME/.codex/skills" "$TMP_DIR/.codex/skills"
+  fi
+
+  tar -C "$TMP_DIR" -cf - .codex \
+    | "${SSH_CMD[@]}" "$REMOTE" \
+      "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; tar -xf - -C \"\$HOME\"'"
+
+  echo "[bootstrap] codex profile sync complete"
 fi
 
 echo "[bootstrap] complete: remote machine is ready for remote-desktop development"
