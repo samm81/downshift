@@ -11,6 +11,7 @@ on macos, run:
 ```bash
 ./dev/mac/bootstrap_homebrew.bash
 ./dev/mac/setup_dev_env.bash
+./dev/mac/bootstrap_gui_permissions.bash
 ```
 
 this installs and verifies:
@@ -21,6 +22,12 @@ this installs and verifies:
 - `node` / `npm`
 - `codex`
 - `rustc` / `cargo`
+
+the gui permissions step must be run from a non-headless desktop session. it intentionally triggers macos permission prompts for:
+
+- automation (terminal controlling `System Events`)
+- accessibility/ui scripting
+- screen recording (used by screenshot-based gui smoke tests)
 
 ## daily checks
 
