@@ -12,6 +12,8 @@ set -euo pipefail
 #   SSH_OPTS                (extra ssh flags; if set, takes precedence over auto ssh flags)
 #   REPO_SOURCE_MODE        (local-sync|remote-git, default: local-sync)
 #   SYNC_CODEX_PROFILE      (1|0, default: 1; sync config/auth/skills into ~/.codex on remote)
+#   SYNC_GIT_CONFIG         (1|0, default: 1; copy ~/.config/git/config to remote ~/.gitconfig)
+#   LOCAL_GIT_CONFIG        (default: ~/.config/git/config)
 #
 # this wrapper reads local key files and passes them to the remote helper:
 #   ./dev/linux/id_ed25519_breathball
@@ -49,14 +51,20 @@ REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/breath-ball.git}"
 TARGET_DIR="${TARGET_DIR:-~/src/breath-ball}"
 REPO_SOURCE_MODE="${REPO_SOURCE_MODE:-local-sync}"
 SYNC_CODEX_PROFILE="${SYNC_CODEX_PROFILE:-1}"
+SYNC_GIT_CONFIG="${SYNC_GIT_CONFIG:-1}"
+LOCAL_GIT_CONFIG="${LOCAL_GIT_CONFIG:-$HOME/.config/git/config}"
 
 if [[ -n "${SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
   SSH_CMD=(ssh ${SSH_OPTS})
+  # shellcheck disable=SC2206
+  SCP_CMD=(scp ${SSH_OPTS})
 else
   SSH_CMD=(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+  SCP_CMD=(scp -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
   if [[ -n "${MACOS_REMOTE_SSH_IDENTITY:-}" ]]; then
     SSH_CMD+=(-i "$MACOS_REMOTE_SSH_IDENTITY" -o IdentitiesOnly=yes)
+    SCP_CMD+=(-i "$MACOS_REMOTE_SSH_IDENTITY" -o IdentitiesOnly=yes)
   fi
 fi
 
@@ -104,6 +112,17 @@ if [[ "$SYNC_CODEX_PROFILE" == "1" ]]; then
       "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; tar -xf - -C \"\$HOME\"'"
 
   echo "[bootstrap] codex profile sync complete"
+fi
+
+if [[ "$SYNC_GIT_CONFIG" == "1" ]]; then
+  echo "[bootstrap] syncing local git config to remote ~/.gitconfig"
+  if [[ ! -f "$LOCAL_GIT_CONFIG" ]]; then
+    echo "local git config not found: $LOCAL_GIT_CONFIG" >&2
+    exit 1
+  fi
+
+  "${SCP_CMD[@]}" "$LOCAL_GIT_CONFIG" "$REMOTE:~/.gitconfig"
+  echo "[bootstrap] git config sync complete"
 fi
 
 echo "[bootstrap] complete: remote machine is ready for remote-desktop development"
