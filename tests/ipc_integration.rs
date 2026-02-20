@@ -15,12 +15,9 @@ fn ipc_json_deserializes_supported_commands() {
         }
     ));
 
-    let move_window: IpcCommand = serde_json::from_str(r#"{"cmd":"move_window","x":12,"y":34}"#)
-        .expect("move_window should parse");
-    assert!(matches!(
-        move_window,
-        IpcCommand::MoveWindow { x: 12, y: 34 }
-    ));
+    let start_drag: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"start_drag"}"#).expect("start_drag should parse");
+    assert!(matches!(start_drag, IpcCommand::StartDrag));
 }
 
 #[test]

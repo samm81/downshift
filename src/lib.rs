@@ -56,7 +56,7 @@ pub enum IpcCommand {
     SetSpeed { half_cycle_seconds: f64 },
     Resize { delta: i32, fine: bool },
     SetSize { size: f64 },
-    MoveWindow { x: i32, y: i32 },
+    StartDrag,
     Reset,
 }
 
@@ -164,5 +164,9 @@ mod tests {
             .expect("serialize set_paused command");
         assert!(encoded.contains("\"cmd\":\"set_paused\""));
         assert!(encoded.contains("\"paused\":true"));
+
+        let drag_command: IpcCommand =
+            serde_json::from_str(r#"{"cmd":"start_drag"}"#).expect("valid start_drag command");
+        assert_eq!(drag_command, IpcCommand::StartDrag);
     }
 }

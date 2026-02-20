@@ -3,12 +3,12 @@ use breath_ball::{
     PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_MARGIN, DEFAULT_SIZE,
 };
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalPosition, LogicalSize};
+use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
 use winit::window::{Window, WindowId, WindowLevel};
-use wry::{WebView, WebViewBuilder};
+use wry::{Rect, WebView, WebViewBuilder};
 
 const BREATH_HTML: &str = r#"<!doctype html>
 <html lang="en">
@@ -133,13 +133,6 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const state = {
           paused: Boolean(init.paused),
           halfCycleSeconds: Number(init.half_cycle_seconds) || 5.5,
-          dragArmed: false,
-          dragging: false,
-          dragTimer: null,
-          dragStartPointerX: 0,
-          dragStartPointerY: 0,
-          dragStartWindowX: 0,
-          dragStartWindowY: 0,
         };
 
         function post(payload) {
@@ -241,42 +234,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
 
         ball.addEventListener("pointerdown", (event) => {
           if (event.button !== 0) return;
-          state.dragArmed = true;
-          state.dragging = false;
-          state.dragStartPointerX = event.screenX;
-          state.dragStartPointerY = event.screenY;
-          state.dragStartWindowX = window.screenX;
-          state.dragStartWindowY = window.screenY;
-          if (state.dragTimer) {
-            clearTimeout(state.dragTimer);
-          }
-          state.dragTimer = setTimeout(() => {
-            state.dragging = state.dragArmed;
-          }, 200);
-        });
-
-        ball.addEventListener("pointermove", (event) => {
-          if (!state.dragging) return;
-          const nextX = Math.round(state.dragStartWindowX + (event.screenX - state.dragStartPointerX));
-          const nextY = Math.round(state.dragStartWindowY + (event.screenY - state.dragStartPointerY));
-          post({ cmd: "move_window", x: nextX, y: nextY });
-        });
-
-        function clearDrag() {
-          state.dragArmed = false;
-          state.dragging = false;
-          if (state.dragTimer) {
-            clearTimeout(state.dragTimer);
-            state.dragTimer = null;
-          }
-        }
-
-        ball.addEventListener("pointerup", clearDrag);
-        ball.addEventListener("pointercancel", clearDrag);
-        ball.addEventListener("pointerleave", (event) => {
-          if ((event.buttons & 1) === 0) {
-            clearDrag();
-          }
+          post({ cmd: "start_drag" });
         });
 
         applyBallState();
@@ -303,6 +261,20 @@ struct App {
 }
 
 impl App {
+    fn sync_webview_bounds(&self) {
+        let (Some(window), Some(webview)) = (self.window.as_ref(), self.webview.as_ref()) else {
+            return;
+        };
+        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
+        let bounds = Rect {
+            position: LogicalPosition::new(0, 0).into(),
+            size: LogicalSize::new(size.width, size.height).into(),
+        };
+        if let Err(error) = webview.set_bounds(bounds) {
+            eprintln!("warning: failed to sync webview bounds: {error}");
+        }
+    }
+
     fn config_path() -> Option<std::path::PathBuf> {
         let mut path = dirs::config_dir()?;
         path.push("breath-ball");
@@ -410,11 +382,11 @@ impl App {
         }
     }
 
-    fn apply_position(&mut self, x: i32, y: i32) {
+    fn update_position_from_physical(&mut self, physical: PhysicalPosition<i32>) {
         if let Some(window) = self.window.as_ref() {
-            window.set_outer_position(LogicalPosition::new(x, y));
-            self.settings.x = Some(x);
-            self.settings.y = Some(y);
+            let logical = physical.to_logical::<f64>(window.scale_factor());
+            self.settings.x = Some(logical.x.round() as i32);
+            self.settings.y = Some(logical.y.round() as i32);
             self.settings.monitor = window.current_monitor().map(snapshot_monitor);
         }
     }
@@ -463,8 +435,12 @@ impl App {
                 self.apply_size(size);
                 self.save_settings();
             }
-            IpcCommand::MoveWindow { x, y } => {
-                self.apply_position(x, y);
+            IpcCommand::StartDrag => {
+                if let Some(window) = self.window.as_ref() {
+                    if let Err(error) = window.drag_window() {
+                        eprintln!("warning: failed to start window drag: {error}");
+                    }
+                }
             }
             IpcCommand::Reset => {
                 self.reset_widget(event_loop);
@@ -523,7 +499,7 @@ impl ApplicationHandler<AppEvent> for App {
                 let payload = request.into_body();
                 let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
             })
-            .build(&window);
+            .build_as_child(&window);
 
         let webview = match webview_result {
             Ok(webview) => webview,
@@ -537,6 +513,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
+        self.sync_webview_bounds();
         self.save_settings();
     }
 
@@ -549,9 +526,19 @@ impl ApplicationHandler<AppEvent> for App {
         if Some(window_id) != self.window_id {
             return;
         }
-        if matches!(event, WindowEvent::CloseRequested) {
-            self.save_settings();
-            event_loop.exit();
+        match event {
+            WindowEvent::CloseRequested => {
+                self.save_settings();
+                event_loop.exit();
+            }
+            WindowEvent::Moved(position) => {
+                self.update_position_from_physical(position);
+                self.save_settings();
+            }
+            WindowEvent::Resized(_) => {
+                self.sync_webview_bounds();
+            }
+            _ => {}
         }
     }
 

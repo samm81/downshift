@@ -207,30 +207,11 @@ main() {
 
   capture "$out_dir/shot-1-initial.png"
 
-  # quick drag without hold should not move the widget
-  local quick_target_x quick_target_y
-  quick_target_x=$((center_x + 70))
-  quick_target_y=$((center_y + 40))
-  cliclick "dd:${center_x},${center_y}" "dm:${quick_target_x},${quick_target_y}" "du:${quick_target_x},${quick_target_y}"
-  sleep 0.35
-
-  local frame_after_quick quick_x quick_y
-  frame_after_quick="$(get_window_frame)"
-  [[ "$frame_after_quick" != ERROR:* ]] || die "failed to read window frame after quick drag"
-  IFS=',' read -r quick_x quick_y _ _ <<<"$frame_after_quick"
-
-  local quick_dx quick_dy
-  quick_dx="$(abs $((quick_x - FRAME_X)))"
-  quick_dy="$(abs $((quick_y - FRAME_Y)))"
-  if ((quick_dx > 4 || quick_dy > 4)); then
-    die "hold threshold check failed: quick drag moved window by dx=${quick_dx}, dy=${quick_dy}"
-  fi
-
-  # drag with hold should move the widget
+  # drag should move the widget
   local drag_target_x drag_target_y
   drag_target_x=$((center_x + 90))
   drag_target_y=$((center_y + 55))
-  cliclick "dd:${center_x},${center_y}" "w:260" "dm:${drag_target_x},${drag_target_y}" "w:80" "du:${drag_target_x},${drag_target_y}"
+  cliclick "dd:${center_x},${center_y}" "dm:${drag_target_x},${drag_target_y}" "du:${drag_target_x},${drag_target_y}"
   sleep 0.35
 
   local frame_after_drag drag_x drag_y drag_w drag_h
