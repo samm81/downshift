@@ -6,6 +6,12 @@ use winit::window::{Window, WindowId};
 use wry::{WebView, WebViewBuilder};
 
 const WINDOW_SIZE: f64 = 220.0;
+
+#[derive(Debug, Clone, Copy)]
+enum AppEvent {
+  ExitRequested,
+}
+
 const BREATH_HTML: &str = r#"<!doctype html>
 <html lang="en">
   <head>
@@ -59,7 +65,7 @@ struct App {
   webview: Option<WebView>,
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<AppEvent> for App {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     if self.window.is_some() {
       return;
@@ -99,10 +105,25 @@ impl ApplicationHandler for App {
       event_loop.exit();
     }
   }
+
+  fn user_event(&mut self, event_loop: &ActiveEventLoop, event: AppEvent) {
+    if matches!(event, AppEvent::ExitRequested) {
+      event_loop.exit();
+    }
+  }
 }
 
 fn main() {
-  let event_loop = EventLoop::new().expect("failed to create event loop");
+  let event_loop = EventLoop::<AppEvent>::with_user_event()
+    .build()
+    .expect("failed to create event loop");
+  let event_loop_proxy = event_loop.create_proxy();
+
+  ctrlc::set_handler(move || {
+    let _ = event_loop_proxy.send_event(AppEvent::ExitRequested);
+  })
+  .expect("failed to install ctrl-c handler");
+
   let mut app = App::default();
   event_loop.run_app(&mut app).expect("failed to run app");
 }

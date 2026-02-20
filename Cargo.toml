@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ctrlc = "3.4"
 winit = "0.30"
 wry = { version = "0.53", features = ["transparent"] }
