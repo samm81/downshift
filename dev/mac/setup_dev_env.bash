@@ -64,13 +64,14 @@ install_prereqs() {
   install_with_brew shellcheck
   install_with_brew shfmt
   install_with_brew pre-commit
+  install_with_brew cliclick
   ensure_rust
   load_rust_env_if_present
 }
 
 verify_tools() {
   local missing=()
-  for tool in shellcheck shfmt pre-commit node npm codex cargo rustc; do
+  for tool in shellcheck shfmt pre-commit node npm codex cargo rustc cliclick; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi

@@ -110,7 +110,7 @@ ensure_codex() {
 }
 
 verify() {
-  for tool in brew shellcheck shfmt pre-commit node npm codex; do
+  for tool in brew shellcheck shfmt pre-commit node npm codex cliclick; do
     have "$tool" || die "missing expected tool after setup: $tool"
   done
 
@@ -132,6 +132,7 @@ persist_brew_env
 install_formula shellcheck
 install_formula shfmt
 install_formula pre-commit
+install_formula cliclick
 ensure_node_and_npm
 ensure_codex
 verify

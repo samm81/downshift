@@ -19,6 +19,7 @@ this installs and verifies:
 - `shellcheck`
 - `shfmt`
 - `pre-commit`
+- `cliclick`
 - `node` / `npm`
 - `codex`
 - `rustc` / `cargo`
@@ -55,6 +56,27 @@ optional args:
 - second arg: interval seconds between screenshots (default `1`)
 
 the script writes screenshots and a summary result file under `logs/gui-smoke-*/`.
+
+## gui interaction e2e (macos)
+
+to validate drag/hold threshold, wheel resize, shift+wheel fine adjust, and right-click pause/resume:
+
+```bash
+./dev/mac/e2e_interactions.bash
+```
+
+the script writes artifacts and a summary result file under `logs/gui-e2e-*/`.
+
+status:
+
+- experimental only; not part of the default `npm run check` pipeline
+- runnable manually or via `npm run test:gui:e2e:experimental`
+
+known issue:
+
+- this flow is currently unreliable in some sessions
+- failure symptom: `app window did not become available` with `System Events` errors such as `process not found` or `osascript is not allowed assistive access`
+- current suspected cause: macos accessibility/automation scope can differ between visible interactive terminal sessions vs spawned/non-interactive command contexts, which breaks window discovery via `System Events` even when permissions appear granted
 
 ## mcp servers
 
