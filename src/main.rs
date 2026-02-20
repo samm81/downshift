@@ -63,6 +63,7 @@ struct App {
   window: Option<Window>,
   window_id: Option<WindowId>,
   webview: Option<WebView>,
+  startup_error: Option<String>,
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -78,17 +79,30 @@ impl ApplicationHandler<AppEvent> for App {
       .with_resizable(false)
       .with_inner_size(LogicalSize::new(WINDOW_SIZE, WINDOW_SIZE));
 
-    let window = event_loop
-      .create_window(window_attributes)
-      .expect("failed to create app window");
+    let window = match event_loop.create_window(window_attributes) {
+      Ok(window) => window,
+      Err(error) => {
+        self.startup_error = Some(format!("failed to create app window: {error}"));
+        event_loop.exit();
+        return;
+      }
+    };
 
     let window_id = window.id();
 
-    let webview = WebViewBuilder::new()
+    let webview_result = WebViewBuilder::new()
       .with_html(BREATH_HTML)
       .with_transparent(true)
-      .build(&window)
-      .expect("failed to create webview");
+      .build(&window);
+
+    let webview = match webview_result {
+      Ok(webview) => webview,
+      Err(error) => {
+        self.startup_error = Some(format!("failed to create webview: {error}"));
+        event_loop.exit();
+        return;
+      }
+    };
 
     self.window = Some(window);
     self.window_id = Some(window_id);
@@ -113,17 +127,30 @@ impl ApplicationHandler<AppEvent> for App {
   }
 }
 
-fn main() {
-  let event_loop = EventLoop::<AppEvent>::with_user_event()
-    .build()
-    .expect("failed to create event loop");
+fn main() -> std::process::ExitCode {
+  let event_loop = match EventLoop::<AppEvent>::with_user_event().build() {
+    Ok(event_loop) => event_loop,
+    Err(error) => {
+      eprintln!("error: failed to create event loop: {error}");
+      return std::process::ExitCode::from(1);
+    }
+  };
   let event_loop_proxy = event_loop.create_proxy();
 
-  ctrlc::set_handler(move || {
+  if let Err(error) = ctrlc::set_handler(move || {
     let _ = event_loop_proxy.send_event(AppEvent::ExitRequested);
-  })
-  .expect("failed to install ctrl-c handler");
+  }) {
+    eprintln!("warning: failed to install ctrl-c handler: {error}");
+  }
 
   let mut app = App::default();
-  event_loop.run_app(&mut app).expect("failed to run app");
+  if let Err(error) = event_loop.run_app(&mut app) {
+    eprintln!("error: app event loop failed: {error}");
+    return std::process::ExitCode::from(1);
+  }
+  if let Some(error) = app.startup_error {
+    eprintln!("error: {error}");
+    return std::process::ExitCode::from(1);
+  }
+  std::process::ExitCode::SUCCESS
 }
