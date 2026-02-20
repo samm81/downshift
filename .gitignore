@@ -6,6 +6,7 @@ venv/
 *.log
 target/
 logs/
+dist/
 
 # local secrets and keys
 dev/linux/id_ed25519_breathball
