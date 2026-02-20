@@ -1,4 +1,7 @@
-use serde::{Deserialize, Serialize};
+use breath_ball::{
+    apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
+    PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_MARGIN, DEFAULT_SIZE,
+};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::WindowEvent;
@@ -6,16 +9,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
 use winit::window::{Window, WindowId, WindowLevel};
 use wry::{WebView, WebViewBuilder};
-
-const DEFAULT_SIZE: f64 = 32.0;
-const MIN_SIZE: f64 = 16.0;
-const MAX_SIZE: f64 = 160.0;
-const WHEEL_STEP: f64 = 4.0;
-const WHEEL_FINE_STEP: f64 = 1.0;
-const DEFAULT_HALF_CYCLE_SECONDS: f64 = 5.5;
-const FAST_HALF_CYCLE_SECONDS: f64 = 4.5;
-const SLOW_HALF_CYCLE_SECONDS: f64 = 6.5;
-const DEFAULT_MARGIN: f64 = 14.0;
 
 const BREATH_HTML: &str = r#"<!doctype html>
 <html lang="en">
@@ -292,55 +285,6 @@ const BREATH_HTML: &str = r#"<!doctype html>
   </body>
 </html>"#;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-struct PersistedMonitor {
-    width: u32,
-    height: u32,
-    scale_factor: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Settings {
-    size: f64,
-    half_cycle_seconds: f64,
-    paused: bool,
-    x: Option<i32>,
-    y: Option<i32>,
-    monitor: Option<PersistedMonitor>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            size: DEFAULT_SIZE,
-            half_cycle_seconds: DEFAULT_HALF_CYCLE_SECONDS,
-            paused: false,
-            x: None,
-            y: None,
-            monitor: None,
-        }
-    }
-}
-
-impl Settings {
-    fn sanitize(&mut self) {
-        self.size = self.size.clamp(MIN_SIZE, MAX_SIZE);
-        self.half_cycle_seconds = normalize_half_cycle(self.half_cycle_seconds);
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "cmd", rename_all = "snake_case")]
-enum IpcCommand {
-    Quit,
-    SetPaused { paused: bool },
-    SetSpeed { half_cycle_seconds: f64 },
-    Resize { delta: i32, fine: bool },
-    SetSize { size: f64 },
-    MoveWindow { x: i32, y: i32 },
-    Reset,
-}
-
 #[derive(Debug, Clone)]
 enum AppEvent {
     ExitRequested,
@@ -364,18 +308,6 @@ impl App {
         path.push("breath-ball");
         path.push("settings.toml");
         Some(path)
-    }
-
-    fn load_settings(path: Option<&std::path::Path>) -> Settings {
-        let mut settings = match path {
-            Some(path) => std::fs::read_to_string(path)
-                .ok()
-                .and_then(|raw| toml::from_str::<Settings>(&raw).ok())
-                .unwrap_or_default(),
-            None => Settings::default(),
-        };
-        settings.sanitize();
-        settings
     }
 
     fn save_settings(&self) {
@@ -443,7 +375,7 @@ impl App {
             Some(window) => window,
             None => return,
         };
-        let size = size.clamp(MIN_SIZE, MAX_SIZE);
+        let size = clamp_size(size);
         let old_size = self.settings.size;
         self.settings.size = size;
         let _ = window.request_inner_size(LogicalSize::new(size, size));
@@ -523,8 +455,7 @@ impl App {
                 self.save_settings();
             }
             IpcCommand::Resize { delta, fine } => {
-                let step = if fine { WHEEL_FINE_STEP } else { WHEEL_STEP };
-                let next = self.settings.size + (delta as f64 * step);
+                let next = apply_resize_step(self.settings.size, delta, fine);
                 self.apply_size(next);
                 self.save_settings();
             }
@@ -549,15 +480,15 @@ impl ApplicationHandler<AppEvent> for App {
             return;
         }
         self.config_path = Self::config_path();
-        self.settings = Self::load_settings(self.config_path.as_deref());
+        self.settings = load_settings(self.config_path.as_deref());
 
-    let mut window_attributes = Window::default_attributes()
-      .with_title("breath-ball")
-      .with_decorations(false)
-      .with_transparent(true)
-      .with_resizable(false)
-      .with_window_level(WindowLevel::AlwaysOnTop)
-      .with_inner_size(LogicalSize::new(self.settings.size, self.settings.size));
+        let mut window_attributes = Window::default_attributes()
+            .with_title("breath-ball")
+            .with_decorations(false)
+            .with_transparent(true)
+            .with_resizable(false)
+            .with_window_level(WindowLevel::AlwaysOnTop)
+            .with_inner_size(LogicalSize::new(self.settings.size, self.settings.size));
 
         if let Some(position) = self.choose_initial_position(event_loop, self.settings.size) {
             let x = position.x.round() as i32;
@@ -677,17 +608,6 @@ fn default_corner_position(monitor: &MonitorHandle, size: f64) -> LogicalPositio
         monitor_pos.x + monitor_size.width - size - DEFAULT_MARGIN,
         monitor_pos.y + DEFAULT_MARGIN,
     )
-}
-
-fn normalize_half_cycle(value: f64) -> f64 {
-    const EPSILON: f64 = 0.05;
-    if (value - FAST_HALF_CYCLE_SECONDS).abs() <= EPSILON {
-        return FAST_HALF_CYCLE_SECONDS;
-    }
-    if (value - SLOW_HALF_CYCLE_SECONDS).abs() <= EPSILON {
-        return SLOW_HALF_CYCLE_SECONDS;
-    }
-    DEFAULT_HALF_CYCLE_SECONDS
 }
 
 fn main() -> std::process::ExitCode {
