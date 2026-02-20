@@ -1,0 +1,51 @@
+name: release-macos
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    env:
+      APP_NAME: BreathBall
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: build app + archives
+        run: |
+          make release TAG="${GITHUB_REF_NAME}"
+
+      - name: collect artifacts
+        run: |
+          mkdir -p release-artifacts
+          cp "dist/${APP_NAME}-unsigned.zip" release-artifacts/
+          cp "dist/${APP_NAME}-unsigned.dmg" release-artifacts/
+          cp "dist/SHA256SUMS.txt" release-artifacts/
+
+      - name: upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: breath-ball-macos
+          path: release-artifacts/*
+
+      - name: upload github release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/BreathBall-unsigned.zip
+            release-artifacts/BreathBall-unsigned.dmg
+            release-artifacts/SHA256SUMS.txt

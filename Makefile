@@ -1,21 +1,24 @@
 APP_NAME := BreathBall
 BIN_NAME := breath-ball
-VERSION := 0.1.0
+VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 BUNDLE_ID := com.example.breathball
 MIN_MACOS := 12.0
 DIST_DIR := dist
 APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
 DMG_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned.dmg
 ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned.zip
+CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
+TAG ?=
+TAG_VERSION := $(patsubst v%,%,$(TAG))
 
-.PHONY: all release app dmg zip clean
+.PHONY: all build app dmg zip checksums check-tag-sync release clean
 
 all: app
 
-release:
+build:
 	cargo build --release
 
-app: release
+app: build
 	rm -rf "$(APP_BUNDLE)"
 	mkdir -p "$(APP_BUNDLE)/Contents/MacOS"
 	mkdir -p "$(APP_BUNDLE)/Contents/Resources"
@@ -50,6 +53,17 @@ dmg: app
 		-ov -format UDZO \
 		"$(DMG_PATH)"
 
+checksums: zip dmg
+	shasum -a 256 "$(ZIP_PATH)" "$(DMG_PATH)" > "$(CHECKSUMS_PATH)"
+
+check-tag-sync:
+	@if [ -n "$(TAG)" ] && [ "$(TAG_VERSION)" != "$(VERSION)" ]; then \
+		echo "error: tag $(TAG) does not match cargo version $(VERSION)"; \
+		exit 1; \
+	fi
+
+release: check-tag-sync checksums
+
 clean:
 	rm -rf "$(APP_BUNDLE)"
-	rm -f "$(DMG_PATH)" "$(ZIP_PATH)"
+	rm -f "$(DMG_PATH)" "$(ZIP_PATH)" "$(CHECKSUMS_PATH)"
