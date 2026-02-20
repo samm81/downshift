@@ -5,6 +5,7 @@ node_modules/
 venv/
 *.log
 target/
+logs/
 
 # local secrets and keys
 dev/linux/id_ed25519_breathball
