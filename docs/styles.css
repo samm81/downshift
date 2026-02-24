@@ -266,6 +266,10 @@ h1 {
   margin-top: 4px;
 }
 
+#release-version {
+  text-align: center;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
