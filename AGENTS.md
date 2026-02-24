@@ -36,7 +36,3 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - gui e2e is macos-only and experimental: run `./dev/mac/e2e_interactions.bash` (or `npm run test:gui:e2e:experimental`) only when explicitly needed.
 - `npm run check` is lint/format only and does not run rust tests.
-
-## user's preferences
-
-- the user's writing style is lowercase (except for "I" and "I'm"), so comments should begin with lowercase characters instead of uppercase ones.
