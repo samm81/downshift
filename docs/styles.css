@@ -60,6 +60,39 @@ body {
   text-align: center;
 }
 
+.top-nav {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.top-nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #f8fbff;
+  color: #344254;
+  text-decoration: none;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease;
+}
+
+.top-nav-link:hover {
+  transform: translateY(-1px);
+  background: #f1f7ff;
+}
+
+.top-nav-icon {
+  flex: 0 0 auto;
+}
+
 .brand-row {
   display: inline-flex;
   align-items: center;
@@ -416,6 +449,10 @@ details p {
 }
 
 @media (max-width: 780px) {
+  .top-nav {
+    justify-content: center;
+  }
+
   .feature-strip {
     grid-template-columns: 1fr;
     margin-top: 10px;
