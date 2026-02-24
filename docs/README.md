@@ -61,12 +61,12 @@ edit `index.html` and set:
 
 edit `index.html` data attributes for JS enhancement:
 
-- `body[data-plausible-domain]`
 - `#download[data-github-api-latest-release]`
 
 ## plausible analytics setup
 
-set `body[data-plausible-domain]` in `index.html` to your real domain (not `example.com`).
+`index.html` includes the Plausible script tag directly (`https://plausible.io/js/pa-....js`).
+if you rotate or replace your Plausible site script id, update that script URL in `index.html`.
 
 tracked custom events:
 

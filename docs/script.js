@@ -24,19 +24,6 @@ function wireTrackedClicks() {
   });
 }
 
-function injectPlausible() {
-  const plausibleDomain = dom.page?.dataset?.plausibleDomain || "";
-  if (!plausibleDomain || plausibleDomain.includes("example")) {
-    return;
-  }
-
-  const script = document.createElement("script");
-  script.defer = true;
-  script.dataset.domain = plausibleDomain;
-  script.src = "https://plausible.io/js/script.js";
-  document.head.appendChild(script);
-}
-
 function findAssetByExtension(assets, ext) {
   return assets.find((asset) => asset.name.toLowerCase().endsWith(ext));
 }
@@ -117,6 +104,5 @@ async function loadLatestRelease() {
   }
 }
 
-injectPlausible();
 wireTrackedClicks();
 loadLatestRelease();
