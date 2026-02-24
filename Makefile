@@ -1,7 +1,7 @@
-APP_NAME := BreathBall
-BIN_NAME := breath-ball
+APP_NAME := Downshift
+BIN_NAME := downshift
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
-BUNDLE_ID := com.example.breathball
+BUNDLE_ID := io.github.downshift
 MIN_MACOS := 12.0
 DIST_DIR := dist
 APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app

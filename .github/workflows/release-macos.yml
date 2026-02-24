@@ -13,7 +13,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     env:
-      APP_NAME: BreathBall
+      APP_NAME: Downshift
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -46,6 +46,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-artifacts/BreathBall-unsigned.zip
-            release-artifacts/BreathBall-unsigned.dmg
+            release-artifacts/${{ env.APP_NAME }}-unsigned.zip
+            release-artifacts/${{ env.APP_NAME }}-unsigned.dmg
             release-artifacts/SHA256SUMS.txt

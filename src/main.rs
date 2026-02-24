@@ -277,7 +277,7 @@ impl App {
 
     fn config_path() -> Option<std::path::PathBuf> {
         let mut path = dirs::config_dir()?;
-        path.push("breath-ball");
+        path.push("downshift");
         path.push("settings.toml");
         Some(path)
     }
@@ -459,7 +459,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.settings = load_settings(self.config_path.as_deref());
 
         let mut window_attributes = Window::default_attributes()
-            .with_title("breath-ball")
+            .with_title("downshift")
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)

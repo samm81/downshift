@@ -57,7 +57,7 @@ APPLESCRIPT
 }
 
 trigger_screen_recording_prompt() {
-  local shot="/tmp/breath-ball-permission-shot-$$.png"
+  local shot="/tmp/downshift-permission-shot-$$.png"
   log "triggering screen capture prompt"
   screencapture -x "$shot" >/dev/null 2>&1 || true
   rm -f "$shot"

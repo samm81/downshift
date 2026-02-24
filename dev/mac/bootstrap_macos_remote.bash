@@ -24,24 +24,24 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   die "this script is for macos only"
 fi
 
-REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/breath-ball.git}"
-TARGET_DIR_RAW="${TARGET_DIR:-~/src/breath-ball}"
+REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/downshift.git}"
+TARGET_DIR_RAW="${TARGET_DIR:-~/src/downshift}"
 TARGET_DIR="$(expand_home_prefix "$TARGET_DIR_RAW")"
-KEY_SRC="${KEY_SRC:-$TARGET_DIR/dev/linux/id_ed25519_breathball}"
-KEY_DEST="$HOME/.ssh/id_ed25519_breathball"
-PUB_DEST="$HOME/.ssh/id_ed25519_breathball.pub"
+KEY_SRC="${KEY_SRC:-$TARGET_DIR/dev/linux/id_ed25519_downshift}"
+KEY_DEST="$HOME/.ssh/id_ed25519_downshift"
+PUB_DEST="$HOME/.ssh/id_ed25519_downshift.pub"
 SKIP_REPO_CLONE="${SKIP_REPO_CLONE:-0}"
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
-if [[ -n "${BREATHBALL_PRIVATE_KEY_B64:-}" ]]; then
-  log "installing breath-ball ssh key from BREATHBALL_PRIVATE_KEY_B64"
-  printf '%s' "$BREATHBALL_PRIVATE_KEY_B64" | base64 --decode >"$KEY_DEST"
+if [[ -n "${DOWNSHIFT_PRIVATE_KEY_B64:-}" ]]; then
+  log "installing downshift ssh key from DOWNSHIFT_PRIVATE_KEY_B64"
+  printf '%s' "$DOWNSHIFT_PRIVATE_KEY_B64" | base64 --decode >"$KEY_DEST"
   chmod 600 "$KEY_DEST"
 
-  if [[ -n "${BREATHBALL_PUBLIC_KEY_B64:-}" ]]; then
-    printf '%s' "$BREATHBALL_PUBLIC_KEY_B64" | base64 --decode >"$PUB_DEST"
+  if [[ -n "${DOWNSHIFT_PUBLIC_KEY_B64:-}" ]]; then
+    printf '%s' "$DOWNSHIFT_PUBLIC_KEY_B64" | base64 --decode >"$PUB_DEST"
     chmod 644 "$PUB_DEST"
   elif command -v ssh-keygen >/dev/null 2>&1; then
     ssh-keygen -y -f "$KEY_DEST" >"$PUB_DEST"
@@ -62,7 +62,7 @@ elif [[ -f "$KEY_SRC" ]]; then
     chmod 644 "$PUB_DEST"
   fi
 else
-  die "no key found. provide BREATHBALL_PRIVATE_KEY_B64, or place key at $KEY_DEST or $KEY_SRC"
+  die "no key found. provide DOWNSHIFT_PRIVATE_KEY_B64, or place key at $KEY_DEST or $KEY_SRC"
 fi
 
 if ! command -v git >/dev/null 2>&1; then

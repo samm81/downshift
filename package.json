@@ -1,8 +1,8 @@
 {
-  "name": "breath-ball-dev-tools",
+  "name": "downshift-dev-tools",
   "private": true,
   "version": "0.1.0",
-  "description": "development tooling for breath-ball",
+  "description": "development tooling for downshift",
   "scripts": {
     "fmt:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -w -i 2 -ci",
     "fmt:check:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -d -i 2 -ci",

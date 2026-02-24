@@ -6,8 +6,8 @@ set -euo pipefail
 #   ./dev/linux/bootstrap_macos.bash user@MAC_HOST
 #
 # optional env overrides:
-#   REPO_SSH_URL            (default: git@github.com:dwsk/breath-ball.git)
-#   TARGET_DIR              (default: ~/src/breath-ball, expanded on remote)
+#   REPO_SSH_URL            (default: git@github.com:dwsk/downshift.git)
+#   TARGET_DIR              (default: ~/src/downshift, expanded on remote)
 #   MACOS_REMOTE_SSH_IDENTITY (path to ssh key used to connect to the remote host)
 #   SSH_OPTS                (extra ssh flags; if set, takes precedence over auto ssh flags)
 #   REPO_SOURCE_MODE        (local-sync|remote-git, default: local-sync)
@@ -16,8 +16,8 @@ set -euo pipefail
 #   LOCAL_GIT_CONFIG        (default: ~/.config/git/config)
 #
 # this wrapper reads local key files and passes them to the remote helper:
-#   ./dev/linux/id_ed25519_breathball
-#   ./dev/linux/id_ed25519_breathball.pub
+#   ./dev/linux/id_ed25519_downshift
+#   ./dev/linux/id_ed25519_downshift.pub
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 user@MAC_HOST" >&2
@@ -28,8 +28,8 @@ REMOTE="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HELPER="$REPO_ROOT/dev/mac/bootstrap_macos_remote.bash"
-LOCAL_KEY="$SCRIPT_DIR/id_ed25519_breathball"
-LOCAL_PUB="$SCRIPT_DIR/id_ed25519_breathball.pub"
+LOCAL_KEY="$SCRIPT_DIR/id_ed25519_downshift"
+LOCAL_PUB="$SCRIPT_DIR/id_ed25519_downshift.pub"
 
 if [[ ! -f "$HELPER" ]]; then
   echo "helper script not found: $HELPER" >&2
@@ -47,8 +47,8 @@ if [[ -f "$LOCAL_PUB" ]]; then
   PUBLIC_B64="$(base64 <"$LOCAL_PUB" | tr -d '\n')"
 fi
 
-REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/breath-ball.git}"
-TARGET_DIR="${TARGET_DIR:-~/src/breath-ball}"
+REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:dwsk/downshift.git}"
+TARGET_DIR="${TARGET_DIR:-~/src/downshift}"
 REPO_SOURCE_MODE="${REPO_SOURCE_MODE:-local-sync}"
 LINK_REPO_CODEX_CONFIG="${LINK_REPO_CODEX_CONFIG:-1}"
 SYNC_GIT_CONFIG="${SYNC_GIT_CONFIG:-1}"
@@ -70,7 +70,7 @@ if [[ "$REPO_SOURCE_MODE" == "local-sync" ]]; then
 fi
 
 "${SSH_CMD[@]}" -t "$REMOTE" \
-  "BREATHBALL_PRIVATE_KEY_B64='$PRIVATE_B64' BREATHBALL_PUBLIC_KEY_B64='$PUBLIC_B64' REPO_SSH_URL='$REPO_SSH_URL' TARGET_DIR='$TARGET_DIR' SKIP_REPO_CLONE='$SKIP_REPO_CLONE' bash -s" \
+  "DOWNSHIFT_PRIVATE_KEY_B64='$PRIVATE_B64' DOWNSHIFT_PUBLIC_KEY_B64='$PUBLIC_B64' REPO_SSH_URL='$REPO_SSH_URL' TARGET_DIR='$TARGET_DIR' SKIP_REPO_CLONE='$SKIP_REPO_CLONE' bash -s" \
   <"$HELPER"
 
 if [[ "$REPO_SOURCE_MODE" == "local-sync" ]]; then

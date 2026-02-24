@@ -65,7 +65,7 @@ load_rust_env_if_present() {
 }
 
 app_settings_path() {
-  printf '%s/Library/Application Support/breath-ball/settings.toml' "$HOME"
+  printf '%s/Library/Application Support/downshift/settings.toml' "$HOME"
 }
 
 read_setting_value() {
@@ -79,8 +79,8 @@ get_window_frame() {
   osascript <<'APPLESCRIPT'
 try
   tell application "System Events"
-    if not (exists process "breath-ball") then error "process not found"
-    tell process "breath-ball"
+    if not (exists process "downshift") then error "process not found"
+    tell process "downshift"
       if (count of windows) is 0 then error "window not found"
       set p to position of window 1
       set s to size of window 1

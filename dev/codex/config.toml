@@ -3,7 +3,7 @@
 model = "gpt-5.3-codex"
 personality = "pragmatic"
 
-[projects."/Users/m1/src/breath-ball"]
+[projects."/Users/m1/src/downshift"]
 trust_level = "trusted"
 
 [mcp_servers.openaiDeveloperDocs]

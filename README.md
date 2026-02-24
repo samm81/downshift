@@ -1,4 +1,4 @@
-# breath-ball
+# downshift
 
 a tiny desktop breathing companion: one small animated ball that gently expands and contracts to cue slower, steadier breathing while you work.
 
@@ -28,7 +28,7 @@ build local app bundle:
 
 ```bash
 make app
-open dist/BreathBall.app
+open dist/Downshift.app
 ```
 
 build release archives:
@@ -39,8 +39,8 @@ make release
 
 this creates:
 
-- `dist/BreathBall-unsigned.zip`
-- `dist/BreathBall-unsigned.dmg`
+- `dist/Downshift-unsigned.zip`
+- `dist/Downshift-unsigned.dmg`
 - `dist/SHA256SUMS.txt`
 
 ## versioning and tag sync
