@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Downshift | macOS breathing orb</title>
+    <meta
+      name="description"
+      content="Downshift is a macOS Apple Silicon breathing orb that helps reduce screen apnea with a steady 5.5s inhale / 5.5s exhale rhythm."
+    />
+    <link rel="icon" type="image/png" href="./assets/icon.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-plausible-domain="downshift.github.io">
+    <header class="site-header">
+      <div class="brand-row">
+        <img src="./assets/icon.png" alt="Downshift icon" class="app-icon" />
+        <div>
+          <h1 id="app-name">Downshift</h1>
+          <p id="tagline" class="tagline">
+            an always-on breathing orb for calmer work sessions
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="card hero" id="top">
+        <p class="eyebrow">macOS alpha</p>
+        <h2>keep your breathing steady while you work</h2>
+        <p class="lead">
+          Downshift places a soft orb on screen that expands and contracts at a
+          5.5s inhale / 5.5s exhale rhythm, helping you return to your breath
+          without breaking focus.
+        </p>
+        <div class="button-row">
+          <a
+            id="hero-download"
+            class="button button-primary"
+            href="#download"
+            data-track="download_click"
+            >Download latest alpha</a
+          >
+          <a class="button button-subtle" href="#install">Install steps</a>
+        </div>
+        <p class="trust-line">
+          Alpha • Apple Silicon only • Not notarized yet • Open-source
+        </p>
+      </section>
+
+      <section class="card" id="demo">
+        <h3>demo</h3>
+        <figure>
+          <img
+            src="./assets/demo.gif"
+            alt="Downshift breathing orb animation demo"
+            class="demo-media"
+          />
+          <figcaption>
+            preview of the orb pacing one full breath cycle (11 seconds total)
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="card" id="how-it-works">
+        <h3>how it works</h3>
+        <ul>
+          <li>
+            always-on visual cue: the orb breathes in and out at a steady 5.5s /
+            5.5s rhythm.
+          </li>
+          <li>
+            subtle on purpose: visible enough to guide breathing without
+            hijacking attention.
+          </li>
+          <li>
+            returns you to breath: a gentle anchor that counters screen apnea
+            over long sessions.
+          </li>
+        </ul>
+      </section>
+
+      <section class="card" id="install">
+        <h3>install (not notarized yet)</h3>
+        <p>
+          This alpha build is not notarized by Apple yet. macOS may block it on
+          first launch.
+        </p>
+        <ol>
+          <li>download the `.dmg` and drag Downshift into Applications.</li>
+          <li>
+            in Applications, right-click Downshift and choose
+            <strong>Open</strong>.
+          </li>
+          <li>click <strong>Open</strong> in the Gatekeeper prompt.</li>
+          <li>
+            if blocked again: System Settings → Privacy &amp; Security → “Open
+            Anyway”, then retry.
+          </li>
+        </ol>
+      </section>
+
+      <section
+        class="card"
+        id="download"
+        data-github-api-latest-release="https://api.github.com/repos/samm81/downshift/releases/latest"
+      >
+        <h3>download</h3>
+        <p class="download-meta" id="release-version">download info is being fetched...</p>
+        <p class="download-meta" id="download-help">
+          this section requires javascript to load direct download info. if javascript is disabled,
+          use
+          <a
+            href="https://github.com/samm81/downshift/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            >latest releases</a
+          >.
+        </p>
+        <div class="button-row">
+          <a
+            id="download-button"
+            class="button button-primary is-disabled"
+            href="#download"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled="true"
+            data-track="download_click"
+            >Download DMG</a
+          >
+          <a
+            id="release-notes-link"
+            class="button button-subtle"
+            href="https://github.com/samm81/downshift/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Release notes</a
+          >
+          <a
+            id="checksum-link"
+            class="button button-subtle is-hidden"
+            href="https://github.com/samm81/downshift/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-hidden="true"
+            >Checksum (optional)</a
+          >
+        </div>
+      </section>
+
+      <section class="card" id="updates">
+        <h3>get updates</h3>
+        <p>optional: subscribe for alpha build updates and release notes.</p>
+        <p>
+          <a
+            id="email-capture-link"
+            class="text-link"
+            href="https://example.com/updates"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-track="email_capture_click"
+            >join the update list</a
+          >
+        </p>
+      </section>
+
+      <section class="card" id="faq">
+        <h3>faq</h3>
+        <details>
+          <summary>does this run on intel macs?</summary>
+          <p>no. this alpha is Apple Silicon only.</p>
+        </details>
+        <details>
+          <summary>does it include an intensity setting?</summary>
+          <p>no. there is no intensity feature in this alpha.</p>
+        </details>
+        <details>
+          <summary>is the app open-source?</summary>
+          <p>yes. source code and releases are published on GitHub.</p>
+        </details>
+        <details>
+          <summary>is it safe if not notarized?</summary>
+          <p>
+            not notarized means extra trust checks are needed. install only from
+            the official GitHub releases page and verify checksums when
+            provided.
+          </p>
+        </details>
+        <details>
+          <summary>what data does Downshift collect?</summary>
+          <p>
+            no audio/video capture. app telemetry is not implemented yet and may
+            come later with clear disclosure.
+          </p>
+        </details>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a
+        id="github-link"
+        href="https://github.com/samm81/downshift"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-track="github_click"
+        >GitHub repository</a
+      >
+      <span id="contact-line">contact: hello@example.com</span>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

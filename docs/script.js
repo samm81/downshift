@@ -1,0 +1,122 @@
+const dom = {
+  page: document.body,
+  section: document.getElementById("download"),
+  versionLabel: document.getElementById("release-version"),
+  downloadHelp: document.getElementById("download-help"),
+  heroDownload: document.getElementById("hero-download"),
+  downloadButton: document.getElementById("download-button"),
+  releaseNotesLink: document.getElementById("release-notes-link"),
+  checksumLink: document.getElementById("checksum-link"),
+};
+
+function safeTrack(eventName) {
+  if (typeof window.plausible === "function") {
+    window.plausible(eventName);
+  }
+}
+
+function wireTrackedClicks() {
+  const tracked = document.querySelectorAll("[data-track]");
+  tracked.forEach((el) => {
+    el.addEventListener("click", () => {
+      safeTrack(el.getAttribute("data-track"));
+    });
+  });
+}
+
+function injectPlausible() {
+  const plausibleDomain = dom.page?.dataset?.plausibleDomain || "";
+  if (!plausibleDomain || plausibleDomain.includes("example")) {
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.defer = true;
+  script.dataset.domain = plausibleDomain;
+  script.src = "https://plausible.io/js/script.js";
+  document.head.appendChild(script);
+}
+
+function findAssetByExtension(assets, ext) {
+  return assets.find((asset) => asset.name.toLowerCase().endsWith(ext));
+}
+
+function applyReadyState({ version, dmgUrl, releaseNotesUrl, checksumUrl }) {
+  dom.versionLabel.textContent = `Version: ${version}`;
+  dom.downloadHelp.textContent = "";
+
+  dom.heroDownload.href = dmgUrl;
+  dom.heroDownload.target = "_blank";
+  dom.heroDownload.rel = "noopener noreferrer";
+
+  dom.downloadButton.href = dmgUrl;
+  dom.downloadButton.removeAttribute("aria-disabled");
+  dom.downloadButton.classList.remove("is-disabled");
+  dom.releaseNotesLink.href = releaseNotesUrl;
+
+  if (checksumUrl) {
+    dom.checksumLink.href = checksumUrl;
+    dom.checksumLink.removeAttribute("aria-hidden");
+    dom.checksumLink.classList.remove("is-hidden");
+  } else {
+    dom.checksumLink.href = dom.releaseNotesLink.href;
+    dom.checksumLink.setAttribute("aria-hidden", "true");
+    dom.checksumLink.classList.add("is-hidden");
+  }
+}
+
+function applyErrorState(message) {
+  dom.versionLabel.textContent = message;
+  dom.heroDownload.href = "#download";
+  dom.heroDownload.removeAttribute("target");
+  dom.heroDownload.removeAttribute("rel");
+  dom.downloadButton.href = "#download";
+  dom.downloadButton.setAttribute("aria-disabled", "true");
+  dom.downloadButton.classList.add("is-disabled");
+}
+
+async function loadLatestRelease() {
+  const apiUrl = dom.section?.dataset?.githubApiLatestRelease || "";
+  if (!apiUrl) {
+    applyErrorState("download info unavailable. use latest releases.");
+    return;
+  }
+
+  try {
+    const response = await fetch(apiUrl, {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub API status ${response.status}`);
+    }
+
+    const data = await response.json();
+    const assets = Array.isArray(data.assets) ? data.assets : [];
+
+    const dmgAsset = findAssetByExtension(assets, ".dmg");
+    const checksumAsset =
+      findAssetByExtension(assets, ".sha256") ||
+      findAssetByExtension(assets, ".sha256.txt") ||
+      findAssetByExtension(assets, ".txt");
+
+    if (!dmgAsset?.browser_download_url || !data.tag_name || !data.html_url) {
+      applyErrorState("download info unavailable right now. use latest releases.");
+      return;
+    }
+
+    const dmgUrl = dmgAsset.browser_download_url;
+    const version = data.tag_name;
+    const releaseNotesUrl = data.html_url;
+    const checksumUrl = checksumAsset?.browser_download_url || "";
+
+    applyReadyState({ version, dmgUrl, releaseNotesUrl, checksumUrl });
+  } catch (error) {
+    console.warn("failed to load latest release", error);
+    applyErrorState("download info unavailable right now. use latest releases.");
+  }
+}
+
+injectPlausible();
+wireTrackedClicks();
+loadLatestRelease();
