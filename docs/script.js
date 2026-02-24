@@ -24,6 +24,73 @@ function wireTrackedClicks() {
   });
 }
 
+function wireDraggableDemoBall() {
+  const stage = document.querySelector(".demo-stage");
+  const ball = document.querySelector(".demo-ball");
+  if (!stage || !ball) {
+    return;
+  }
+
+  let activePointerId = null;
+  let grabOffsetX = 0;
+  let grabOffsetY = 0;
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function placeBall(clientX, clientY) {
+    const stageRect = stage.getBoundingClientRect();
+    const ballRect = ball.getBoundingClientRect();
+    const nextLeft = clientX - stageRect.left - grabOffsetX;
+    const nextTop = clientY - stageRect.top - grabOffsetY;
+    const maxLeft = Math.max(0, stageRect.width - ballRect.width);
+    const maxTop = Math.max(0, stageRect.height - ballRect.height);
+
+    ball.style.right = "auto";
+    ball.style.left = `${clamp(nextLeft, 0, maxLeft)}px`;
+    ball.style.top = `${clamp(nextTop, 0, maxTop)}px`;
+  }
+
+  ball.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const stageRect = stage.getBoundingClientRect();
+    const ballRect = ball.getBoundingClientRect();
+    activePointerId = event.pointerId;
+    grabOffsetX = event.clientX - ballRect.left;
+    grabOffsetY = event.clientY - ballRect.top;
+    ball.style.right = "auto";
+    ball.style.left = `${ballRect.left - stageRect.left}px`;
+    ball.style.top = `${ballRect.top - stageRect.top}px`;
+    ball.classList.add("is-dragging");
+    ball.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  ball.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== activePointerId) {
+      return;
+    }
+    placeBall(event.clientX, event.clientY);
+  });
+
+  function stopDragging(event) {
+    if (event.pointerId !== activePointerId) {
+      return;
+    }
+    activePointerId = null;
+    ball.classList.remove("is-dragging");
+    if (ball.hasPointerCapture(event.pointerId)) {
+      ball.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  ball.addEventListener("pointerup", stopDragging);
+  ball.addEventListener("pointercancel", stopDragging);
+}
+
 function findAssetByExtension(assets, ext) {
   return assets.find((asset) => asset.name.toLowerCase().endsWith(ext));
 }
@@ -105,4 +172,5 @@ async function loadLatestRelease() {
 }
 
 wireTrackedClicks();
+wireDraggableDemoBall();
 loadLatestRelease();

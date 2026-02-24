@@ -22,6 +22,26 @@ this is a wellness-oriented companion, not a medical device or medical advice.
 
 development setup and quality tooling are documented in `docs/dev-environment.md`.
 
+breathing animation sync note:
+- the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
+- keep them aligned: `5.5s` means one half-breath (inhale or exhale), and `alternate` provides the in/out cycle.
+
+## capture short demo webm (mac)
+
+capture a short motion clip of the running app and export a cropped webm:
+
+```bash
+./dev/mac/capture_demo_webm.bash 8
+```
+
+this writes artifacts under `logs/demo-capture-<timestamp>/`, including:
+
+- `downshift-demo.webm`
+- `raw.mp4`
+- `result.txt`
+
+requirements: macos desktop session with screen recording permission enabled for terminal, plus `ffmpeg` installed.
+
 ## mac distribution (unsigned)
 
 build local app bundle:

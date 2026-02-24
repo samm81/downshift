@@ -8,7 +8,7 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 - `styles.css`: desktop-first styling
 - `script.js`: release sync enhancement + plausible event tracking (no product-copy overrides)
 - `assets/icon.png`: placeholder app icon (locally generated)
-- `assets/demo.gif`: placeholder demo media (locally generated)
+- `assets/mac-desktop-generic.svg`: placeholder desktop preview backdrop (locally generated)
 
 ## source-of-truth principle
 
@@ -19,7 +19,7 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 
 ## placeholder asset source/license
 
-- `assets/icon.png` and `assets/demo.gif` are original, locally generated placeholders created for this repo.
+- `assets/icon.png` and `assets/mac-desktop-generic.svg` are original, locally generated placeholders created for this repo.
 - they are safe to use as copyright-free placeholders and can be replaced later with final branded assets.
 
 ## enable GitHub Pages from `/docs`

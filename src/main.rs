@@ -41,7 +41,8 @@ const BREATH_HTML: &str = r#"<!doctype html>
         box-shadow: inset 0 0 0 1px rgba(124, 182, 255, 0.35);
         transform: scale(0.65);
         transform-origin: center;
-        animation: breathe 11s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
+        /* keep in sync with docs/styles.css .demo-ball animation */
+        animation: breathe 5.5s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
       }
       .ball.paused {
         animation-play-state: paused;
@@ -153,7 +154,9 @@ const BREATH_HTML: &str = r#"<!doctype html>
 
         function applyBallState() {
           ball.classList.toggle("paused", state.paused);
-          const seconds = Math.max(2.0, state.halfCycleSeconds * 2.0);
+          // halfCycleSeconds is inhale OR exhale duration; with CSS `alternate`,
+          // one animation iteration maps to one half-breath.
+          const seconds = Math.max(2.0, state.halfCycleSeconds);
           ball.style.animationDuration = `${seconds}s`;
           pauseButton.textContent = state.paused ? "resume" : "pause";
         }
