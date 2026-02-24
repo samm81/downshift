@@ -223,18 +223,27 @@
 
       <section class="updates-card" id="updates">
         <p class="updates-title">get updates when new alpha builds ship</p>
-        <div class="updates-row">
-          <input type="email" placeholder="Email" aria-label="Email" />
-          <a
+        <form
+          class="updates-row"
+          action="https://formspree.io/f/mbdaqyer"
+          method="POST"
+        >
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            aria-label="Email"
+            required
+          />
+          <button
             id="email-capture-link"
             class="button button-subtle"
-            href="https://example.com/updates"
-            target="_blank"
-            rel="noopener noreferrer"
+            type="submit"
             data-track="email_capture_click"
-            >Subscribe</a
           >
-        </div>
+            Subscribe
+          </button>
+        </form>
       </section>
     </main>
 
