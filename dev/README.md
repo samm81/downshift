@@ -17,7 +17,8 @@ exec zsh
 notes:
 
 - `bootstrap-01` syncs local `~/.codex/auth.json` to remote `~/.codex/auth.json` by default.
-- to skip that sync, run with `SYNC_CODEX_AUTH=0`.
+- `bootstrap-01` syncs local `~/.codex/AGENTS.md` to remote `~/.codex/AGENTS.md` by default.
+- to skip these syncs, run with `SYNC_CODEX_AUTH=0` and/or `SYNC_CODEX_AGENTS=0`.
 
 helper scripts are prefixed with `helper_` and are normally invoked by the bootstrap entrypoints:
 

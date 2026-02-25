@@ -15,6 +15,8 @@ set -euo pipefail
 #   LINK_REPO_CODEX_CONFIG  (1|0, default: 1; link ~/.codex/config.toml -> repo dev/codex/config.toml)
 #   SYNC_CODEX_AUTH         (1|0, default: 1; sync ~/.codex/auth.json to remote ~/.codex/auth.json)
 #   LOCAL_CODEX_AUTH        (default: ~/.codex/auth.json)
+#   SYNC_CODEX_AGENTS       (1|0, default: 1; sync ~/.codex/AGENTS.md to remote ~/.codex/AGENTS.md)
+#   LOCAL_CODEX_AGENTS      (default: ~/.codex/AGENTS.md)
 #   SYNC_GIT_CONFIG         (1|0, default: 1; sync ~/.config/git/config to remote ~/.gitconfig)
 #   LOCAL_GIT_CONFIG        (default: ~/.config/git/config)
 #
@@ -71,6 +73,8 @@ REPO_SOURCE_MODE="${REPO_SOURCE_MODE:-local-sync}"
 LINK_REPO_CODEX_CONFIG="${LINK_REPO_CODEX_CONFIG:-1}"
 SYNC_CODEX_AUTH="${SYNC_CODEX_AUTH:-1}"
 LOCAL_CODEX_AUTH="${LOCAL_CODEX_AUTH:-$HOME/.codex/auth.json}"
+SYNC_CODEX_AGENTS="${SYNC_CODEX_AGENTS:-1}"
+LOCAL_CODEX_AGENTS="${LOCAL_CODEX_AGENTS:-$HOME/.codex/AGENTS.md}"
 SYNC_GIT_CONFIG="${SYNC_GIT_CONFIG:-1}"
 LOCAL_GIT_CONFIG="${LOCAL_GIT_CONFIG:-$HOME/.config/git/config}"
 
@@ -122,6 +126,19 @@ if [[ "$SYNC_CODEX_AUTH" == "1" ]]; then
   else
     echo "[bootstrap] warning: local codex auth not found: $LOCAL_CODEX_AUTH"
     echo "[bootstrap] warning: skipping codex auth sync (set SYNC_CODEX_AUTH=0 to silence this warning)"
+  fi
+fi
+
+if [[ "$SYNC_CODEX_AGENTS" == "1" ]]; then
+  if [[ -f "$LOCAL_CODEX_AGENTS" ]]; then
+    echo "[bootstrap] syncing local codex agents doc to remote ~/.codex/AGENTS.md"
+    cat "$LOCAL_CODEX_AGENTS" |
+      "${SSH_CMD[@]}" "$REMOTE" \
+        "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; cat > \"\$HOME/.codex/AGENTS.md\"; chmod 644 \"\$HOME/.codex/AGENTS.md\"'"
+    echo "[bootstrap] codex agents sync complete"
+  else
+    echo "[bootstrap] warning: local codex agents doc not found: $LOCAL_CODEX_AGENTS"
+    echo "[bootstrap] warning: skipping codex agents sync (set SYNC_CODEX_AGENTS=0 to silence this warning)"
   fi
 fi
 
