@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub const DEFAULT_SIZE: f64 = 64.0;
-pub const MIN_SIZE: f64 = 16.0;
-pub const MAX_SIZE: f64 = 160.0;
+pub const DEFAULT_SIZE: f64 = 32.0;
+pub const MIN_SIZE: f64 = 8.0;
+pub const MAX_SIZE: f64 = 92.0;
 pub const WHEEL_STEP: f64 = 4.0;
 pub const WHEEL_FINE_STEP: f64 = 1.0;
 pub const DEFAULT_HALF_CYCLE_SECONDS: f64 = 5.5;
 pub const FAST_HALF_CYCLE_SECONDS: f64 = 4.5;
 pub const SLOW_HALF_CYCLE_SECONDS: f64 = 6.5;
-pub const DEFAULT_MARGIN: f64 = 14.0;
+pub const DEFAULT_MARGIN: f64 = 24.0;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct PersistedMonitor {

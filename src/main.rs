@@ -34,12 +34,12 @@ const BREATH_HTML: &str = r#"<!doctype html>
         cursor: default;
       }
       .ball {
-        width: 74%;
+        width: 100%;
         aspect-ratio: 1 / 1;
         border-radius: 9999px;
         background: rgba(124, 182, 255, 0.52);
         box-shadow: inset 0 0 0 1px rgba(124, 182, 255, 0.35);
-        transform: scale(0.65);
+        transform: scale(0.8);
         transform-origin: center;
         /* keep in sync with docs/styles.css .demo-ball animation */
         animation: breathe 5.5s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
@@ -90,7 +90,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
       }
       @keyframes breathe {
         from {
-          transform: scale(0.65);
+          transform: scale(0.8);
         }
         to {
           transform: scale(1);
@@ -112,10 +112,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
       <div class="divider"></div>
       <div class="group">
         <div class="label">size</div>
-        <button data-size="48">S (48px)</button>
-        <button data-size="64">M (64px)</button>
-        <button data-size="96">L (96px)</button>
-        <button data-size="128">XL (128px)</button>
+        <button data-size="22">S (22px)</button>
+        <button data-size="32">M (32px)</button>
+        <button data-size="52">L (52px)</button>
+        <button data-size="72">XL (72px)</button>
       </div>
       <div class="divider"></div>
       <button id="menu-reset">reset</button>
@@ -533,6 +533,7 @@ impl App {
             }
         }
     }
+
 }
 
 impl ApplicationHandler<AppEvent> for App {
