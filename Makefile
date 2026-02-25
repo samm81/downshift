@@ -10,8 +10,9 @@ ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned.zip
 CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
 TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
+RUN_RESET := $(or $(filter 1,$(RESET)),$(filter --reset,$(MAKECMDGOALS)))
 
-.PHONY: all build build-debug run app dmg zip checksums check-tag-sync release clean
+.PHONY: all build build-debug run --reset app dmg zip checksums check-tag-sync release clean
 
 all: app
 
@@ -22,7 +23,14 @@ build-debug:
 	cargo build --quiet
 
 run: build-debug
+ifneq ($(RUN_RESET),)
+	@echo "resetting saved downshift settings"
+	@rm -f "$$HOME/Library/Application Support/downshift/settings.toml" "$$HOME/.config/downshift/settings.toml"
+endif
 	./target/debug/$(BIN_NAME)
+
+--reset:
+	@:
 
 app: build
 	rm -rf "$(APP_BUNDLE)"

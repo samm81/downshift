@@ -37,6 +37,14 @@ run the app locally:
 make run
 ```
 
+reset saved position/settings before launching:
+
+```bash
+make run RESET=1
+# or:
+make -- run --reset
+```
+
 breathing animation sync note:
 
 - the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
