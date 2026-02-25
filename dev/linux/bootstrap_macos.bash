@@ -8,7 +8,7 @@ set -euo pipefail
 # optional env overrides:
 #   REPO_SSH_URL            (default: git@github.com:dwsk/downshift.git)
 #   TARGET_DIR              (default: ~/src/downshift, expanded on remote)
-#   MACOS_REMOTE_SSH_IDENTITY (path to ssh key used to connect to the remote host)
+#   MACOS_REMOTE_SSH_IDENTITY (default: ~/.ssh/id_ed25519_scaleway)
 #   SSH_OPTS                (extra ssh flags; if set, takes precedence over auto ssh flags)
 #   REPO_SOURCE_MODE        (local-sync|remote-git, default: local-sync)
 #   LINK_REPO_CODEX_CONFIG  (1|0, default: 1; link ~/.codex/config.toml -> repo dev/codex/config.toml)
@@ -53,13 +53,14 @@ REPO_SOURCE_MODE="${REPO_SOURCE_MODE:-local-sync}"
 LINK_REPO_CODEX_CONFIG="${LINK_REPO_CODEX_CONFIG:-1}"
 SYNC_GIT_CONFIG="${SYNC_GIT_CONFIG:-1}"
 LOCAL_GIT_CONFIG="${LOCAL_GIT_CONFIG:-$HOME/.config/git/config}"
+MACOS_REMOTE_SSH_IDENTITY="${MACOS_REMOTE_SSH_IDENTITY:-$HOME/.ssh/id_ed25519_scaleway}"
 
 if [[ -n "${SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
   SSH_CMD=(ssh ${SSH_OPTS})
 else
   SSH_CMD=(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
-  if [[ -n "${MACOS_REMOTE_SSH_IDENTITY:-}" ]]; then
+  if [[ -n "$MACOS_REMOTE_SSH_IDENTITY" ]]; then
     SSH_CMD+=(-i "$MACOS_REMOTE_SSH_IDENTITY" -o IdentitiesOnly=yes)
   fi
 fi
