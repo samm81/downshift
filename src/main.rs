@@ -1,6 +1,6 @@
 use downshift::{
-    apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
-    PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_MARGIN, DEFAULT_SIZE,
+    apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand, PersistedMonitor,
+    Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
@@ -9,6 +9,10 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
 use winit::window::{Window, WindowId, WindowLevel};
 use wry::{Rect, WebView, WebViewBuilder};
+
+const DEFAULT_SIZE_SHORT_SIDE_RATIO: f64 = 0.10;
+const DEFAULT_EDGE_MARGIN_RATIO: f64 = 0.05;
+const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
 
 const BREATH_HTML: &str = r#"<!doctype html>
 <html lang="en">
@@ -112,10 +116,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
       <div class="divider"></div>
       <div class="group">
         <div class="label">size</div>
-        <button data-size="22">S (22px)</button>
-        <button data-size="32">M (32px)</button>
-        <button data-size="52">L (52px)</button>
-        <button data-size="72">XL (72px)</button>
+        <button data-size-slot="0">S</button>
+        <button data-size-slot="1">M</button>
+        <button data-size-slot="2">L</button>
+        <button data-size-slot="3">XL</button>
       </div>
       <div class="divider"></div>
       <button id="menu-reset">reset</button>
@@ -129,12 +133,18 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const resetButton = document.getElementById("menu-reset");
         const quitButton = document.getElementById("menu-quit");
         const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
-        const sizeButtons = Array.from(document.querySelectorAll("[data-size]"));
+        const sizeButtons = Array.from(document.querySelectorAll("[data-size-slot]"));
         const init = window.__BB_INIT__ || { paused: false, half_cycle_seconds: 5.5 };
         const state = {
           paused: Boolean(init.paused),
           halfCycleSeconds: Number(init.half_cycle_seconds) || 5.5,
+          sizePresets: Array.isArray(init.size_presets) && init.size_presets.length === 4
+            ? init.size_presets.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
+            : [64, 96, 128, 160],
         };
+        if (state.sizePresets.length !== 4) {
+          state.sizePresets = [64, 96, 128, 160];
+        }
 
         function post(payload) {
           if (window.ipc && typeof window.ipc.postMessage === "function") {
@@ -161,6 +171,19 @@ const BREATH_HTML: &str = r#"<!doctype html>
           pauseButton.textContent = state.paused ? "resume" : "pause";
         }
 
+        function applySizePresetButtons() {
+          const labels = ["S", "M", "L", "XL"];
+          sizeButtons.forEach((button) => {
+            const rawIndex = Number(button.dataset.sizeSlot);
+            const index = Number.isFinite(rawIndex) ? rawIndex : -1;
+            const value = state.sizePresets[index];
+            if (!Number.isFinite(value) || value <= 0) return;
+            const rounded = Math.round(value);
+            button.dataset.size = String(rounded);
+            button.textContent = `${labels[index] || "size"} (${rounded}px)`;
+          });
+        }
+
         window.breathBallApplyState = function(next) {
           if (Object.prototype.hasOwnProperty.call(next, "paused")) {
             state.paused = Boolean(next.paused);
@@ -169,6 +192,15 @@ const BREATH_HTML: &str = r#"<!doctype html>
             const value = Number(next.half_cycle_seconds);
             if (Number.isFinite(value) && value > 0) {
               state.halfCycleSeconds = value;
+            }
+          }
+          if (Object.prototype.hasOwnProperty.call(next, "size_presets")) {
+            const values = Array.isArray(next.size_presets)
+              ? next.size_presets.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
+              : [];
+            if (values.length === 4) {
+              state.sizePresets = values;
+              applySizePresetButtons();
             }
           }
           applyBallState();
@@ -278,6 +310,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
         ball.addEventListener("pointercancel", endDrag);
 
         applyBallState();
+        applySizePresetButtons();
       })();
     </script>
   </body>
@@ -426,10 +459,11 @@ impl App {
         Some(default_corner_position(&primary, size))
     }
 
-    fn build_init_script(&self) -> String {
+    fn build_init_script(&self, size_presets: [f64; 4]) -> String {
         let payload = serde_json::json!({
           "paused": self.settings.paused,
           "half_cycle_seconds": self.settings.half_cycle_seconds,
+          "size_presets": size_presets,
         });
         format!("window.__BB_INIT__ = {payload};")
     }
@@ -487,19 +521,29 @@ impl App {
             let logical = physical.to_logical::<f64>(window.scale_factor());
             self.settings.x = Some(logical.x.round() as i32);
             self.settings.y = Some(logical.y.round() as i32);
-            self.settings.monitor = window.current_monitor().map(snapshot_monitor);
+            let current_monitor = window.current_monitor();
+            self.settings.monitor = current_monitor.clone().map(snapshot_monitor);
+            if let Some(monitor) = current_monitor {
+                self.apply_size_presets_for_monitor(&monitor);
+            }
         }
     }
 
     fn reset_widget(&mut self, event_loop: &ActiveEventLoop) {
-        self.apply_size(DEFAULT_SIZE);
+        let monitor = self
+            .window
+            .as_ref()
+            .and_then(|window| window.current_monitor())
+            .or_else(|| event_loop.primary_monitor())
+            .or_else(|| event_loop.available_monitors().next());
+        let reset_size = monitor
+            .as_ref()
+            .map(default_size_for_monitor)
+            .unwrap_or(DEFAULT_SIZE);
+        self.apply_size(reset_size);
         self.apply_half_cycle(DEFAULT_HALF_CYCLE_SECONDS);
         self.apply_paused(false);
         if let Some(window) = self.window.as_ref() {
-            let monitor = window
-                .current_monitor()
-                .or_else(|| event_loop.primary_monitor())
-                .or_else(|| event_loop.available_monitors().next());
             if let Some(monitor) = monitor {
                 let pos = default_corner_position(&monitor, self.settings.size);
                 let x = pos.x.round() as i32;
@@ -547,6 +591,17 @@ impl App {
         }
     }
 
+    fn apply_size_presets_for_monitor(&self, monitor: &MonitorHandle) {
+        let Some(webview) = self.webview.as_ref() else {
+            return;
+        };
+        let presets = size_presets_for_monitor(monitor);
+        let js = format!(
+            "window.breathBallApplyState({{ size_presets: {} }});",
+            serde_json::json!(presets)
+        );
+        let _ = webview.evaluate_script(&js);
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -555,7 +610,19 @@ impl ApplicationHandler<AppEvent> for App {
             return;
         }
         self.config_path = Self::config_path();
+        let settings_exist = self
+            .config_path
+            .as_ref()
+            .is_some_and(|path| path.exists());
         self.settings = load_settings(self.config_path.as_deref());
+        if !settings_exist {
+            if let Some(primary) = event_loop
+                .primary_monitor()
+                .or_else(|| event_loop.available_monitors().next())
+            {
+                self.settings.size = default_size_for_monitor(&primary);
+            }
+        }
 
         let mut window_attributes = Window::default_attributes()
             .with_title("downshift")
@@ -586,7 +653,15 @@ impl ApplicationHandler<AppEvent> for App {
         let window_id = window.id();
         self.settings.monitor = window.current_monitor().map(snapshot_monitor);
 
-        let init_script = self.build_init_script();
+        let startup_monitor = window
+            .current_monitor()
+            .or_else(|| event_loop.primary_monitor())
+            .or_else(|| event_loop.available_monitors().next());
+        let size_presets = startup_monitor
+            .as_ref()
+            .map(size_presets_for_monitor)
+            .unwrap_or([64.0, 96.0, 128.0, 160.0]);
+        let init_script = self.build_init_script(size_presets);
         let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
             self.startup_error = Some("failed to initialize event loop proxy".to_string());
             event_loop.exit();
@@ -641,6 +716,11 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::Resized(_) => {
                 self.enforce_fixed_square_size();
                 self.sync_webview_bounds();
+                if let Some(window) = self.window.as_ref() {
+                    if let Some(monitor) = window.current_monitor() {
+                        self.apply_size_presets_for_monitor(&monitor);
+                    }
+                }
             }
             WindowEvent::MouseInput {
                 state: winit::event::ElementState::Released,
@@ -668,6 +748,7 @@ impl ApplicationHandler<AppEvent> for App {
             }
         }
     }
+
 }
 
 fn snapshot_monitor(monitor: MonitorHandle) -> PersistedMonitor {
@@ -706,10 +787,29 @@ fn default_corner_position(monitor: &MonitorHandle, size: f64) -> LogicalPositio
     let scale = monitor.scale_factor();
     let monitor_pos = monitor.position().to_logical::<f64>(scale);
     let monitor_size = monitor.size().to_logical::<f64>(scale);
+    let margin = monitor_size.width.min(monitor_size.height) * DEFAULT_EDGE_MARGIN_RATIO;
     LogicalPosition::new(
-        monitor_pos.x + monitor_size.width - size - DEFAULT_MARGIN,
-        monitor_pos.y + DEFAULT_MARGIN,
+        monitor_pos.x + monitor_size.width - size - margin,
+        monitor_pos.y + margin,
     )
+}
+
+fn default_size_for_monitor(monitor: &MonitorHandle) -> f64 {
+    let scale = monitor.scale_factor();
+    let size = monitor.size().to_logical::<f64>(scale);
+    let shorter_side = size.width.min(size.height);
+    clamp_size(shorter_side * DEFAULT_SIZE_SHORT_SIDE_RATIO)
+}
+
+fn size_presets_for_monitor(monitor: &MonitorHandle) -> [f64; 4] {
+    let scale = monitor.scale_factor();
+    let logical = monitor.size().to_logical::<f64>(scale);
+    let shorter_side = logical.width.min(logical.height);
+    let mut presets = [0.0; 4];
+    for (index, ratio) in SIZE_PRESET_RATIOS.iter().enumerate() {
+        presets[index] = clamp_size((shorter_side * ratio).round());
+    }
+    presets
 }
 
 fn main() -> std::process::ExitCode {
