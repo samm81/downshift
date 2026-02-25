@@ -398,18 +398,31 @@ impl App {
         if monitors.is_empty() {
             return None;
         }
+        let primary = event_loop
+            .primary_monitor()
+            .or_else(|| monitors.first().cloned())?;
+
         if let (Some(saved_x), Some(saved_y)) = (self.settings.x, self.settings.y) {
             let saved = LogicalPosition::new(saved_x as f64, saved_y as f64);
-            if monitors
+            if let Some(saved_monitor) = self.settings.monitor.as_ref() {
+                if let Some(current) = monitors
+                    .iter()
+                    .find(|monitor| monitor_matches_persisted(monitor, saved_monitor))
+                {
+                    if position_fits_monitor(saved, size, current) {
+                        return Some(saved);
+                    }
+                } else {
+                    // Display config changed (for example resolution), so reuse corner-relative spawn.
+                    return Some(default_corner_position(&primary, size));
+                }
+            } else if monitors
                 .iter()
                 .any(|monitor| position_fits_monitor(saved, size, monitor))
             {
                 return Some(saved);
             }
         }
-        let primary = event_loop
-            .primary_monitor()
-            .or_else(|| monitors.first().cloned())?;
         Some(default_corner_position(&primary, size))
     }
 
@@ -664,6 +677,13 @@ fn snapshot_monitor(monitor: MonitorHandle) -> PersistedMonitor {
         height: size.height,
         scale_factor: monitor.scale_factor(),
     }
+}
+
+fn monitor_matches_persisted(monitor: &MonitorHandle, persisted: &PersistedMonitor) -> bool {
+    let size = monitor.size();
+    size.width == persisted.width
+        && size.height == persisted.height
+        && (monitor.scale_factor() - persisted.scale_factor).abs() < 0.01
 }
 
 fn position_fits_monitor(
