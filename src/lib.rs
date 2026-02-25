@@ -56,7 +56,9 @@ pub enum IpcCommand {
     SetSpeed { half_cycle_seconds: f64 },
     Resize { delta: i32, fine: bool },
     SetSize { size: f64 },
-    StartDrag,
+    StartDrag { screen_x: i32, screen_y: i32 },
+    DragTo { screen_x: i32, screen_y: i32 },
+    EndDrag,
     Reset,
 }
 
@@ -165,8 +167,30 @@ mod tests {
         assert!(encoded.contains("\"cmd\":\"set_paused\""));
         assert!(encoded.contains("\"paused\":true"));
 
-        let drag_command: IpcCommand =
-            serde_json::from_str(r#"{"cmd":"start_drag"}"#).expect("valid start_drag command");
-        assert_eq!(drag_command, IpcCommand::StartDrag);
+        let drag_start: IpcCommand =
+            serde_json::from_str(r#"{"cmd":"start_drag","screen_x":100,"screen_y":200}"#)
+                .expect("valid start_drag command");
+        assert_eq!(
+            drag_start,
+            IpcCommand::StartDrag {
+                screen_x: 100,
+                screen_y: 200
+            }
+        );
+
+        let drag_to: IpcCommand =
+            serde_json::from_str(r#"{"cmd":"drag_to","screen_x":120,"screen_y":230}"#)
+                .expect("valid drag_to command");
+        assert_eq!(
+            drag_to,
+            IpcCommand::DragTo {
+                screen_x: 120,
+                screen_y: 230
+            }
+        );
+
+        let drag_end: IpcCommand =
+            serde_json::from_str(r#"{"cmd":"end_drag"}"#).expect("valid end_drag command");
+        assert_eq!(drag_end, IpcCommand::EndDrag);
     }
 }

@@ -16,8 +16,30 @@ fn ipc_json_deserializes_supported_commands() {
     ));
 
     let start_drag: IpcCommand =
-        serde_json::from_str(r#"{"cmd":"start_drag"}"#).expect("start_drag should parse");
-    assert!(matches!(start_drag, IpcCommand::StartDrag));
+        serde_json::from_str(r#"{"cmd":"start_drag","screen_x":80,"screen_y":160}"#)
+            .expect("start_drag should parse");
+    assert!(matches!(
+        start_drag,
+        IpcCommand::StartDrag {
+            screen_x: 80,
+            screen_y: 160
+        }
+    ));
+
+    let drag_to: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"drag_to","screen_x":96,"screen_y":192}"#)
+            .expect("drag_to should parse");
+    assert!(matches!(
+        drag_to,
+        IpcCommand::DragTo {
+            screen_x: 96,
+            screen_y: 192
+        }
+    ));
+
+    let end_drag: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"end_drag"}"#).expect("end_drag should parse");
+    assert!(matches!(end_drag, IpcCommand::EndDrag));
 }
 
 #[test]

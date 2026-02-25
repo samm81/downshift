@@ -235,10 +235,47 @@ const BREATH_HTML: &str = r#"<!doctype html>
         document.addEventListener("blur", hideMenu);
         window.addEventListener("resize", hideMenu);
 
+        const drag = {
+          active: false,
+          pointerId: null,
+        };
+
         ball.addEventListener("pointerdown", (event) => {
           if (event.button !== 0) return;
-          post({ cmd: "start_drag" });
+          drag.active = true;
+          drag.pointerId = event.pointerId;
+          if (typeof ball.setPointerCapture === "function") {
+            ball.setPointerCapture(event.pointerId);
+          }
+          post({
+            cmd: "start_drag",
+            screen_x: Math.round(event.screenX),
+            screen_y: Math.round(event.screenY),
+          });
         });
+
+        ball.addEventListener("pointermove", (event) => {
+          if (!drag.active || event.pointerId !== drag.pointerId) return;
+          post({
+            cmd: "drag_to",
+            screen_x: Math.round(event.screenX),
+            screen_y: Math.round(event.screenY),
+          });
+        });
+
+        function endDrag(event) {
+          if (!drag.active) return;
+          if (event && drag.pointerId !== null && event.pointerId !== drag.pointerId) return;
+          if (event && typeof ball.releasePointerCapture === "function") {
+            ball.releasePointerCapture(event.pointerId);
+          }
+          drag.active = false;
+          drag.pointerId = null;
+          post({ cmd: "end_drag" });
+        }
+
+        ball.addEventListener("pointerup", endDrag);
+        ball.addEventListener("pointercancel", endDrag);
 
         applyBallState();
       })();
@@ -261,9 +298,55 @@ struct App {
     settings: Settings,
     config_path: Option<std::path::PathBuf>,
     event_loop_proxy: Option<EventLoopProxy<AppEvent>>,
+    drag_anchor_window_pos: Option<LogicalPosition<f64>>,
+    drag_anchor_pointer_pos: Option<LogicalPosition<f64>>,
 }
 
 impl App {
+    fn start_manual_drag(&mut self, screen_x: i32, screen_y: i32) {
+        self.drag_anchor_window_pos = self.current_window_logical_position();
+        self.drag_anchor_pointer_pos =
+            Some(LogicalPosition::new(screen_x as f64, screen_y as f64));
+    }
+
+    fn drag_to(&mut self, screen_x: i32, screen_y: i32) {
+        let (Some(anchor_window), Some(anchor_pointer), Some(window)) = (
+            self.drag_anchor_window_pos,
+            self.drag_anchor_pointer_pos,
+            self.window.as_ref(),
+        ) else {
+            return;
+        };
+
+        let dx = screen_x as f64 - anchor_pointer.x;
+        let dy = screen_y as f64 - anchor_pointer.y;
+        let next_x = (anchor_window.x + dx).round() as i32;
+        let next_y = (anchor_window.y + dy).round() as i32;
+        window.set_outer_position(LogicalPosition::new(next_x, next_y));
+    }
+
+    fn stop_manual_drag(&mut self) {
+        self.drag_anchor_window_pos = None;
+        self.drag_anchor_pointer_pos = None;
+    }
+
+    fn enforce_fixed_square_size(&self) {
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let target = clamp_size(self.settings.size);
+        let current = window.inner_size().to_logical::<f64>(window.scale_factor());
+        let width_mismatch = (current.width - target).abs() > 0.5;
+        let height_mismatch = (current.height - target).abs() > 0.5;
+
+        window.set_resizable(false);
+        window.set_min_inner_size(Some(LogicalSize::new(target, target)));
+        window.set_max_inner_size(Some(LogicalSize::new(target, target)));
+        if width_mismatch || height_mismatch {
+            let _ = window.request_inner_size(LogicalSize::new(target, target));
+        }
+    }
+
     fn sync_webview_bounds(&self) {
         let (Some(window), Some(webview)) = (self.window.as_ref(), self.webview.as_ref()) else {
             return;
@@ -353,6 +436,8 @@ impl App {
         let size = clamp_size(size);
         let old_size = self.settings.size;
         self.settings.size = size;
+        window.set_min_inner_size(Some(LogicalSize::new(size, size)));
+        window.set_max_inner_size(Some(LogicalSize::new(size, size)));
         let _ = window.request_inner_size(LogicalSize::new(size, size));
 
         if let Some(current_pos) = self.current_window_logical_position() {
@@ -438,13 +523,9 @@ impl App {
                 self.apply_size(size);
                 self.save_settings();
             }
-            IpcCommand::StartDrag => {
-                if let Some(window) = self.window.as_ref() {
-                    if let Err(error) = window.drag_window() {
-                        eprintln!("warning: failed to start window drag: {error}");
-                    }
-                }
-            }
+            IpcCommand::StartDrag { screen_x, screen_y } => self.start_manual_drag(screen_x, screen_y),
+            IpcCommand::DragTo { screen_x, screen_y } => self.drag_to(screen_x, screen_y),
+            IpcCommand::EndDrag => self.stop_manual_drag(),
             IpcCommand::Reset => {
                 self.reset_widget(event_loop);
                 self.save_settings();
@@ -466,6 +547,8 @@ impl ApplicationHandler<AppEvent> for App {
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
+            .with_min_inner_size(LogicalSize::new(self.settings.size, self.settings.size))
+            .with_max_inner_size(LogicalSize::new(self.settings.size, self.settings.size))
             .with_window_level(WindowLevel::AlwaysOnTop)
             .with_inner_size(LogicalSize::new(self.settings.size, self.settings.size));
 
@@ -516,6 +599,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
+        self.enforce_fixed_square_size();
         self.sync_webview_bounds();
         self.save_settings();
     }
@@ -535,12 +619,18 @@ impl ApplicationHandler<AppEvent> for App {
                 event_loop.exit();
             }
             WindowEvent::Moved(position) => {
+                self.enforce_fixed_square_size();
                 self.update_position_from_physical(position);
                 self.save_settings();
             }
             WindowEvent::Resized(_) => {
+                self.enforce_fixed_square_size();
                 self.sync_webview_bounds();
             }
+            WindowEvent::MouseInput {
+                state: winit::event::ElementState::Released,
+                ..
+            } => self.stop_manual_drag(),
             _ => {}
         }
     }
