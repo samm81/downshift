@@ -50,7 +50,7 @@ this writes artifacts under `logs/demo-capture-<timestamp>/`, including:
 - `raw.mp4`
 - `result.txt`
 
-requirements: macos desktop session with screen recording permission enabled for terminal, plus `ffmpeg` installed.
+requirements: macos desktop session with screen recording permission enabled for terminal (`ffmpeg` is installed by `./dev/mac/bootstrap-02.bash`).
 
 ## mac distribution (unsigned)
 

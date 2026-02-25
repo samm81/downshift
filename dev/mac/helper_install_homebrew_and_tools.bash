@@ -80,6 +80,15 @@ persist_brew_env() {
   done
 }
 
+persist_codex_alias() {
+  local profile="$HOME/.zshrc"
+  local alias_line="alias codexx='codex --sandbox danger-full-access'"
+  touch "$profile"
+  if ! grep -Fq "$alias_line" "$profile"; then
+    printf '%s\n' "$alias_line" >>"$profile"
+  fi
+}
+
 install_formula() {
   local formula="$1"
   if brew list "$formula" >/dev/null 2>&1; then
@@ -110,7 +119,7 @@ ensure_codex() {
 }
 
 verify() {
-  for tool in brew shellcheck shfmt pre-commit node npm codex cliclick; do
+  for tool in brew shellcheck shfmt pre-commit node npm codex cliclick ffmpeg; do
     have "$tool" || die "missing expected tool after setup: $tool"
   done
 
@@ -121,6 +130,7 @@ verify() {
   log "node: $(node --version)"
   log "npm: $(npm --version)"
   log "codex: $(codex --version)"
+  log "ffmpeg: $(ffmpeg -version | head -n 1)"
 }
 
 require_macos
@@ -133,8 +143,10 @@ install_formula shellcheck
 install_formula shfmt
 install_formula pre-commit
 install_formula cliclick
+install_formula ffmpeg
 ensure_node_and_npm
 ensure_codex
+persist_codex_alias
 verify
 
 log "bootstrap complete"

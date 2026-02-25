@@ -25,6 +25,12 @@ ensure_rust() {
   curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
 }
 
+ensure_rustfmt() {
+  have rustup || die "rustup is required to install rustfmt"
+  log "ensuring rustfmt component is installed"
+  rustup component add rustfmt
+}
+
 load_rust_env_if_present() {
   if have cargo && have rustc; then
     return
@@ -67,11 +73,12 @@ install_prereqs() {
   install_with_brew cliclick
   ensure_rust
   load_rust_env_if_present
+  ensure_rustfmt
 }
 
 verify_tools() {
   local missing=()
-  for tool in shellcheck shfmt pre-commit node npm codex cargo rustc cliclick; do
+  for tool in shellcheck shfmt pre-commit node npm codex cargo rustc rustfmt cliclick; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -98,6 +105,7 @@ show_versions() {
   log "codex: $(codex --version)"
   log "cargo: $(cargo --version)"
   log "rustc: $(rustc --version)"
+  log "rustfmt: $(rustfmt --version)"
 }
 
 install_prereqs
