@@ -112,10 +112,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
       <div class="divider"></div>
       <div class="group">
         <div class="label">size</div>
-        <button data-size="24">S (24px)</button>
-        <button data-size="32">M (32px)</button>
-        <button data-size="48">L (48px)</button>
-        <button data-size="64">XL (64px)</button>
+        <button data-size="48">S (48px)</button>
+        <button data-size="64">M (64px)</button>
+        <button data-size="96">L (96px)</button>
+        <button data-size="128">XL (128px)</button>
       </div>
       <div class="divider"></div>
       <button id="menu-reset">reset</button>

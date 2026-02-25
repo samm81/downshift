@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub const DEFAULT_SIZE: f64 = 32.0;
+pub const DEFAULT_SIZE: f64 = 64.0;
 pub const MIN_SIZE: f64 = 16.0;
 pub const MAX_SIZE: f64 = 160.0;
 pub const WHEEL_STEP: f64 = 4.0;
