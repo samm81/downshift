@@ -1,4 +1,4 @@
-use breath_ball::{
+use downshift::{
     load_settings, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
 };
 use std::path::PathBuf;

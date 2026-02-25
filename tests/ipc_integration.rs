@@ -1,4 +1,4 @@
-use breath_ball::IpcCommand;
+use downshift::IpcCommand;
 
 #[test]
 fn ipc_json_deserializes_supported_commands() {

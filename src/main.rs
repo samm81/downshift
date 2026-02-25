@@ -1,4 +1,4 @@
-use breath_ball::{
+use downshift::{
     apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
     PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_MARGIN, DEFAULT_SIZE,
 };
