@@ -41,8 +41,6 @@ reset saved position/settings before launching:
 
 ```bash
 make run RESET=1
-# or:
-make -- run --reset
 ```
 
 breathing animation sync note:
