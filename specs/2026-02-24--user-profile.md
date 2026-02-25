@@ -1,6 +1,6 @@
-## User Profile
+# User Profile
 
-### Primary ICP
+## Primary ICP
 
 **Wellness-aligned knowledge workers on Apple Silicon Macs** who already believe breathing affects performance/calm, and who spend long stretches in focused screen work.
 
@@ -13,25 +13,25 @@
 
 **Key trait:** they don’t need convincing that breathing matters — they need help _remembering to do it while working._
 
-### “Job to be Done”
+## “Job to be Done”
 
 > “While I’m deep in screen focus, help me _return to a healthy breathing rhythm_ without breaking flow.”
 
-### The pain (what they feel)
+## The pain (what they feel)
 
 - “I look up and realize I’ve been holding my breath.”
 - chest tightness, subtle anxiety, jaw/neck tension during computer work
 - afternoon crash or agitation that they associate with stress + shallow breathing
 - they _know_ techniques but forget to apply them when absorbed
 
-### Why existing solutions fail
+## Why existing solutions fail
 
 - Timer reminders are too interruptive and get turned off
 - guided breathwork sessions are “point interventions,” not continuous support
 - phone-based cues don’t help because the apnea happens at the computer
 - wearables measure, but don’t continuously guide behavior in-the-moment
 
-### What makes Downshift compelling (value prop)
+## What makes Downshift compelling (value prop)
 
 - ambient, always-on cue **on the same screen where the problem happens**
 - **continuous** intervention that doesn’t demand attention

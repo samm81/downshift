@@ -36,3 +36,9 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - gui e2e is macos-only and experimental: run `./dev/mac/e2e_interactions.bash` (or `npm run test:gui:e2e:experimental`) only when explicitly needed.
 - `npm run check` is lint/format only and does not run rust tests.
+
+## pre-commit policy
+
+- treat pre-commit hook failures as first-class blocking issues.
+- when hooks fail, attempt to fix all reported issues (including unrelated pre-existing issues) before committing.
+- do not use `--no-verify` unless the user explicitly asks for it.
