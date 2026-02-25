@@ -305,8 +305,7 @@ struct App {
 impl App {
     fn start_manual_drag(&mut self, screen_x: i32, screen_y: i32) {
         self.drag_anchor_window_pos = self.current_window_logical_position();
-        self.drag_anchor_pointer_pos =
-            Some(LogicalPosition::new(screen_x as f64, screen_y as f64));
+        self.drag_anchor_pointer_pos = Some(LogicalPosition::new(screen_x as f64, screen_y as f64));
     }
 
     fn drag_to(&mut self, screen_x: i32, screen_y: i32) {
@@ -523,7 +522,9 @@ impl App {
                 self.apply_size(size);
                 self.save_settings();
             }
-            IpcCommand::StartDrag { screen_x, screen_y } => self.start_manual_drag(screen_x, screen_y),
+            IpcCommand::StartDrag { screen_x, screen_y } => {
+                self.start_manual_drag(screen_x, screen_y)
+            }
             IpcCommand::DragTo { screen_x, screen_y } => self.drag_to(screen_x, screen_y),
             IpcCommand::EndDrag => self.stop_manual_drag(),
             IpcCommand::Reset => {
