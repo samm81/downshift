@@ -17,7 +17,7 @@ the linux environment is allowed and expected to bootstrap the remote macos mach
 
 that means:
 
-- run `dev/linux/bootstrap_macos.bash` from linux when bootstrap/provisioning is requested
+- run `dev/linux/bootstrap-01.bash` from linux when bootstrap/provisioning is requested
 - use the connection details in `.env`
 - verify bootstrap end-to-end from linux
 - after bootstrap completes, explicitly tell the user the machine is ready and they can remote-desktop in to start development

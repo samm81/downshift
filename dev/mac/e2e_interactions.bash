@@ -49,7 +49,7 @@ end try
 APPLESCRIPT
   )"
   if [[ "$probe" == ERROR:* ]]; then
-    die "accessibility/automation is not granted for this shell (${probe}). run ./dev/mac/bootstrap_gui_permissions.bash from a desktop terminal session, then verify terminal is enabled in settings > privacy & security > accessibility and settings > privacy & security > automation (terminal -> system events)"
+    die "accessibility/automation is not granted for this shell (${probe}). run ./dev/mac/helper_gui_permissions.bash from a desktop terminal session, then verify terminal is enabled in settings > privacy & security > accessibility and settings > privacy & security > automation (terminal -> system events)"
   fi
 }
 

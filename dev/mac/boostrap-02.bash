@@ -2,4 +2,4 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$SCRIPT_DIR/helper_remote_repo_bootstrap.bash" "$@"
+exec "$SCRIPT_DIR/bootstrap-02.bash" "$@"

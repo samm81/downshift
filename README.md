@@ -20,9 +20,19 @@ this is a wellness-oriented companion, not a medical device or medical advice.
 
 ## development
 
-development setup and quality tooling are documented in `docs/dev-environment.md`.
+bootstrap flow (linux -> macos):
+
+```bash
+# step 1 (linux host)
+source .env
+./dev/linux/bootstrap-01.bash
+
+# step 2 (on the remote mac checkout)
+./dev/mac/bootstrap-02.bash
+```
 
 breathing animation sync note:
+
 - the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
 - keep them aligned: `5.5s` means one half-breath (inhale or exhale), and `alternate` provides the in/out cycle.
 
