@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+QUIET=0
 
 log() {
+  if [[ "$QUIET" == "1" ]]; then
+    return
+  fi
   printf '[capture-webm] %s\n' "$*"
 }
 
@@ -30,7 +34,7 @@ load_rust_env_if_present() {
 
 require_tools() {
   local missing=()
-  for tool in cargo ffmpeg osascript; do
+  for tool in cargo ffmpeg; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -38,39 +42,6 @@ require_tools() {
   if ((${#missing[@]} > 0)); then
     die "missing required tools: ${missing[*]}"
   fi
-}
-
-get_window_frame() {
-  osascript <<'APPLESCRIPT'
-try
-  tell application "System Events"
-    if not (exists process "downshift") then error "process not found"
-    tell process "downshift"
-      if (count of windows) is 0 then error "window not found"
-      set p to position of window 1
-      set s to size of window 1
-      return (item 1 of p as integer as text) & "," & (item 2 of p as integer as text) & "," & (item 1 of s as integer as text) & "," & (item 2 of s as integer as text)
-    end tell
-  end tell
-on error err_msg
-  return "ERROR:" & err_msg
-end try
-APPLESCRIPT
-}
-
-wait_for_window() {
-  local tries=0
-  local frame=""
-  while ((tries < 80)); do
-    frame="$(get_window_frame)"
-    if [[ "$frame" != ERROR:* ]]; then
-      printf '%s\n' "$frame"
-      return 0
-    fi
-    sleep 0.25
-    tries=$((tries + 1))
-  done
-  return 1
 }
 
 capture_device_index() {
@@ -94,10 +65,41 @@ main() {
   load_rust_env_if_present
   require_tools
 
-  local duration="${1:-8}"
-  if ! [[ "$duration" =~ ^[0-9]+$ ]] || ((duration < 3)); then
-    die "duration must be an integer >= 3 seconds"
+  local quiet=0
+  local demo=0
+  local duration=""
+  while (($# > 0)); do
+    case "$1" in
+      --quiet)
+        quiet=1
+        ;;
+      --demo)
+        demo=1
+        quiet=1
+        ;;
+      *)
+        if [[ -z "$duration" ]]; then
+          duration="$1"
+        else
+          die "unexpected argument: $1"
+        fi
+        ;;
+    esac
+    shift
+  done
+  QUIET="$quiet"
+
+  if [[ -z "$duration" ]]; then
+    duration="11.5"
   fi
+  if ! [[ "$duration" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    die "duration must be a number >= 3 seconds"
+  fi
+  if ! awk "BEGIN { exit !($duration >= 3) }"; then
+    die "duration must be a number >= 3 seconds"
+  fi
+  local setup_delay="3"
+  local start_delay="0.3"
 
   local script_dir repo_root
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -112,23 +114,19 @@ main() {
   out_webm="$out_dir/downshift-demo.webm"
   mkdir -p "$out_dir"
 
+  log "waiting ${setup_delay}s before launching app for manual setup"
+  sleep "$setup_delay"
+
   log "starting app with cargo run --quiet"
   cargo run --quiet >"$run_log" 2>&1 &
   APP_PID=$!
   trap cleanup EXIT
 
-  local frame
-  frame="$(wait_for_window)" || die "app window did not become available"
-
-  local frame_x frame_y frame_w frame_h
-  IFS=',' read -r frame_x frame_y frame_w frame_h <<<"$frame"
-
-  # keep even dimensions for codec safety.
-  frame_w=$((frame_w - (frame_w % 2)))
-  frame_h=$((frame_h - (frame_h % 2)))
-
   local screen_idx
   screen_idx="$(capture_device_index)" || die "failed to detect avfoundation screen capture device"
+
+  log "waiting ${start_delay}s before recording to align loop start"
+  sleep "$start_delay"
 
   log "recording raw screen video for ${duration}s (device index: $screen_idx)"
   ffmpeg -y \
@@ -142,7 +140,7 @@ main() {
   log "encoding webm"
   ffmpeg -y \
     -i "$raw_video" \
-    -vf "crop=${frame_w}:${frame_h}:${frame_x}:${frame_y},fps=12,scale=640:-2:flags=lanczos" \
+    -vf "fps=30" \
     -an \
     -c:v libvpx-vp9 \
     -b:v 0 \
@@ -158,6 +156,9 @@ run_log=$run_log
 EOF
 
   log "done: $out_webm"
+  if [[ "$demo" == "1" ]]; then
+    printf '%s\n' "$out_webm"
+  fi
 }
 
 main "$@"
