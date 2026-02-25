@@ -11,12 +11,15 @@ CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
 TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
 
-.PHONY: all build app dmg zip checksums check-tag-sync release clean
+.PHONY: all build run app dmg zip checksums check-tag-sync release clean
 
 all: app
 
 build:
 	cargo build --release
+
+run:
+	cargo run --quiet
 
 app: build
 	rm -rf "$(APP_BUNDLE)"

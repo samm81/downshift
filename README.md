@@ -31,6 +31,12 @@ source .env
 ./dev/mac/bootstrap-02.bash
 ```
 
+run the app locally:
+
+```bash
+make run
+```
+
 breathing animation sync note:
 
 - the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
