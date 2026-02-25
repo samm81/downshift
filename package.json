@@ -8,8 +8,6 @@
     "fmt:check:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -d -i 2 -ci",
     "lint:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shellcheck --external-sources",
     "lint:md": "markdownlint-cli2",
-    "test:gui:e2e": "./dev/mac/e2e_interactions.bash",
-    "test:gui:e2e:experimental": "./dev/mac/e2e_interactions.bash",
     "lint": "npm run lint:shell && npm run lint:md",
     "check": "npm run fmt:check:shell && npm run lint"
   },
