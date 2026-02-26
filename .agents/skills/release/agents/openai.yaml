@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release"
+  short_description: "Ship a release from mac branch safely"
+  default_prompt: "Use $release to run the full release workflow from mac to main and back."
