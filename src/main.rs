@@ -22,12 +22,6 @@ const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
 #[cfg(target_os = "macos")]
 const MENU_ID_PAUSE: &str = "pause";
 #[cfg(target_os = "macos")]
-const MENU_ID_SPEED_FAST: &str = "speed_fast";
-#[cfg(target_os = "macos")]
-const MENU_ID_SPEED_DEFAULT: &str = "speed_default";
-#[cfg(target_os = "macos")]
-const MENU_ID_SPEED_SLOW: &str = "speed_slow";
-#[cfg(target_os = "macos")]
 const MENU_ID_SIZE_S: &str = "size_s";
 #[cfg(target_os = "macos")]
 const MENU_ID_SIZE_M: &str = "size_m";
@@ -134,13 +128,6 @@ const BREATH_HTML: &str = r#"<!doctype html>
       <button id="menu-pause">pause</button>
       <div class="divider"></div>
       <div class="group">
-        <div class="label">speed</div>
-        <button data-speed="4.5">fast (4.5 / 4.5)</button>
-        <button data-speed="5.5">default (5.5 / 5.5)</button>
-        <button data-speed="6.5">slow (6.5 / 6.5)</button>
-      </div>
-      <div class="divider"></div>
-      <div class="group">
         <div class="label">size</div>
         <button data-size-slot="0">S</button>
         <button data-size-slot="1">M</button>
@@ -158,7 +145,6 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const pauseButton = document.getElementById("menu-pause");
         const resetButton = document.getElementById("menu-reset");
         const quitButton = document.getElementById("menu-quit");
-        const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
         const sizeButtons = Array.from(document.querySelectorAll("[data-size-slot]"));
         const init = window.__BB_INIT__ || { paused: false, half_cycle_seconds: 5.5, use_native_menu: false };
         const useNativeMenu = Boolean(init.use_native_menu);
@@ -256,17 +242,6 @@ const BREATH_HTML: &str = r#"<!doctype html>
           hideMenu();
         });
 
-        speedButtons.forEach((button) => {
-          button.addEventListener("click", () => {
-            const half = Number(button.dataset.speed);
-            if (!Number.isFinite(half) || half <= 0) return;
-            state.halfCycleSeconds = half;
-            applyBallState();
-            post({ cmd: "set_speed", half_cycle_seconds: half });
-            hideMenu();
-          });
-        });
-
         sizeButtons.forEach((button) => {
           button.addEventListener("click", () => {
             const size = Number(button.dataset.size);
@@ -360,10 +335,6 @@ enum AppEvent {
 struct NativeContextMenu {
     root: Submenu,
     pause: CheckMenuItem,
-    speed_menu: Submenu,
-    speed_fast: MenuItem,
-    speed_default: MenuItem,
-    speed_slow: MenuItem,
     size_menu: Submenu,
     size_s: MenuItem,
     size_m: MenuItem,
@@ -377,24 +348,12 @@ struct NativeContextMenu {
 impl NativeContextMenu {
     fn new() -> Option<Self> {
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
-        let speed_fast = MenuItem::with_id(MENU_ID_SPEED_FAST, "fast (4.5 / 4.5)", true, None);
-        let speed_default =
-            MenuItem::with_id(MENU_ID_SPEED_DEFAULT, "default (5.5 / 5.5)", true, None);
-        let speed_slow = MenuItem::with_id(MENU_ID_SPEED_SLOW, "slow (6.5 / 6.5)", true, None);
         let size_s = MenuItem::with_id(MENU_ID_SIZE_S, "S (64px)", true, None);
         let size_m = MenuItem::with_id(MENU_ID_SIZE_M, "M (96px)", true, None);
         let size_l = MenuItem::with_id(MENU_ID_SIZE_L, "L (128px)", true, None);
         let size_xl = MenuItem::with_id(MENU_ID_SIZE_XL, "XL (160px)", true, None);
         let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
         let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
-        let speed_submenu =
-            match Submenu::with_items("speed", true, &[&speed_fast, &speed_default, &speed_slow]) {
-                Ok(menu) => menu,
-                Err(error) => {
-                    eprintln!("warning: failed to build speed submenu: {error}");
-                    return None;
-                }
-            };
         let size_submenu =
             match Submenu::with_items("size", true, &[&size_s, &size_m, &size_l, &size_xl]) {
                 Ok(menu) => menu,
@@ -405,17 +364,14 @@ impl NativeContextMenu {
             };
         let separator_one = PredefinedMenuItem::separator();
         let separator_two = PredefinedMenuItem::separator();
-        let separator_three = PredefinedMenuItem::separator();
         let root = match Submenu::with_items(
             "menu",
             true,
             &[
                 &pause,
                 &separator_one,
-                &speed_submenu,
-                &separator_two,
                 &size_submenu,
-                &separator_three,
+                &separator_two,
                 &reset,
                 &quit,
             ],
@@ -429,10 +385,6 @@ impl NativeContextMenu {
         Some(Self {
             root,
             pause,
-            speed_menu: speed_submenu,
-            speed_fast,
-            speed_default,
-            speed_slow,
             size_menu: size_submenu,
             size_s,
             size_m,
@@ -447,15 +399,8 @@ impl NativeContextMenu {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
-        self.speed_menu.set_text(format!(
-            "speed ({:.1} / {:.1})",
-            settings.half_cycle_seconds, settings.half_cycle_seconds
-        ));
         self.size_menu
             .set_text(format!("size ({}px)", settings.size.round() as i32));
-        self.speed_fast.set_enabled(true);
-        self.speed_default.set_enabled(true);
-        self.speed_slow.set_enabled(true);
         self.size_s
             .set_text(format!("S ({}px)", size_presets[0].round() as i32));
         self.size_m
@@ -800,18 +745,6 @@ impl App {
         match id {
             MENU_ID_PAUSE => {
                 self.apply_paused(!self.settings.paused);
-                self.save_settings();
-            }
-            MENU_ID_SPEED_FAST => {
-                self.apply_half_cycle(4.5);
-                self.save_settings();
-            }
-            MENU_ID_SPEED_DEFAULT => {
-                self.apply_half_cycle(DEFAULT_HALF_CYCLE_SECONDS);
-                self.save_settings();
-            }
-            MENU_ID_SPEED_SLOW => {
-                self.apply_half_cycle(6.5);
                 self.save_settings();
             }
             MENU_ID_SIZE_S | MENU_ID_SIZE_M | MENU_ID_SIZE_L | MENU_ID_SIZE_XL => {
