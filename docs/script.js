@@ -106,9 +106,16 @@ function findAssetByExtension(assets, ext) {
   return assets.find((asset) => asset.name.toLowerCase().endsWith(ext));
 }
 
+function applyDownloadLabel(version) {
+  const label = `Download ${version} for macOS (Apple Silicon)`;
+  dom.heroDownload.textContent = label;
+  dom.downloadButton.textContent = label;
+}
+
 function applyReadyState({ version, dmgUrl, releaseNotesUrl, checksumUrl }) {
   dom.versionLabel.textContent = `Version: ${version}`;
   dom.downloadHelp.textContent = "";
+  applyDownloadLabel(version);
 
   dom.heroDownload.href = dmgUrl;
   dom.heroDownload.target = "_blank";
