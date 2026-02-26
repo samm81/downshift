@@ -24,6 +24,17 @@ function wireTrackedClicks() {
   });
 }
 
+function wireFaqOpens() {
+  const faqItems = document.querySelectorAll("#faq details");
+  faqItems.forEach((item) => {
+    item.addEventListener("toggle", () => {
+      if (item.open) {
+        safeTrack("faq_open");
+      }
+    });
+  });
+}
+
 function wireDraggableDemoBall() {
   const stage = document.querySelector(".demo-stage");
   const ball = document.querySelector(".demo-ball");
@@ -172,5 +183,6 @@ async function loadLatestRelease() {
 }
 
 wireTrackedClicks();
+wireFaqOpens();
 wireDraggableDemoBall();
 loadLatestRelease();

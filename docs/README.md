@@ -71,14 +71,17 @@ if you rotate or replace your Plausible site script id, update that script URL i
 tracked custom events:
 
 - `download_click`
+- `checksum_click`
 - `email_capture_click`
+- `faq_open`
 - `github_click`
+- `release_notes_click`
 
 ### verify events
 
 1. open the published page in a browser.
-2. click download/email/github links.
-3. in Plausible, check **Events** for the three event names.
+2. click download/checksum/release notes/email/github links and open any FAQ item.
+3. in Plausible, check **Events** for the custom event names above.
 
 ## notes
 
