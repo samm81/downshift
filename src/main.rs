@@ -154,15 +154,15 @@ const BREATH_HTML: &str = r#"<!doctype html>
       <button id="menu-reset">reset</button>
       <button id="menu-quit">quit</button>
       <div class="divider"></div>
-      <button id="menu-analytics-toggle">Help improve Downshift</button>
+      <button id="menu-analytics-toggle">help improve downshift</button>
       <div class="group" id="analytics-submenu" hidden>
-        <button id="menu-usage-on">Share anonymous usage data</button>
-        <button id="menu-usage-off">Don’t share usage data</button>
+        <button id="menu-usage-on">share anonymous usage data</button>
+        <button id="menu-usage-off">don’t share usage data</button>
         <div class="divider"></div>
-        <button id="menu-crash-on">Share anonymous crash reports</button>
-        <button id="menu-crash-off">Don't share crash reports</button>
+        <button id="menu-crash-on">share anonymous crash reports</button>
+        <button id="menu-crash-off">don't share crash reports</button>
         <div class="divider"></div>
-        <button id="menu-what-we-collect">What we collect…</button>
+        <button id="menu-what-we-collect">what we collect…</button>
       </div>
     </div>
     <script>
@@ -224,11 +224,11 @@ const BREATH_HTML: &str = r#"<!doctype html>
         }
 
         function applyAnalyticsButtons() {
-          usageOnButton.textContent = `Share anonymous usage data ${state.usageDataSharing ? "✓" : ""}`.trim();
-          usageOffButton.textContent = `Don’t share usage data ${!state.usageDataSharing ? "✓" : ""}`.trim();
-          crashOnButton.textContent = `Share anonymous crash reports ${state.crashReportsSharing ? "✓" : ""}`.trim();
-          crashOffButton.textContent = `Don't share crash reports ${!state.crashReportsSharing ? "✓" : ""}`.trim();
-          analyticsToggleButton.textContent = "Help improve Downshift";
+          usageOnButton.textContent = `share anonymous usage data ${state.usageDataSharing ? "✓" : ""}`.trim();
+          usageOffButton.textContent = `don’t share usage data ${!state.usageDataSharing ? "✓" : ""}`.trim();
+          crashOnButton.textContent = `share anonymous crash reports ${state.crashReportsSharing ? "✓" : ""}`.trim();
+          crashOffButton.textContent = `don't share crash reports ${!state.crashReportsSharing ? "✓" : ""}`.trim();
+          analyticsToggleButton.textContent = "help improve downshift";
         }
 
         function applySizePresetButtons() {
@@ -519,39 +519,39 @@ impl NativeContextMenu {
         let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
         let usage_on = CheckMenuItem::with_id(
             MENU_ID_USAGE_ON,
-            "Share anonymous usage data",
+            "share anonymous usage data",
             true,
             false,
             None,
         );
         let usage_off = CheckMenuItem::with_id(
             MENU_ID_USAGE_OFF,
-            "Don’t share usage data",
+            "don’t share usage data",
             true,
             false,
             None,
         );
         let crash_on = CheckMenuItem::with_id(
             MENU_ID_CRASH_ON,
-            "Share anonymous crash reports",
+            "share anonymous crash reports",
             true,
             false,
             None,
         );
         let crash_off = CheckMenuItem::with_id(
             MENU_ID_CRASH_OFF,
-            "Don't share crash reports",
+            "don't share crash reports",
             true,
             false,
             None,
         );
         let analytics_info =
-            MenuItem::with_id(MENU_ID_ANALYTICS_INFO, "What we collect…", true, None);
+            MenuItem::with_id(MENU_ID_ANALYTICS_INFO, "what we collect…", true, None);
         let analytics_separator_one = PredefinedMenuItem::separator();
         let analytics_separator_two = PredefinedMenuItem::separator();
         let analytics_menu = match Submenu::with_id_and_items(
             MENU_ID_ANALYTICS_ROOT,
-            "Help improve Downshift",
+            "help improve downshift",
             true,
             &[
                 &usage_on,
@@ -847,7 +847,7 @@ impl App {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("What we collect")
+            .with_title("what we collect")
             .with_resizable(false)
             .with_inner_size(LogicalSize::new(420.0, 240.0))
             .with_min_inner_size(LogicalSize::new(420.0, 240.0))
