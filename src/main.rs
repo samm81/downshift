@@ -1,18 +1,44 @@
 use downshift::{
-    apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand, PersistedMonitor,
-    Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
+    apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
+    PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
 };
+#[cfg(target_os = "macos")]
+use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
+#[cfg(target_os = "macos")]
+use muda::{CheckMenuItem, ContextMenu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
+#[cfg(target_os = "macos")]
+use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 use wry::{Rect, WebView, WebViewBuilder};
 
 const DEFAULT_SIZE_SHORT_SIDE_RATIO: f64 = 0.10;
 const DEFAULT_EDGE_MARGIN_RATIO: f64 = 0.05;
 const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
+#[cfg(target_os = "macos")]
+const MENU_ID_PAUSE: &str = "pause";
+#[cfg(target_os = "macos")]
+const MENU_ID_SPEED_FAST: &str = "speed_fast";
+#[cfg(target_os = "macos")]
+const MENU_ID_SPEED_DEFAULT: &str = "speed_default";
+#[cfg(target_os = "macos")]
+const MENU_ID_SPEED_SLOW: &str = "speed_slow";
+#[cfg(target_os = "macos")]
+const MENU_ID_SIZE_S: &str = "size_s";
+#[cfg(target_os = "macos")]
+const MENU_ID_SIZE_M: &str = "size_m";
+#[cfg(target_os = "macos")]
+const MENU_ID_SIZE_L: &str = "size_l";
+#[cfg(target_os = "macos")]
+const MENU_ID_SIZE_XL: &str = "size_xl";
+#[cfg(target_os = "macos")]
+const MENU_ID_RESET: &str = "reset";
+#[cfg(target_os = "macos")]
+const MENU_ID_QUIT: &str = "quit";
 
 const BREATH_HTML: &str = r#"<!doctype html>
 <html lang="en">
@@ -134,7 +160,8 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const quitButton = document.getElementById("menu-quit");
         const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
         const sizeButtons = Array.from(document.querySelectorAll("[data-size-slot]"));
-        const init = window.__BB_INIT__ || { paused: false, half_cycle_seconds: 5.5 };
+        const init = window.__BB_INIT__ || { paused: false, half_cycle_seconds: 5.5, use_native_menu: false };
+        const useNativeMenu = Boolean(init.use_native_menu);
         const state = {
           paused: Boolean(init.paused),
           halfCycleSeconds: Number(init.half_cycle_seconds) || 5.5,
@@ -214,6 +241,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
 
         ball.addEventListener("contextmenu", (event) => {
           event.preventDefault();
+          if (useNativeMenu) {
+            post({ cmd: "show_context_menu", x: Math.round(event.clientX), y: Math.round(event.clientY) });
+            return;
+          }
           applyBallState();
           showMenu(event.clientX, event.clientY);
         });
@@ -320,6 +351,122 @@ const BREATH_HTML: &str = r#"<!doctype html>
 enum AppEvent {
     ExitRequested,
     Ipc(String),
+    #[cfg(target_os = "macos")]
+    MenuActivated(String),
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+struct NativeContextMenu {
+    root: Submenu,
+    pause: CheckMenuItem,
+    speed_menu: Submenu,
+    speed_fast: MenuItem,
+    speed_default: MenuItem,
+    speed_slow: MenuItem,
+    size_menu: Submenu,
+    size_s: MenuItem,
+    size_m: MenuItem,
+    size_l: MenuItem,
+    size_xl: MenuItem,
+    reset: MenuItem,
+    quit: MenuItem,
+}
+
+#[cfg(target_os = "macos")]
+impl NativeContextMenu {
+    fn new() -> Option<Self> {
+        let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
+        let speed_fast = MenuItem::with_id(MENU_ID_SPEED_FAST, "fast (4.5 / 4.5)", true, None);
+        let speed_default =
+            MenuItem::with_id(MENU_ID_SPEED_DEFAULT, "default (5.5 / 5.5)", true, None);
+        let speed_slow = MenuItem::with_id(MENU_ID_SPEED_SLOW, "slow (6.5 / 6.5)", true, None);
+        let size_s = MenuItem::with_id(MENU_ID_SIZE_S, "S (64px)", true, None);
+        let size_m = MenuItem::with_id(MENU_ID_SIZE_M, "M (96px)", true, None);
+        let size_l = MenuItem::with_id(MENU_ID_SIZE_L, "L (128px)", true, None);
+        let size_xl = MenuItem::with_id(MENU_ID_SIZE_XL, "XL (160px)", true, None);
+        let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
+        let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
+        let speed_submenu =
+            match Submenu::with_items("speed", true, &[&speed_fast, &speed_default, &speed_slow]) {
+                Ok(menu) => menu,
+                Err(error) => {
+                    eprintln!("warning: failed to build speed submenu: {error}");
+                    return None;
+                }
+            };
+        let size_submenu =
+            match Submenu::with_items("size", true, &[&size_s, &size_m, &size_l, &size_xl]) {
+                Ok(menu) => menu,
+                Err(error) => {
+                    eprintln!("warning: failed to build size submenu: {error}");
+                    return None;
+                }
+            };
+        let separator_one = PredefinedMenuItem::separator();
+        let separator_two = PredefinedMenuItem::separator();
+        let separator_three = PredefinedMenuItem::separator();
+        let root = match Submenu::with_items(
+            "menu",
+            true,
+            &[
+                &pause,
+                &separator_one,
+                &speed_submenu,
+                &separator_two,
+                &size_submenu,
+                &separator_three,
+                &reset,
+                &quit,
+            ],
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                eprintln!("warning: failed to build native context menu: {error}");
+                return None;
+            }
+        };
+        Some(Self {
+            root,
+            pause,
+            speed_menu: speed_submenu,
+            speed_fast,
+            speed_default,
+            speed_slow,
+            size_menu: size_submenu,
+            size_s,
+            size_m,
+            size_l,
+            size_xl,
+            reset,
+            quit,
+        })
+    }
+
+    fn sync_from_settings(&self, settings: &Settings, size_presets: [f64; 4]) {
+        self.pause.set_checked(settings.paused);
+        self.pause
+            .set_text(if settings.paused { "paused" } else { "pause" });
+        self.speed_menu.set_text(format!(
+            "speed ({:.1} / {:.1})",
+            settings.half_cycle_seconds, settings.half_cycle_seconds
+        ));
+        self.size_menu
+            .set_text(format!("size ({}px)", settings.size.round() as i32));
+        self.speed_fast.set_enabled(true);
+        self.speed_default.set_enabled(true);
+        self.speed_slow.set_enabled(true);
+        self.size_s
+            .set_text(format!("S ({}px)", size_presets[0].round() as i32));
+        self.size_m
+            .set_text(format!("M ({}px)", size_presets[1].round() as i32));
+        self.size_l
+            .set_text(format!("L ({}px)", size_presets[2].round() as i32));
+        self.size_xl
+            .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
+        self.reset.set_enabled(true);
+        self.quit.set_enabled(true);
+    }
 }
 
 #[derive(Default)]
@@ -327,6 +474,8 @@ struct App {
     window: Option<Window>,
     window_id: Option<WindowId>,
     webview: Option<WebView>,
+    #[cfg(target_os = "macos")]
+    native_context_menu: Option<NativeContextMenu>,
     startup_error: Option<String>,
     settings: Settings,
     config_path: Option<std::path::PathBuf>,
@@ -464,6 +613,7 @@ impl App {
           "paused": self.settings.paused,
           "half_cycle_seconds": self.settings.half_cycle_seconds,
           "size_presets": size_presets,
+          "use_native_menu": cfg!(target_os = "macos"),
         });
         format!("window.__BB_INIT__ = {payload};")
     }
@@ -570,6 +720,12 @@ impl App {
                 self.apply_half_cycle(half_cycle_seconds);
                 self.save_settings();
             }
+            IpcCommand::ShowContextMenu { x, y } => {
+                #[cfg(target_os = "macos")]
+                self.show_native_context_menu(x, y);
+                #[cfg(not(target_os = "macos"))]
+                let _ = (x, y);
+            }
             IpcCommand::Resize { delta, fine } => {
                 let next = apply_resize_step(self.settings.size, delta, fine);
                 self.apply_size(next);
@@ -602,6 +758,84 @@ impl App {
         );
         let _ = webview.evaluate_script(&js);
     }
+
+    #[cfg(target_os = "macos")]
+    fn current_size_presets(&self) -> [f64; 4] {
+        self.window
+            .as_ref()
+            .and_then(|window| window.current_monitor())
+            .map(|monitor| size_presets_for_monitor(&monitor))
+            .unwrap_or([64.0, 96.0, 128.0, 160.0])
+    }
+
+    #[cfg(target_os = "macos")]
+    fn show_native_context_menu(&mut self, x: i32, y: i32) {
+        let Some(menu) = self.native_context_menu.as_ref() else {
+            return;
+        };
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let view = match window.window_handle() {
+            Ok(handle) => match handle.as_raw() {
+                RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr(),
+                _ => return,
+            },
+            Err(error) => {
+                eprintln!("warning: failed to access window handle for native menu: {error}");
+                return;
+            }
+        };
+        menu.sync_from_settings(&self.settings, self.current_size_presets());
+        let position = MenuPhysicalPosition::new(x as f64, y as f64).into();
+        unsafe {
+            let _ = menu
+                .root
+                .show_context_menu_for_nsview(view.cast_const(), Some(position));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn handle_native_menu_activation(&mut self, event_loop: &ActiveEventLoop, id: &str) {
+        match id {
+            MENU_ID_PAUSE => {
+                self.apply_paused(!self.settings.paused);
+                self.save_settings();
+            }
+            MENU_ID_SPEED_FAST => {
+                self.apply_half_cycle(4.5);
+                self.save_settings();
+            }
+            MENU_ID_SPEED_DEFAULT => {
+                self.apply_half_cycle(DEFAULT_HALF_CYCLE_SECONDS);
+                self.save_settings();
+            }
+            MENU_ID_SPEED_SLOW => {
+                self.apply_half_cycle(6.5);
+                self.save_settings();
+            }
+            MENU_ID_SIZE_S | MENU_ID_SIZE_M | MENU_ID_SIZE_L | MENU_ID_SIZE_XL => {
+                let presets = self.current_size_presets();
+                let size = match id {
+                    MENU_ID_SIZE_S => presets[0],
+                    MENU_ID_SIZE_M => presets[1],
+                    MENU_ID_SIZE_L => presets[2],
+                    _ => presets[3],
+                };
+                self.apply_size(size);
+                self.save_settings();
+            }
+            MENU_ID_RESET => {
+                self.reset_widget(event_loop);
+                self.save_settings();
+            }
+            MENU_ID_QUIT => {
+                self.save_settings();
+                event_loop.exit();
+            }
+            _ => {}
+        }
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -610,10 +844,7 @@ impl ApplicationHandler<AppEvent> for App {
             return;
         }
         self.config_path = Self::config_path();
-        let settings_exist = self
-            .config_path
-            .as_ref()
-            .is_some_and(|path| path.exists());
+        let settings_exist = self.config_path.as_ref().is_some_and(|path| path.exists());
         self.settings = load_settings(self.config_path.as_deref());
         if !settings_exist {
             if let Some(primary) = event_loop
@@ -689,6 +920,10 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
+        #[cfg(target_os = "macos")]
+        {
+            self.native_context_menu = NativeContextMenu::new();
+        }
         self.enforce_fixed_square_size();
         self.sync_webview_bounds();
         self.save_settings();
@@ -746,9 +981,10 @@ impl ApplicationHandler<AppEvent> for App {
                 };
                 self.handle_ipc_command(event_loop, command);
             }
+            #[cfg(target_os = "macos")]
+            AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
         }
     }
-
 }
 
 fn snapshot_monitor(monitor: MonitorHandle) -> PersistedMonitor {
@@ -822,14 +1058,22 @@ fn main() -> std::process::ExitCode {
     };
     let event_loop_proxy = event_loop.create_proxy();
 
+    let ctrlc_proxy = event_loop_proxy.clone();
     if let Err(error) = ctrlc::set_handler(move || {
-        let _ = event_loop_proxy.send_event(AppEvent::ExitRequested);
+        let _ = ctrlc_proxy.send_event(AppEvent::ExitRequested);
     }) {
         eprintln!("warning: failed to install ctrl-c handler: {error}");
     }
+    #[cfg(target_os = "macos")]
+    {
+        let menu_proxy = event_loop_proxy.clone();
+        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+            let _ = menu_proxy.send_event(AppEvent::MenuActivated(event.id().as_ref().to_string()));
+        }));
+    }
 
     let mut app = App::default();
-    app.event_loop_proxy = Some(event_loop.create_proxy());
+    app.event_loop_proxy = Some(event_loop_proxy);
 
     if let Err(error) = event_loop.run_app(&mut app) {
         eprintln!("error: app event loop failed: {error}");

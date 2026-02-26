@@ -54,6 +54,7 @@ pub enum IpcCommand {
     Quit,
     SetPaused { paused: bool },
     SetSpeed { half_cycle_seconds: f64 },
+    ShowContextMenu { x: i32, y: i32 },
     Resize { delta: i32, fine: bool },
     SetSize { size: f64 },
     StartDrag { screen_x: i32, screen_y: i32 },
@@ -166,6 +167,11 @@ mod tests {
             .expect("serialize set_paused command");
         assert!(encoded.contains("\"cmd\":\"set_paused\""));
         assert!(encoded.contains("\"paused\":true"));
+
+        let show_menu: IpcCommand =
+            serde_json::from_str(r#"{"cmd":"show_context_menu","x":15,"y":23}"#)
+                .expect("valid show_context_menu command");
+        assert_eq!(show_menu, IpcCommand::ShowContextMenu { x: 15, y: 23 });
 
         let drag_start: IpcCommand =
             serde_json::from_str(r#"{"cmd":"start_drag","screen_x":100,"screen_y":200}"#)

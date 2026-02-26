@@ -11,3 +11,6 @@ serde_json = "1.0"
 toml = "0.8"
 winit = "0.30"
 wry = { version = "0.53", features = ["transparent"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.17.1", default-features = false }

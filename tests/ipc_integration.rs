@@ -15,6 +15,14 @@ fn ipc_json_deserializes_supported_commands() {
         }
     ));
 
+    let context_menu: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"show_context_menu","x":24,"y":36}"#)
+            .expect("show_context_menu should parse");
+    assert!(matches!(
+        context_menu,
+        IpcCommand::ShowContextMenu { x: 24, y: 36 }
+    ));
+
     let start_drag: IpcCommand =
         serde_json::from_str(r#"{"cmd":"start_drag","screen_x":80,"screen_y":160}"#)
             .expect("start_drag should parse");
