@@ -4,12 +4,13 @@ VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 BUNDLE_ID := io.github.downshift
 MIN_MACOS := 12.0
 DIST_DIR := dist
-APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
-DMG_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned.dmg
-ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned.zip
-CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
 TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
+RELEASE_SUFFIX := $(if $(TAG),-v$(TAG_VERSION),)
+APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
+DMG_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).dmg
+ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).zip
+CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
 RUN_RESET := $(filter 1,$(RESET))
 
 .PHONY: all \

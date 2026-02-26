@@ -37,8 +37,8 @@ jobs:
       - name: collect artifacts
         run: |
           mkdir -p release-artifacts
-          cp "dist/${APP_NAME}-unsigned.zip" release-artifacts/
-          cp "dist/${APP_NAME}-unsigned.dmg" release-artifacts/
+          cp dist/${APP_NAME}-unsigned*.zip release-artifacts/
+          cp dist/${APP_NAME}-unsigned*.dmg release-artifacts/
           cp "dist/SHA256SUMS.txt" release-artifacts/
 
       - name: upload workflow artifacts
@@ -52,6 +52,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-artifacts/${{ env.APP_NAME }}-unsigned.zip
-            release-artifacts/${{ env.APP_NAME }}-unsigned.dmg
+            release-artifacts/${{ env.APP_NAME }}-unsigned*.zip
+            release-artifacts/${{ env.APP_NAME }}-unsigned*.dmg
             release-artifacts/SHA256SUMS.txt

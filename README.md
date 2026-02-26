@@ -107,6 +107,11 @@ to enforce that a git tag matches the cargo version, pass `TAG`:
 make release TAG=v0.1.0
 ```
 
+with `TAG` set, the release archives include the version in the filename:
+
+- `dist/Downshift-unsigned-v0.1.0.zip`
+- `dist/Downshift-unsigned-v0.1.0.dmg`
+
 this fails if:
 
 - tag is `v0.1.0` but `Cargo.toml` version is not `0.1.0`
