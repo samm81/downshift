@@ -14,6 +14,11 @@ jobs:
     runs-on: macos-latest
     env:
       APP_NAME: Downshift
+      DOWNSHIFT_TELEMETRY_ENABLED: "true"
+      DOWNSHIFT_BETTERSTACK_LOGS_TOKEN: ${{ secrets.DOWNSHIFT_BETTERSTACK_LOGS_TOKEN }}
+      DOWNSHIFT_BETTERSTACK_LOGS_HOST: ${{ secrets.DOWNSHIFT_BETTERSTACK_LOGS_HOST }}
+      DOWNSHIFT_BETTERSTACK_ERRORS_DSN: ${{ secrets.DOWNSHIFT_BETTERSTACK_ERRORS_DSN }}
+      DOWNSHIFT_BUILD_CHANNEL: alpha
     steps:
       - name: checkout
         uses: actions/checkout@v4
