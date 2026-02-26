@@ -17,6 +17,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
 	app app-no-telemetry \
+	sign-app \
 	dmg dmg-no-telemetry \
 	zip zip-no-telemetry \
 	checksums checksums-no-telemetry \
@@ -100,9 +101,12 @@ package-app:
 		'</plist>' \
 		> "$(APP_BUNDLE)/Contents/Info.plist"
 
-app: build package-app
+sign-app:
+	codesign --force --deep --sign - "$(APP_BUNDLE)"
 
-app-no-telemetry: build-no-telemetry package-app
+app: build package-app sign-app
+
+app-no-telemetry: build-no-telemetry package-app sign-app
 
 zip: app
 	rm -f "$(ZIP_PATH)"
