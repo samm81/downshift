@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -17,6 +17,11 @@ const MAX_QUEUE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_EVENTS_PER_SEC: usize = 5;
 const MAX_BATCH_SIZE: usize = 25;
 const FLUSH_INTERVAL: Duration = Duration::from_secs(5);
+const COMPILED_TELEMETRY_ENABLED: Option<&str> = option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
+const COMPILED_BETTERSTACK_LOGS_TOKEN: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN");
+const COMPILED_BETTERSTACK_LOGS_HOST: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_HOST");
+const COMPILED_BETTERSTACK_ERRORS_DSN: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_ERRORS_DSN");
+const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -124,8 +129,17 @@ pub struct BetterStackLogsSink {
 
 impl BetterStackLogsSink {
     pub fn from_env() -> Option<Self> {
-        let token = env::var("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN").ok()?;
-        let host = env::var("DOWNSHIFT_BETTERSTACK_LOGS_HOST").ok()?;
+        static MISSING_LOGS_CONFIG_WARNING: Once = Once::new();
+        let token = env_or_compiled("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN", COMPILED_BETTERSTACK_LOGS_TOKEN);
+        let host = env_or_compiled("DOWNSHIFT_BETTERSTACK_LOGS_HOST", COMPILED_BETTERSTACK_LOGS_HOST);
+        let (Some(token), Some(host)) = (token, host) else {
+            MISSING_LOGS_CONFIG_WARNING.call_once(|| {
+                eprintln!(
+                    "warning: telemetry usage sink disabled; set DOWNSHIFT_BETTERSTACK_LOGS_TOKEN and DOWNSHIFT_BETTERSTACK_LOGS_HOST at runtime or build time"
+                );
+            });
+            return None;
+        };
         Some(Self {
             url: normalize_logs_url(&host),
             token,
@@ -158,7 +172,20 @@ pub struct SentryErrorSink {
 
 impl SentryErrorSink {
     pub fn from_env() -> Option<Self> {
-        let dsn = env::var("DOWNSHIFT_BETTERSTACK_ERRORS_DSN").ok()?;
+        static MISSING_ERRORS_DSN_WARNING: Once = Once::new();
+        let dsn =
+            match env_or_compiled("DOWNSHIFT_BETTERSTACK_ERRORS_DSN", COMPILED_BETTERSTACK_ERRORS_DSN)
+            {
+                Some(dsn) => dsn,
+                None => {
+                MISSING_ERRORS_DSN_WARNING.call_once(|| {
+                    eprintln!(
+                        "warning: telemetry crash sink disabled; set DOWNSHIFT_BETTERSTACK_ERRORS_DSN at runtime or build time"
+                    );
+                });
+                return None;
+                }
+            };
         let release = format!("downshift@{}", env!("CARGO_PKG_VERSION"));
         let guard = sentry::init((
             dsn,
@@ -308,8 +335,8 @@ impl RuntimeTelemetryClient {
             session: Mutex::new(None),
             usage_enabled: Mutex::new(state.usage_enabled),
             crash_enabled: Mutex::new(state.crash_enabled),
-            build_channel: env::var("DOWNSHIFT_BUILD_CHANNEL")
-                .unwrap_or_else(|_| "dev".to_string()),
+            build_channel: env_or_compiled("DOWNSHIFT_BUILD_CHANNEL", COMPILED_BUILD_CHANNEL)
+                .unwrap_or_else(|| "dev".to_string()),
         });
 
         let mut worker = Worker {
@@ -620,10 +647,22 @@ fn serialized_event_size(event: &Envelope) -> usize {
 }
 
 fn global_telemetry_enabled() -> bool {
-    env::var("DOWNSHIFT_TELEMETRY_ENABLED")
-        .ok()
+    env_or_compiled("DOWNSHIFT_TELEMETRY_ENABLED", COMPILED_TELEMETRY_ENABLED)
         .map(|raw| !matches!(raw.to_ascii_lowercase().as_str(), "0" | "false" | "off"))
         .unwrap_or(true)
+}
+
+fn env_or_compiled(key: &str, compiled_value: Option<&str>) -> Option<String> {
+    env::var(key)
+        .ok()
+        .or_else(|| compiled_value.map(ToString::to_string))
+        .and_then(|value| {
+            if value.trim().is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        })
 }
 
 pub fn telemetry_state() -> TelemetryState {

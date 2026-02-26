@@ -30,6 +30,11 @@ the mac provisioning flow must install and verify `codex` on the remote macos ho
 
 once the environment is ready, the agent should proceed with normal repo tasks (editing files, running project commands, tests, and checks) in the current local checkout.
 
+## env handling rule
+
+- app/runtime code must not load, parse, or reference `.env` or any `.env.*` files.
+- app/runtime code may only read environment variables provided by the process environment (including compile-time `option_env!` fallbacks when explicitly intended).
+
 ## testing
 
 - by default, add or update tests in conjunction with code changes; do not treat tests as optional follow-up work.
