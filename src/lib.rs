@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+pub mod telemetry;
 
 pub const DEFAULT_SIZE: f64 = 96.0;
 pub const MIN_SIZE: f64 = 8.0;
@@ -23,6 +24,10 @@ pub struct Settings {
     pub size: f64,
     pub half_cycle_seconds: f64,
     pub paused: bool,
+    #[serde(default = "default_usage_data_sharing")]
+    pub usage_data_sharing: bool,
+    #[serde(default = "default_crash_reports_sharing")]
+    pub crash_reports_sharing: bool,
     pub x: Option<i32>,
     pub y: Option<i32>,
     pub monitor: Option<PersistedMonitor>,
@@ -34,11 +39,21 @@ impl Default for Settings {
             size: DEFAULT_SIZE,
             half_cycle_seconds: DEFAULT_HALF_CYCLE_SECONDS,
             paused: false,
+            usage_data_sharing: true,
+            crash_reports_sharing: true,
             x: None,
             y: None,
             monitor: None,
         }
     }
+}
+
+fn default_usage_data_sharing() -> bool {
+    true
+}
+
+fn default_crash_reports_sharing() -> bool {
+    true
 }
 
 impl Settings {
@@ -54,6 +69,11 @@ pub enum IpcCommand {
     Quit,
     SetPaused { paused: bool },
     SetSpeed { half_cycle_seconds: f64 },
+    SetUsageDataSharing { enabled: bool },
+    SetCrashReportsSharing { enabled: bool },
+    AnalyticsMenuOpened,
+    ShowTelemetryInfo,
+    CloseTelemetryInfo,
     ShowContextMenu { x: i32, y: i32 },
     Resize { delta: i32, fine: bool },
     SetSize { size: f64 },
@@ -124,6 +144,8 @@ mod tests {
             size: 999.0,
             half_cycle_seconds: 6.47,
             paused: true,
+            usage_data_sharing: false,
+            crash_reports_sharing: true,
             x: Some(10),
             y: Some(20),
             monitor: None,
@@ -134,6 +156,8 @@ mod tests {
         assert_eq!(settings.size, MAX_SIZE);
         assert_eq!(settings.half_cycle_seconds, SLOW_HALF_CYCLE_SECONDS);
         assert!(settings.paused);
+        assert!(!settings.usage_data_sharing);
+        assert!(settings.crash_reports_sharing);
         assert_eq!(settings.x, Some(10));
         assert_eq!(settings.y, Some(20));
     }

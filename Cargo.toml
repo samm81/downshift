@@ -4,13 +4,22 @@ version = "0.1.2"
 edition = "2021"
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 ctrlc = "3.4"
 dirs = "5.0"
+fastrand = "2.3"
+sentry = "0.45"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
+ureq = "2.12"
+uuid = { version = "1.10", features = ["v4"] }
 winit = "0.30"
 wry = { version = "0.53", features = ["transparent"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.17.1", default-features = false }
+
+[dev-dependencies]
+serial_test = "3.2"
+tiny_http = "0.12"

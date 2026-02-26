@@ -43,6 +43,16 @@ reset saved position/settings before launching:
 make run RESET=1
 ```
 
+telemetry env vars (alpha analytics):
+
+```bash
+export DOWNSHIFT_TELEMETRY_ENABLED=true
+export DOWNSHIFT_BETTERSTACK_LOGS_TOKEN='...'
+export DOWNSHIFT_BETTERSTACK_LOGS_HOST='in.logs.betterstack.com'
+export DOWNSHIFT_BETTERSTACK_ERRORS_DSN='https://<token>@<host>/1'
+export DOWNSHIFT_BUILD_CHANNEL='alpha'
+```
+
 breathing animation sync note:
 
 - the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).

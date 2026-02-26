@@ -48,6 +48,39 @@ fn ipc_json_deserializes_supported_commands() {
     let end_drag: IpcCommand =
         serde_json::from_str(r#"{"cmd":"end_drag"}"#).expect("end_drag should parse");
     assert!(matches!(end_drag, IpcCommand::EndDrag));
+
+    let set_usage: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"set_usage_data_sharing","enabled":true}"#)
+            .expect("set_usage_data_sharing should parse");
+    assert!(matches!(
+        set_usage,
+        IpcCommand::SetUsageDataSharing { enabled: true }
+    ));
+
+    let set_crash: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"set_crash_reports_sharing","enabled":false}"#)
+            .expect("set_crash_reports_sharing should parse");
+    assert!(matches!(
+        set_crash,
+        IpcCommand::SetCrashReportsSharing { enabled: false }
+    ));
+
+    let analytics_opened: IpcCommand = serde_json::from_str(r#"{"cmd":"analytics_menu_opened"}"#)
+        .expect("analytics_menu_opened should parse");
+    assert!(matches!(analytics_opened, IpcCommand::AnalyticsMenuOpened));
+
+    let show_telemetry_info: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"show_telemetry_info"}"#)
+            .expect("show_telemetry_info should parse");
+    assert!(matches!(show_telemetry_info, IpcCommand::ShowTelemetryInfo));
+
+    let close_telemetry_info: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"close_telemetry_info"}"#)
+            .expect("close_telemetry_info should parse");
+    assert!(matches!(
+        close_telemetry_info,
+        IpcCommand::CloseTelemetryInfo
+    ));
 }
 
 #[test]

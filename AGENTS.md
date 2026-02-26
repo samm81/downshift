@@ -41,3 +41,9 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - treat pre-commit hook failures as first-class blocking issues.
 - when hooks fail, attempt to fix all reported issues (including unrelated pre-existing issues) before committing.
 - do not use `--no-verify` unless the user explicitly asks for it.
+
+## ui constraints
+
+- do not implement dialogs/tooltips/popovers that must escape the circular widget bounds inside the embedded webview html/css.
+- the webview is clipped to the app window; overflow ui will be cut off.
+- for explanatory/help content (for example, "What we collect…"), use a native window/dialog or a separate webview window instead of an in-webview modal.

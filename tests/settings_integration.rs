@@ -38,6 +38,8 @@ y = 240
     assert_eq!(settings.size, MAX_SIZE);
     assert_eq!(settings.half_cycle_seconds, 4.5);
     assert!(settings.paused);
+    assert!(settings.usage_data_sharing);
+    assert!(settings.crash_reports_sharing);
     assert_eq!(settings.x, Some(120));
     assert_eq!(settings.y, Some(240));
     assert_eq!(settings.monitor, None);
