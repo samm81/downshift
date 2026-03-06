@@ -29,6 +29,7 @@ pub enum EventName {
     InstallFirstRun,
     SessionStart,
     SessionEnd,
+    ActivityStateChanged,
     MenuAction,
     PrivacyPreferenceChanged,
     AppError,
@@ -62,6 +63,23 @@ pub enum MenuAction {
     Reset,
     Quit,
     AnalyticsMenu,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityState {
+    Active,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityTrigger {
+    Manual,
+    DisabledForever,
+    DisabledTimed,
+    ExpiryTimed,
+    AppStart,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,7 +244,13 @@ impl TelemetrySink for SentryErrorSink {
 pub trait TelemetryClient {
     fn track(&self, event_name: EventName, properties: serde_json::Value);
     fn track_error(&self, event_name: EventName, properties: serde_json::Value);
-    fn start_session(&self);
+    fn start_session(&self, initial_state: ActivityState);
+    fn track_activity_state(
+        &self,
+        state: ActivityState,
+        trigger: ActivityTrigger,
+        requested_duration_sec: Option<u64>,
+    );
     fn end_session(&self, reason: SessionEndReason);
     fn flush(&self, timeout: Duration);
     fn shutdown(&self, timeout: Duration);
@@ -273,6 +297,10 @@ struct SharedContext {
 struct SessionContext {
     session_id: String,
     started_at: Instant,
+    activity_state: ActivityState,
+    state_started_at: Instant,
+    active_duration_sec: u64,
+    disabled_duration_sec: u64,
 }
 
 enum WorkerCommand {
@@ -425,7 +453,8 @@ impl TelemetryClient for RuntimeTelemetryClient {
         let _ = self.sender.send(WorkerCommand::TrackCrash(envelope));
     }
 
-    fn start_session(&self) {
+    fn start_session(&self, initial_state: ActivityState) {
+        let now = Instant::now();
         {
             if let Ok(mut session) = self.shared.session.lock() {
                 if session.is_some() {
@@ -433,7 +462,11 @@ impl TelemetryClient for RuntimeTelemetryClient {
                 }
                 *session = Some(SessionContext {
                     session_id: Uuid::new_v4().to_string(),
-                    started_at: Instant::now(),
+                    started_at: now,
+                    activity_state: initial_state,
+                    state_started_at: now,
+                    active_duration_sec: 0,
+                    disabled_duration_sec: 0,
                 });
             }
         }
@@ -443,25 +476,97 @@ impl TelemetryClient for RuntimeTelemetryClient {
                 "launch_reason": "manual",
             }),
         );
+        self.track(
+            EventName::ActivityStateChanged,
+            serde_json::json!({
+                "state": serde_json::to_value(initial_state).unwrap_or_else(|_| serde_json::json!("active")),
+                "trigger": serde_json::to_value(ActivityTrigger::AppStart)
+                    .unwrap_or_else(|_| serde_json::json!("app_start")),
+            }),
+        );
+    }
+
+    fn track_activity_state(
+        &self,
+        state: ActivityState,
+        trigger: ActivityTrigger,
+        requested_duration_sec: Option<u64>,
+    ) {
+        let should_emit = self
+            .shared
+            .session
+            .lock()
+            .ok()
+            .and_then(|mut session| {
+                let session = session.as_mut()?;
+                let now = Instant::now();
+                let elapsed = now.duration_since(session.state_started_at).as_secs();
+                match session.activity_state {
+                    ActivityState::Active => {
+                        session.active_duration_sec = session.active_duration_sec.saturating_add(elapsed)
+                    }
+                    ActivityState::Disabled => {
+                        session.disabled_duration_sec =
+                            session.disabled_duration_sec.saturating_add(elapsed)
+                    }
+                }
+                session.state_started_at = now;
+                if session.activity_state == state && trigger != ActivityTrigger::AppStart {
+                    return Some(false);
+                }
+                session.activity_state = state;
+                Some(true)
+            })
+            .unwrap_or(false);
+
+        if !should_emit {
+            return;
+        }
+        let mut payload = serde_json::json!({
+            "state": serde_json::to_value(state).unwrap_or_else(|_| serde_json::json!("active")),
+            "trigger": serde_json::to_value(trigger).unwrap_or_else(|_| serde_json::json!("manual")),
+        });
+        if let Some(seconds) = requested_duration_sec {
+            payload["requested_duration_sec"] = serde_json::json!(seconds);
+        }
+        self.track(EventName::ActivityStateChanged, payload);
     }
 
     fn end_session(&self, reason: SessionEndReason) {
-        let duration = self
+        let (duration, active_duration_sec, disabled_duration_sec) = self
             .shared
             .session
             .lock()
             .ok()
             .and_then(|session| {
-                session
-                    .as_ref()
-                    .map(|ctx| ctx.started_at.elapsed().as_secs())
+                session.as_ref().map(|ctx| {
+                    let now = Instant::now();
+                    let mut active_duration_sec = ctx.active_duration_sec;
+                    let mut disabled_duration_sec = ctx.disabled_duration_sec;
+                    let trailing = now.duration_since(ctx.state_started_at).as_secs();
+                    match ctx.activity_state {
+                        ActivityState::Active => {
+                            active_duration_sec = active_duration_sec.saturating_add(trailing)
+                        }
+                        ActivityState::Disabled => {
+                            disabled_duration_sec = disabled_duration_sec.saturating_add(trailing)
+                        }
+                    }
+                    (
+                        ctx.started_at.elapsed().as_secs(),
+                        active_duration_sec,
+                        disabled_duration_sec,
+                    )
+                })
             })
-            .unwrap_or(0);
+            .unwrap_or((0, 0, 0));
         self.track(
             EventName::SessionEnd,
             serde_json::json!({
                 "reason": serde_json::to_value(reason).unwrap_or_else(|_| serde_json::json!("unknown")),
                 "session_duration_sec": duration,
+                "active_duration_sec": active_duration_sec,
+                "disabled_duration_sec": disabled_duration_sec,
                 "clean_exit": reason.clean_exit(),
             }),
         );
@@ -801,6 +906,19 @@ mod tests {
         }
     }
 
+    struct CollectingSink {
+        pub events: Arc<Mutex<Vec<Envelope>>>,
+    }
+
+    impl TelemetrySink for CollectingSink {
+        fn send_batch(&mut self, events: &[Envelope]) -> Result<(), TelemetryError> {
+            if let Ok(mut out) = self.events.lock() {
+                out.extend_from_slice(events);
+            }
+            Ok(())
+        }
+    }
+
     #[test]
     #[serial]
     fn anon_user_id_persists_across_reads() {
@@ -838,6 +956,19 @@ mod tests {
         assert!(SessionEndReason::CtrlC.clean_exit());
         assert!(!SessionEndReason::StartupFailure.clean_exit());
         assert!(!SessionEndReason::Panic.clean_exit());
+    }
+
+    #[test]
+    fn activity_trigger_serializes_with_adjective_last() {
+        let disabled_timed =
+            serde_json::to_string(&ActivityTrigger::DisabledTimed).expect("serialize trigger");
+        let expiry_timed =
+            serde_json::to_string(&ActivityTrigger::ExpiryTimed).expect("serialize trigger");
+        let disabled_forever =
+            serde_json::to_string(&ActivityTrigger::DisabledForever).expect("serialize trigger");
+        assert_eq!(disabled_timed, "\"disabled_timed\"");
+        assert_eq!(expiry_timed, "\"expiry_timed\"");
+        assert_eq!(disabled_forever, "\"disabled_forever\"");
     }
 
     #[test]
@@ -977,6 +1108,63 @@ mod tests {
         assert!(usage_events.load(Ordering::SeqCst) >= 1);
 
         client.shutdown(Duration::from_millis(500));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    #[serial]
+    fn session_end_reports_active_and_disabled_durations() {
+        let root = temp_dir("durations");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+        let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let state = TelemetryState {
+            anon_user_id: Uuid::new_v4().to_string(),
+            usage_enabled: true,
+            crash_enabled: true,
+            install_first_run: false,
+        };
+        let client = RuntimeTelemetryClient::new_with_sinks(
+            state,
+            Box::new(CollectingSink {
+                events: captured_events.clone(),
+            }),
+            Box::new(NoopSink),
+        );
+        client.start_session(ActivityState::Active);
+        thread::sleep(Duration::from_secs(1));
+        client.track_activity_state(
+            ActivityState::Disabled,
+            ActivityTrigger::DisabledForever,
+            None,
+        );
+        thread::sleep(Duration::from_secs(1));
+        client.end_session(SessionEndReason::Unknown);
+        client.flush(Duration::from_millis(400));
+        client.shutdown(Duration::from_millis(400));
+
+        let events = captured_events.lock().expect("captured events lock");
+        let activity_app_start = events.iter().find(|event| {
+            event.event_name == EventName::ActivityStateChanged
+                && event.properties["trigger"] == "app_start"
+        });
+        assert!(activity_app_start.is_some());
+        let activity_disabled = events.iter().find(|event| {
+            event.event_name == EventName::ActivityStateChanged
+                && event.properties["trigger"] == "disabled_forever"
+        });
+        assert!(activity_disabled.is_some());
+        let session_end = events
+            .iter()
+            .find(|event| event.event_name == EventName::SessionEnd)
+            .expect("session end event should exist");
+        let active_duration_sec = session_end.properties["active_duration_sec"]
+            .as_u64()
+            .expect("active duration should be u64 seconds");
+        let disabled_duration_sec = session_end.properties["disabled_duration_sec"]
+            .as_u64()
+            .expect("disabled duration should be u64 seconds");
+        assert!(active_duration_sec >= 1);
+        assert!(disabled_duration_sec >= 1);
         std::fs::remove_dir_all(root).ok();
     }
 }

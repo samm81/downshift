@@ -1,6 +1,6 @@
 use downshift::telemetry::{
-    menu_action_size_target, EventName, MenuAction, RuntimeTelemetryClient, SessionEndReason,
-    SizeTarget, TelemetryClient,
+    menu_action_size_target, ActivityState, ActivityTrigger, EventName, MenuAction,
+    RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,
 };
 use downshift::{
     apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
@@ -695,6 +695,16 @@ impl Default for App {
 }
 
 impl App {
+    fn telemetry_activity_state(
+        &self,
+        state: ActivityState,
+        trigger: ActivityTrigger,
+        requested_duration_sec: Option<u64>,
+    ) {
+        self.telemetry
+            .track_activity_state(state, trigger, requested_duration_sec);
+    }
+
     fn telemetry_menu_action(&self, action: MenuAction, size_target: Option<&str>) {
         let mut payload = serde_json::json!({
             "action": serde_json::to_value(action).unwrap_or_else(|_| serde_json::json!("unknown")),
@@ -1044,6 +1054,7 @@ impl App {
         self.apply_size(reset_size);
         self.apply_half_cycle(DEFAULT_HALF_CYCLE_SECONDS);
         self.apply_paused(false);
+        self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
         if let Some(window) = self.window.as_ref() {
             if let Some(monitor) = monitor {
                 let pos = default_corner_position(&monitor, self.settings.size);
@@ -1073,6 +1084,15 @@ impl App {
                 };
                 self.telemetry_menu_action(action, None);
                 self.apply_paused(paused);
+                if paused {
+                    self.telemetry_activity_state(
+                        ActivityState::Disabled,
+                        ActivityTrigger::DisabledForever,
+                        None,
+                    );
+                } else {
+                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
+                }
                 self.save_settings();
             }
             IpcCommand::SetSpeed { half_cycle_seconds } => {
@@ -1213,7 +1233,17 @@ impl App {
                     MenuAction::Resume
                 };
                 self.telemetry_menu_action(action, None);
-                self.apply_paused(!self.settings.paused);
+                let next_paused = !self.settings.paused;
+                self.apply_paused(next_paused);
+                if next_paused {
+                    self.telemetry_activity_state(
+                        ActivityState::Disabled,
+                        ActivityTrigger::DisabledForever,
+                        None,
+                    );
+                } else {
+                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
+                }
                 self.save_settings();
             }
             MENU_ID_SIZE_S | MENU_ID_SIZE_M | MENU_ID_SIZE_L | MENU_ID_SIZE_XL => {
@@ -1401,7 +1431,11 @@ impl ApplicationHandler<AppEvent> for App {
             self.native_context_menu = NativeContextMenu::new();
         }
         self.sync_analytics_menu_state();
-        self.telemetry.start_session();
+        self.telemetry.start_session(if self.settings.paused {
+            ActivityState::Disabled
+        } else {
+            ActivityState::Active
+        });
         if self.telemetry_install_first_run {
             self.telemetry.track(
                 EventName::InstallFirstRun,

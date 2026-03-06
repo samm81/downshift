@@ -1,5 +1,5 @@
 use downshift::telemetry::{
-    BetterStackLogsSink, EventName, RuntimeTelemetryClient, TelemetryClient, TelemetrySink,
+    ActivityState, BetterStackLogsSink, EventName, RuntimeTelemetryClient, TelemetryClient, TelemetrySink,
     TelemetryState,
 };
 use serial_test::serial;
@@ -68,7 +68,7 @@ fn logs_sink_sends_auth_and_expected_payload_shape() {
         Box::new(downshift::telemetry::NoopSink),
         Box::new(downshift::telemetry::NoopSink),
     );
-    client.start_session();
+    client.start_session(ActivityState::Active);
     let sample = serde_json::json!({
         "category": "menu",
         "severity": "warn",
@@ -127,7 +127,7 @@ fn retries_after_transient_failure_and_drains_when_recovered() {
         Box::new(sink),
         Box::new(downshift::telemetry::NoopSink),
     );
-    client.start_session();
+    client.start_session(ActivityState::Active);
     client.track(
         EventName::MenuAction,
         serde_json::json!({"action": "pause"}),
@@ -152,7 +152,7 @@ fn missing_config_gracefully_degrades_to_noop() {
     std::env::remove_var("DOWNSHIFT_BETTERSTACK_ERRORS_DSN");
 
     let client = RuntimeTelemetryClient::from_env();
-    client.start_session();
+    client.start_session(ActivityState::Active);
     client.track(
         EventName::MenuAction,
         serde_json::json!({"action": "pause"}),
