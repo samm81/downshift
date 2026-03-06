@@ -28,6 +28,10 @@ pub struct Settings {
     pub usage_data_sharing: bool,
     #[serde(default = "default_crash_reports_sharing")]
     pub crash_reports_sharing: bool,
+    #[serde(default)]
+    pub dismissed_update_version: Option<String>,
+    #[serde(default)]
+    pub cached_latest_update_version: Option<String>,
     pub x: Option<i32>,
     pub y: Option<i32>,
     pub monitor: Option<PersistedMonitor>,
@@ -41,6 +45,8 @@ impl Default for Settings {
             paused: false,
             usage_data_sharing: true,
             crash_reports_sharing: true,
+            dismissed_update_version: None,
+            cached_latest_update_version: None,
             x: None,
             y: None,
             monitor: None,
@@ -74,6 +80,10 @@ pub enum IpcCommand {
     AnalyticsMenuOpened,
     ShowTelemetryInfo,
     CloseTelemetryInfo,
+    UpdatePrimaryAction,
+    DismissUpdateBadge,
+    CloseUpdateDialog,
+    DownloadUpdate,
     ShowContextMenu { x: i32, y: i32 },
     Resize { delta: i32, fine: bool },
     SetSize { size: f64 },
@@ -146,6 +156,8 @@ mod tests {
             paused: true,
             usage_data_sharing: false,
             crash_reports_sharing: true,
+            dismissed_update_version: Some("0.1.2".to_string()),
+            cached_latest_update_version: Some("0.1.5".to_string()),
             x: Some(10),
             y: Some(20),
             monitor: None,
@@ -158,6 +170,11 @@ mod tests {
         assert!(settings.paused);
         assert!(!settings.usage_data_sharing);
         assert!(settings.crash_reports_sharing);
+        assert_eq!(settings.dismissed_update_version.as_deref(), Some("0.1.2"));
+        assert_eq!(
+            settings.cached_latest_update_version.as_deref(),
+            Some("0.1.5")
+        );
         assert_eq!(settings.x, Some(10));
         assert_eq!(settings.y, Some(20));
     }

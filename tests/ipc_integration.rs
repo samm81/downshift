@@ -69,9 +69,8 @@ fn ipc_json_deserializes_supported_commands() {
         .expect("analytics_menu_opened should parse");
     assert!(matches!(analytics_opened, IpcCommand::AnalyticsMenuOpened));
 
-    let show_telemetry_info: IpcCommand =
-        serde_json::from_str(r#"{"cmd":"show_telemetry_info"}"#)
-            .expect("show_telemetry_info should parse");
+    let show_telemetry_info: IpcCommand = serde_json::from_str(r#"{"cmd":"show_telemetry_info"}"#)
+        .expect("show_telemetry_info should parse");
     assert!(matches!(show_telemetry_info, IpcCommand::ShowTelemetryInfo));
 
     let close_telemetry_info: IpcCommand =
@@ -81,6 +80,30 @@ fn ipc_json_deserializes_supported_commands() {
         close_telemetry_info,
         IpcCommand::CloseTelemetryInfo
     ));
+
+    let update_primary_action: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"update_primary_action"}"#)
+            .expect("update_primary_action should parse");
+    assert!(matches!(
+        update_primary_action,
+        IpcCommand::UpdatePrimaryAction
+    ));
+
+    let dismiss_update_badge: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"dismiss_update_badge"}"#)
+            .expect("dismiss_update_badge should parse");
+    assert!(matches!(
+        dismiss_update_badge,
+        IpcCommand::DismissUpdateBadge
+    ));
+
+    let close_update_dialog: IpcCommand = serde_json::from_str(r#"{"cmd":"close_update_dialog"}"#)
+        .expect("close_update_dialog should parse");
+    assert!(matches!(close_update_dialog, IpcCommand::CloseUpdateDialog));
+
+    let download_update: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"download_update"}"#).expect("download_update should parse");
+    assert!(matches!(download_update, IpcCommand::DownloadUpdate));
 }
 
 #[test]

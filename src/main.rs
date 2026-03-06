@@ -6,11 +6,12 @@ use downshift::{
     apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
     PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
 };
-use std::time::Duration;
 #[cfg(target_os = "macos")]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 #[cfg(target_os = "macos")]
 use muda::{CheckMenuItem, ContextMenu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use semver::Version;
+use std::time::Duration;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
@@ -27,6 +28,12 @@ const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
 const DEFAULT_HEARTBEAT_INTERVAL_SEC: u64 = 60;
 const MIN_HEARTBEAT_INTERVAL_SEC: u64 = 5;
 const MAX_HEARTBEAT_INTERVAL_SEC: u64 = 3600;
+const UPDATE_CHECK_STARTUP_DELAY_SEC: u64 = 8;
+const UPDATE_CHECK_BACKGROUND_INTERVAL_SEC: u64 = 6 * 60 * 60;
+const UPDATE_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/samm81/downshift/releases/latest";
+const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
+const UPDATE_TOOLTIP: &str = "new version available";
 #[cfg(target_os = "macos")]
 const MENU_ID_PAUSE: &str = "pause";
 #[cfg(target_os = "macos")]
@@ -53,6 +60,8 @@ const MENU_ID_CRASH_ON: &str = "crash_on";
 const MENU_ID_CRASH_OFF: &str = "crash_off";
 #[cfg(target_os = "macos")]
 const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
+#[cfg(target_os = "macos")]
+const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
 
 const BREATH_HTML: &str = r#"<!doctype html>
 <html lang="en">
@@ -78,6 +87,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
         cursor: default;
       }
       .ball {
+        position: relative;
         width: 100%;
         aspect-ratio: 1 / 1;
         border-radius: 9999px;
@@ -91,6 +101,32 @@ const BREATH_HTML: &str = r#"<!doctype html>
       .ball.paused {
         animation-play-state: paused;
         opacity: 0.55;
+      }
+      .badge {
+        position: fixed;
+        width: 16px;
+        height: 16px;
+        border-radius: 9999px;
+        border: 0;
+        background: rgba(148, 204, 255, 0.9);
+        box-shadow: inset 0 0 0 1px rgba(120, 183, 244, 0.95);
+        color: rgba(30, 75, 120, 0.92);
+        font: 700 10px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        cursor: default;
+        transform-origin: center;
+        z-index: 10000;
+      }
+      .badge[hidden] {
+        display: none;
+      }
+      .badge.is-appearing {
+        animation: badge-boing 420ms cubic-bezier(0.2, 1.1, 0.25, 1);
+      }
+      .badge.is-dismissing {
+        animation: badge-dismiss 240ms cubic-bezier(0.3, 0.9, 0.4, 1) forwards;
       }
       .menu {
         position: fixed;
@@ -140,10 +176,32 @@ const BREATH_HTML: &str = r#"<!doctype html>
           transform: scale(1);
         }
       }
+      @keyframes badge-boing {
+        0% {
+          transform: scale(0.6);
+        }
+        65% {
+          transform: scale(1.18);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+      @keyframes badge-dismiss {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(0.35) rotate(-12deg);
+          opacity: 0;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="ball" id="ball"></div>
+    <button class="badge" id="update-badge" title="new version available" hidden>↓</button>
     <div class="menu" id="menu" hidden>
       <button id="menu-pause">pause</button>
       <div class="divider"></div>
@@ -157,6 +215,8 @@ const BREATH_HTML: &str = r#"<!doctype html>
       <div class="divider"></div>
       <button id="menu-reset">reset</button>
       <button id="menu-quit">quit</button>
+      <div class="divider"></div>
+      <button id="menu-update-primary">check for updates</button>
       <div class="divider"></div>
       <button id="menu-analytics-toggle">help improve downshift</button>
       <div class="group" id="analytics-submenu" hidden>
@@ -176,6 +236,8 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const pauseButton = document.getElementById("menu-pause");
         const resetButton = document.getElementById("menu-reset");
         const quitButton = document.getElementById("menu-quit");
+        const updatePrimaryButton = document.getElementById("menu-update-primary");
+        const updateBadge = document.getElementById("update-badge");
         const analyticsToggleButton = document.getElementById("menu-analytics-toggle");
         const analyticsSubmenu = document.getElementById("analytics-submenu");
         const usageOnButton = document.getElementById("menu-usage-on");
@@ -192,10 +254,14 @@ const BREATH_HTML: &str = r#"<!doctype html>
           usageDataSharing: Object.prototype.hasOwnProperty.call(init, "usage_data_sharing") ? Boolean(init.usage_data_sharing) : true,
           crashReportsSharing: Object.prototype.hasOwnProperty.call(init, "crash_reports_sharing") ? Boolean(init.crash_reports_sharing) : true,
           analyticsOpen: false,
+          updateLabel: String(init.update_menu_label || "check for updates"),
+          updateHasNewVersion: Boolean(init.update_has_new_version),
+          updateShowBadge: Boolean(init.update_show_badge),
           sizePresets: Array.isArray(init.size_presets) && init.size_presets.length === 4
             ? init.size_presets.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
             : [64, 96, 128, 160],
         };
+        updateBadge.title = String(init.update_tooltip || "new version available");
         if (state.sizePresets.length !== 4) {
           state.sizePresets = [64, 96, 128, 160];
         }
@@ -225,6 +291,9 @@ const BREATH_HTML: &str = r#"<!doctype html>
           const seconds = Math.max(2.0, state.halfCycleSeconds);
           ball.style.animationDuration = `${seconds}s`;
           pauseButton.textContent = state.paused ? "resume" : "pause";
+          updatePrimaryButton.textContent = state.updateLabel;
+          updatePrimaryButton.dataset.newVersion = state.updateHasNewVersion ? "1" : "0";
+          positionBadge();
         }
 
         function applyAnalyticsButtons() {
@@ -246,6 +315,50 @@ const BREATH_HTML: &str = r#"<!doctype html>
             button.dataset.size = String(rounded);
             button.textContent = `${labels[index] || "size"} (${rounded}px)`;
           });
+        }
+
+        function positionBadge() {
+          if (updateBadge.hidden) return;
+          const rect = ball.getBoundingClientRect();
+          const badgeSize = 16;
+          const inset = 1;
+          const x = Math.round(rect.right - badgeSize - inset);
+          const y = Math.round(rect.top + inset);
+          updateBadge.style.left = `${x}px`;
+          updateBadge.style.top = `${y}px`;
+        }
+
+        function dismissBadge(withAnimation) {
+          if (updateBadge.hidden) return;
+          if (withAnimation) {
+            updateBadge.classList.remove("is-appearing");
+            updateBadge.classList.add("is-dismissing");
+            window.setTimeout(() => {
+              updateBadge.classList.remove("is-dismissing");
+              updateBadge.hidden = true;
+            }, 240);
+          } else {
+            updateBadge.classList.remove("is-dismissing");
+            updateBadge.hidden = true;
+          }
+        }
+
+        function applyUpdateBadge(animateIn) {
+          if (!state.updateShowBadge) {
+            dismissBadge(false);
+            return;
+          }
+          updateBadge.hidden = false;
+          positionBadge();
+          updateBadge.classList.remove("is-dismissing");
+          if (animateIn) {
+            updateBadge.classList.remove("is-appearing");
+            void updateBadge.offsetWidth;
+            updateBadge.classList.add("is-appearing");
+            window.setTimeout(() => {
+              updateBadge.classList.remove("is-appearing");
+            }, 420);
+          }
         }
 
         window.breathBallApplyState = function(next) {
@@ -273,8 +386,24 @@ const BREATH_HTML: &str = r#"<!doctype html>
           if (Object.prototype.hasOwnProperty.call(next, "crash_reports_sharing")) {
             state.crashReportsSharing = Boolean(next.crash_reports_sharing);
           }
+          let animateBadge = false;
+          if (Object.prototype.hasOwnProperty.call(next, "update_menu_label")) {
+            state.updateLabel = String(next.update_menu_label || "check for updates");
+          }
+          if (Object.prototype.hasOwnProperty.call(next, "update_has_new_version")) {
+            state.updateHasNewVersion = Boolean(next.update_has_new_version);
+          }
+          if (Object.prototype.hasOwnProperty.call(next, "update_show_badge")) {
+            const previous = state.updateShowBadge;
+            state.updateShowBadge = Boolean(next.update_show_badge);
+            animateBadge = !previous && state.updateShowBadge;
+            if (previous && !state.updateShowBadge) {
+              dismissBadge(true);
+            }
+          }
           applyBallState();
           applyAnalyticsButtons();
+          applyUpdateBadge(animateBadge);
         };
 
         ball.addEventListener("wheel", (event) => {
@@ -324,6 +453,24 @@ const BREATH_HTML: &str = r#"<!doctype html>
           hideMenu();
         });
 
+        updatePrimaryButton.addEventListener("click", () => {
+          post({ cmd: "update_primary_action" });
+          hideMenu();
+        });
+
+        updateBadge.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          state.updateShowBadge = false;
+          dismissBadge(true);
+          post({ cmd: "dismiss_update_badge" });
+          if (useNativeMenu) {
+            post({ cmd: "show_context_menu", x: Math.round(event.clientX), y: Math.round(event.clientY) });
+          } else {
+            showMenu(event.clientX, event.clientY);
+          }
+        });
+
         analyticsToggleButton.addEventListener("click", () => {
           state.analyticsOpen = !state.analyticsOpen;
           analyticsSubmenu.hidden = !state.analyticsOpen;
@@ -368,7 +515,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
         });
 
         document.addEventListener("blur", hideMenu);
-        window.addEventListener("resize", hideMenu);
+        window.addEventListener("resize", () => {
+          hideMenu();
+          positionBadge();
+        });
 
         const drag = {
           active: false,
@@ -415,6 +565,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
         applyBallState();
         applyAnalyticsButtons();
         applySizePresetButtons();
+        applyUpdateBadge(false);
       })();
     </script>
   </body>
@@ -483,13 +634,283 @@ const TELEMETRY_INFO_HTML: &str = r#"<!doctype html>
   </body>
 </html>"#;
 
+const UPDATE_DIALOG_HTML: &str = r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #f7f9fc;
+        color: #18202a;
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        align-content: center;
+        justify-items: stretch;
+        gap: 14px;
+        padding: 18px;
+        box-sizing: border-box;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 42px;
+      }
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border-radius: 9999px;
+        border: 2px solid #b9c8e9;
+        border-top-color: #2f6bdb;
+        animation: spin 0.9s linear infinite;
+      }
+      .spinner[hidden] {
+        display: none;
+      }
+      .message {
+        margin: 0;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 14px;
+        font: inherit;
+        cursor: default;
+      }
+      button.secondary {
+        background: #dce5f7;
+        color: #24324d;
+      }
+      button.primary {
+        background: #2f6bdb;
+        color: #fff;
+      }
+      button[hidden] {
+        display: none;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <div class="spinner" id="spinner" hidden></div>
+      <p class="message" id="message">checking for updates...</p>
+    </div>
+    <div class="actions">
+      <button class="secondary" id="ok">ok</button>
+      <button class="primary" id="download" hidden>download</button>
+    </div>
+    <script>
+      (() => {
+        const spinner = document.getElementById("spinner");
+        const message = document.getElementById("message");
+        const okButton = document.getElementById("ok");
+        const downloadButton = document.getElementById("download");
+
+        function post(payload) {
+          if (window.ipc && typeof window.ipc.postMessage === "function") {
+            window.ipc.postMessage(JSON.stringify(payload));
+          }
+        }
+
+        window.updateDialogApplyState = function(next) {
+          const state = next || {};
+          const mode = String(state.mode || "checking");
+          if (mode === "checking") {
+            spinner.hidden = false;
+            message.textContent = "checking for updates...";
+            downloadButton.hidden = true;
+            return;
+          }
+          spinner.hidden = true;
+          if (mode === "available") {
+            const latest = state.latest_version || "latest";
+            message.textContent = `new update available (${latest})`;
+            downloadButton.hidden = false;
+            return;
+          }
+          message.textContent = "you are on the latest version!";
+          downloadButton.hidden = true;
+        };
+
+        okButton.addEventListener("click", () => {
+          post({ cmd: "close_update_dialog" });
+        });
+
+        downloadButton.addEventListener("click", () => {
+          post({ cmd: "download_update" });
+        });
+      })();
+    </script>
+  </body>
+</html>"#;
+
 #[derive(Debug, Clone)]
 enum AppEvent {
     ExitRequested,
     Ipc(String),
     TelemetryHeartbeat,
+    UpdateCheckFinished(UpdateCheckResult, UpdateCheckSource),
     #[cfg(target_os = "macos")]
     MenuActivated(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateCheckSource {
+    Background,
+    Manual,
+}
+
+#[derive(Debug, Clone)]
+struct UpdateCheckResult {
+    latest_version: Option<String>,
+    download_url: String,
+}
+
+#[derive(Debug, Clone)]
+struct UpdateUiState {
+    latest_version: Option<String>,
+    download_url: String,
+    checking: bool,
+    checked_once: bool,
+    dismissed_badge_version: Option<String>,
+}
+
+impl Default for UpdateUiState {
+    fn default() -> Self {
+        Self {
+            latest_version: None,
+            download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
+            checking: false,
+            checked_once: false,
+            dismissed_badge_version: None,
+        }
+    }
+}
+
+impl UpdateUiState {
+    fn has_update_available(&self) -> bool {
+        let Some(latest) = self.latest_version.as_ref() else {
+            return false;
+        };
+        is_newer_version(latest, env!("CARGO_PKG_VERSION"))
+    }
+
+    fn should_show_badge(&self) -> bool {
+        let Some(latest) = self.latest_version.as_ref() else {
+            return false;
+        };
+        if !self.has_update_available() {
+            return false;
+        }
+        self.dismissed_badge_version.as_deref() != Some(latest.as_str())
+    }
+
+    fn menu_label(&self) -> String {
+        let current = env!("CARGO_PKG_VERSION");
+        if self.has_update_available() {
+            let latest = self.latest_version.as_deref().unwrap_or("unknown");
+            return format!("get newest version ({latest}) (current {current})");
+        }
+        format!("check for updates (version {current})")
+    }
+}
+
+fn parse_version(input: &str) -> Option<Version> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Version::parse(trimmed.trim_start_matches('v')).ok()
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    let Some(latest_version) = parse_version(latest) else {
+        return false;
+    };
+    let Some(current_version) = parse_version(current) else {
+        return false;
+    };
+    latest_version > current_version
+}
+
+fn open_external_url(url: &str) {
+    #[cfg(target_os = "macos")]
+    let command = ("open", vec![url.to_string()]);
+    #[cfg(target_os = "windows")]
+    let command = (
+        "cmd",
+        vec![
+            "/C".to_string(),
+            "start".to_string(),
+            "".to_string(),
+            url.to_string(),
+        ],
+    );
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let command = ("xdg-open", vec![url.to_string()]);
+
+    let (program, args) = command;
+    if let Err(error) = std::process::Command::new(program).args(args).spawn() {
+        eprintln!("warning: failed to open external url: {error}");
+    }
+}
+
+fn check_latest_release() -> UpdateCheckResult {
+    let response = ureq::get(UPDATE_RELEASE_API_URL)
+        .set("User-Agent", "downshift")
+        .call();
+    let Ok(response) = response else {
+        return UpdateCheckResult {
+            latest_version: None,
+            download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
+        };
+    };
+    let body = response.into_string().unwrap_or_default();
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let latest_version = data
+        .get("tag_name")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let download_url = data
+        .get("html_url")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| UPDATE_DOWNLOAD_FALLBACK_URL.to_string());
+    UpdateCheckResult {
+        latest_version,
+        download_url,
+    }
+}
+
+fn spawn_update_check(proxy: EventLoopProxy<AppEvent>, source: UpdateCheckSource, delay_sec: u64) {
+    std::thread::spawn(move || {
+        if delay_sec > 0 {
+            std::thread::sleep(Duration::from_secs(delay_sec));
+        }
+        let result = check_latest_release();
+        let _ = proxy.send_event(AppEvent::UpdateCheckFinished(result, source));
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -504,6 +925,7 @@ struct NativeContextMenu {
     size_xl: MenuItem,
     reset: MenuItem,
     quit: MenuItem,
+    update_primary: MenuItem,
     analytics_menu: Submenu,
     usage_on: CheckMenuItem,
     usage_off: CheckMenuItem,
@@ -522,6 +944,12 @@ impl NativeContextMenu {
         let size_xl = MenuItem::with_id(MENU_ID_SIZE_XL, "XL (160px)", true, None);
         let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
         let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
+        let update_primary = MenuItem::with_id(
+            MENU_ID_UPDATE_PRIMARY,
+            format!("check for updates (version {})", env!("CARGO_PKG_VERSION")),
+            true,
+            None,
+        );
         let usage_on = CheckMenuItem::with_id(
             MENU_ID_USAGE_ON,
             "share anonymous usage data",
@@ -585,6 +1013,7 @@ impl NativeContextMenu {
         let separator_one = PredefinedMenuItem::separator();
         let separator_two = PredefinedMenuItem::separator();
         let separator_three = PredefinedMenuItem::separator();
+        let separator_four = PredefinedMenuItem::separator();
         let root = match Submenu::with_items(
             "menu",
             true,
@@ -596,6 +1025,8 @@ impl NativeContextMenu {
                 &reset,
                 &quit,
                 &separator_three,
+                &update_primary,
+                &separator_four,
                 &analytics_menu,
             ],
         ) {
@@ -615,6 +1046,7 @@ impl NativeContextMenu {
             size_xl,
             reset,
             quit,
+            update_primary,
             analytics_menu,
             usage_on,
             usage_off,
@@ -624,7 +1056,7 @@ impl NativeContextMenu {
         })
     }
 
-    fn sync_from_settings(&self, settings: &Settings, size_presets: [f64; 4]) {
+    fn sync_from_settings(&self, settings: &Settings, size_presets: [f64; 4], update_label: &str) {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
@@ -640,6 +1072,8 @@ impl NativeContextMenu {
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.reset.set_enabled(true);
         self.quit.set_enabled(true);
+        self.update_primary.set_text(update_label);
+        self.update_primary.set_enabled(true);
         self.analytics_menu.set_enabled(true);
     }
 
@@ -659,6 +1093,9 @@ struct App {
     telemetry_info_window: Option<Window>,
     telemetry_info_window_id: Option<WindowId>,
     telemetry_info_webview: Option<WebView>,
+    update_dialog_window: Option<Window>,
+    update_dialog_window_id: Option<WindowId>,
+    update_dialog_webview: Option<WebView>,
     #[cfg(target_os = "macos")]
     native_context_menu: Option<NativeContextMenu>,
     startup_error: Option<String>,
@@ -670,6 +1107,8 @@ struct App {
     telemetry: RuntimeTelemetryClient,
     telemetry_install_first_run: bool,
     session_ended: bool,
+    updates: UpdateUiState,
+    manual_update_check_in_flight: bool,
 }
 
 impl Default for App {
@@ -684,6 +1123,9 @@ impl Default for App {
             telemetry_info_window: None,
             telemetry_info_window_id: None,
             telemetry_info_webview: None,
+            update_dialog_window: None,
+            update_dialog_window_id: None,
+            update_dialog_webview: None,
             #[cfg(target_os = "macos")]
             native_context_menu: None,
             startup_error: None,
@@ -695,6 +1137,8 @@ impl Default for App {
             telemetry,
             telemetry_install_first_run,
             session_ended: false,
+            updates: UpdateUiState::default(),
+            manual_update_check_in_flight: false,
         }
     }
 }
@@ -914,6 +1358,191 @@ impl App {
         }
     }
 
+    fn sync_update_menu_state(&self) {
+        #[cfg(target_os = "macos")]
+        if let Some(menu) = self.native_context_menu.as_ref() {
+            menu.sync_from_settings(
+                &self.settings,
+                self.current_size_presets(),
+                &self.updates.menu_label(),
+            );
+        }
+    }
+
+    fn sync_update_state_to_webview(&self) {
+        let Some(webview) = self.webview.as_ref() else {
+            return;
+        };
+        let js = format!(
+            "window.breathBallApplyState({{ update_menu_label: {}, update_has_new_version: {}, update_show_badge: {} }});",
+            serde_json::json!(self.updates.menu_label()),
+            self.updates.has_update_available(),
+            self.updates.should_show_badge()
+        );
+        let _ = webview.evaluate_script(&js);
+    }
+
+    fn sync_update_surfaces(&self) {
+        self.sync_update_menu_state();
+        self.sync_update_state_to_webview();
+    }
+
+    fn dismiss_current_update_badge(&mut self) {
+        let Some(latest) = self.updates.latest_version.as_ref() else {
+            return;
+        };
+        self.settings.dismissed_update_version = Some(latest.clone());
+        self.updates.dismissed_badge_version = Some(latest.clone());
+        self.save_settings();
+        self.sync_update_surfaces();
+    }
+
+    fn apply_update_check_result(&mut self, result: UpdateCheckResult) {
+        if let Some(latest) = result.latest_version {
+            self.updates.latest_version = Some(latest.clone());
+            self.settings.cached_latest_update_version = Some(latest);
+            self.save_settings();
+        }
+        self.updates.download_url = result.download_url;
+        self.updates.checked_once = true;
+        self.updates.checking = false;
+        self.updates.dismissed_badge_version = self.settings.dismissed_update_version.clone();
+
+        if let Some(latest) = self.updates.latest_version.as_ref() {
+            if self.settings.dismissed_update_version.as_deref() == Some(latest.as_str())
+                && !self.updates.has_update_available()
+            {
+                self.settings.dismissed_update_version = None;
+                self.save_settings();
+            }
+        }
+        self.sync_update_surfaces();
+    }
+
+    fn launch_update_download(&self) {
+        let url = if self.updates.has_update_available() {
+            self.updates.download_url.as_str()
+        } else {
+            UPDATE_DOWNLOAD_FALLBACK_URL
+        };
+        open_external_url(url);
+    }
+
+    fn open_update_dialog_window(&mut self, event_loop: &ActiveEventLoop) {
+        if self.update_dialog_window.is_some() {
+            if let Some(window) = self.update_dialog_window.as_ref() {
+                window.focus_window();
+            }
+            return;
+        }
+        let attrs = Window::default_attributes()
+            .with_title("updates")
+            .with_resizable(false)
+            .with_inner_size(LogicalSize::new(360.0, 168.0))
+            .with_min_inner_size(LogicalSize::new(360.0, 168.0))
+            .with_max_inner_size(LogicalSize::new(360.0, 168.0));
+        let window = match event_loop.create_window(attrs) {
+            Ok(window) => window,
+            Err(error) => {
+                eprintln!("warning: failed to create update dialog window: {error}");
+                return;
+            }
+        };
+        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
+            eprintln!("warning: missing event loop proxy for update dialog window");
+            return;
+        };
+        let window_id = window.id();
+        let webview = match WebViewBuilder::new()
+            .with_html(UPDATE_DIALOG_HTML)
+            .with_ipc_handler(move |request: wry::http::Request<String>| {
+                let payload = request.into_body();
+                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
+            })
+            .build_as_child(&window)
+        {
+            Ok(webview) => webview,
+            Err(error) => {
+                eprintln!("warning: failed to create update dialog webview: {error}");
+                return;
+            }
+        };
+
+        self.update_dialog_window = Some(window);
+        self.update_dialog_window_id = Some(window_id);
+        self.update_dialog_webview = Some(webview);
+        self.sync_update_dialog_webview_bounds();
+    }
+
+    fn sync_update_dialog_webview_bounds(&self) {
+        let (Some(window), Some(webview)) = (
+            self.update_dialog_window.as_ref(),
+            self.update_dialog_webview.as_ref(),
+        ) else {
+            return;
+        };
+        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
+        let bounds = Rect {
+            position: LogicalPosition::new(0, 0).into(),
+            size: LogicalSize::new(size.width, size.height).into(),
+        };
+        if let Err(error) = webview.set_bounds(bounds) {
+            eprintln!("warning: failed to sync update dialog webview bounds: {error}");
+        }
+    }
+
+    fn close_update_dialog_window(&mut self) {
+        self.update_dialog_webview = None;
+        self.update_dialog_window = None;
+        self.update_dialog_window_id = None;
+    }
+
+    fn set_update_dialog_mode_checking(&self) {
+        if let Some(webview) = self.update_dialog_webview.as_ref() {
+            let _ = webview.evaluate_script("window.updateDialogApplyState({ mode: 'checking' });");
+        }
+    }
+
+    fn set_update_dialog_mode_result(&self) {
+        let Some(webview) = self.update_dialog_webview.as_ref() else {
+            return;
+        };
+        let js = if self.updates.has_update_available() {
+            format!(
+                "window.updateDialogApplyState({{ mode: 'available', latest_version: {} }});",
+                serde_json::json!(self.updates.latest_version)
+            )
+        } else {
+            "window.updateDialogApplyState({ mode: 'latest' });".to_string()
+        };
+        let _ = webview.evaluate_script(&js);
+    }
+
+    fn run_manual_update_check_with_dialog(&mut self, event_loop: &ActiveEventLoop) {
+        self.open_update_dialog_window(event_loop);
+        self.set_update_dialog_mode_checking();
+        if self.manual_update_check_in_flight {
+            return;
+        }
+        self.manual_update_check_in_flight = true;
+        self.updates.checking = true;
+        let Some(proxy) = self.event_loop_proxy.as_ref().cloned() else {
+            self.manual_update_check_in_flight = false;
+            self.updates.checking = false;
+            return;
+        };
+        spawn_update_check(proxy, UpdateCheckSource::Manual, 0);
+    }
+
+    fn handle_update_primary_action(&mut self, event_loop: &ActiveEventLoop) {
+        if self.updates.has_update_available() {
+            self.dismiss_current_update_badge();
+            self.launch_update_download();
+            return;
+        }
+        self.run_manual_update_check_with_dialog(event_loop);
+    }
+
     fn open_telemetry_info_window(&mut self, event_loop: &ActiveEventLoop) {
         if self.telemetry_info_window.is_some() {
             if let Some(window) = self.telemetry_info_window.as_ref() {
@@ -985,6 +1614,14 @@ impl App {
         }
     }
 
+    fn handle_update_dialog_window_event(&mut self, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => self.close_update_dialog_window(),
+            WindowEvent::Resized(_) => self.sync_update_dialog_webview_bounds(),
+            _ => {}
+        }
+    }
+
     fn sync_privacy_state_to_webview(&self) {
         if let Some(webview) = self.webview.as_ref() {
             let js = format!(
@@ -1038,6 +1675,10 @@ impl App {
           "half_cycle_seconds": self.settings.half_cycle_seconds,
           "usage_data_sharing": self.settings.usage_data_sharing,
           "crash_reports_sharing": self.settings.crash_reports_sharing,
+          "update_menu_label": self.updates.menu_label(),
+          "update_has_new_version": self.updates.has_update_available(),
+          "update_show_badge": self.updates.should_show_badge(),
+          "update_tooltip": UPDATE_TOOLTIP,
           "size_presets": size_presets,
           "use_native_menu": cfg!(target_os = "macos"),
         });
@@ -1156,7 +1797,11 @@ impl App {
                         None,
                     );
                 } else {
-                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
+                    self.telemetry_activity_state(
+                        ActivityState::Active,
+                        ActivityTrigger::Manual,
+                        None,
+                    );
                 }
                 self.save_settings();
             }
@@ -1177,6 +1822,17 @@ impl App {
                 self.open_telemetry_info_window(event_loop);
             }
             IpcCommand::CloseTelemetryInfo => self.close_telemetry_info_window(),
+            IpcCommand::UpdatePrimaryAction => {
+                self.handle_update_primary_action(event_loop);
+            }
+            IpcCommand::DismissUpdateBadge => {
+                self.dismiss_current_update_badge();
+            }
+            IpcCommand::CloseUpdateDialog => self.close_update_dialog_window(),
+            IpcCommand::DownloadUpdate => {
+                self.close_update_dialog_window();
+                self.launch_update_download();
+            }
             IpcCommand::ShowContextMenu { x, y } => {
                 self.telemetry_menu_action(MenuAction::AnalyticsMenu, None);
                 #[cfg(target_os = "macos")]
@@ -1265,7 +1921,11 @@ impl App {
                 return;
             }
         };
-        menu.sync_from_settings(&self.settings, self.current_size_presets());
+        menu.sync_from_settings(
+            &self.settings,
+            self.current_size_presets(),
+            &self.updates.menu_label(),
+        );
         menu.sync_consent(
             self.settings.usage_data_sharing,
             self.settings.crash_reports_sharing,
@@ -1297,7 +1957,11 @@ impl App {
                         None,
                     );
                 } else {
-                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
+                    self.telemetry_activity_state(
+                        ActivityState::Active,
+                        ActivityTrigger::Manual,
+                        None,
+                    );
                 }
                 self.save_settings();
             }
@@ -1343,6 +2007,7 @@ impl App {
                 self.apply_crash_reports_sharing(false);
             }
             MENU_ID_ANALYTICS_INFO => self.show_analytics_modal(event_loop),
+            MENU_ID_UPDATE_PRIMARY => self.handle_update_primary_action(event_loop),
             _ => {}
         }
     }
@@ -1356,6 +2021,8 @@ impl ApplicationHandler<AppEvent> for App {
         self.config_path = Self::config_path();
         let settings_exist = self.config_path.as_ref().is_some_and(|path| path.exists());
         self.settings = load_settings(self.config_path.as_deref());
+        self.updates.dismissed_badge_version = self.settings.dismissed_update_version.clone();
+        self.updates.latest_version = self.settings.cached_latest_update_version.clone();
         self.telemetry
             .set_usage_enabled(self.settings.usage_data_sharing);
         self.telemetry
@@ -1466,6 +2133,7 @@ impl ApplicationHandler<AppEvent> for App {
             self.native_context_menu = NativeContextMenu::new();
         }
         self.sync_analytics_menu_state();
+        self.sync_update_surfaces();
         self.telemetry.start_session(if self.settings.paused {
             ActivityState::Disabled
         } else {
@@ -1484,6 +2152,20 @@ impl ApplicationHandler<AppEvent> for App {
         self.enforce_fixed_square_size();
         self.sync_webview_bounds();
         self.save_settings();
+
+        if let Some(proxy) = self.event_loop_proxy.as_ref().cloned() {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(UPDATE_CHECK_STARTUP_DELAY_SEC));
+                loop {
+                    let result = check_latest_release();
+                    let _ = proxy.send_event(AppEvent::UpdateCheckFinished(
+                        result,
+                        UpdateCheckSource::Background,
+                    ));
+                    std::thread::sleep(Duration::from_secs(UPDATE_CHECK_BACKGROUND_INTERVAL_SEC));
+                }
+            });
+        }
     }
 
     fn window_event(
@@ -1494,6 +2176,10 @@ impl ApplicationHandler<AppEvent> for App {
     ) {
         if Some(window_id) == self.telemetry_info_window_id {
             self.handle_telemetry_info_window_event(event);
+            return;
+        }
+        if Some(window_id) == self.update_dialog_window_id {
+            self.handle_update_dialog_window_event(event);
             return;
         }
         if Some(window_id) != self.window_id {
@@ -1553,6 +2239,13 @@ impl ApplicationHandler<AppEvent> for App {
                 self.handle_ipc_command(event_loop, command);
             }
             AppEvent::TelemetryHeartbeat => self.telemetry_heartbeat(),
+            AppEvent::UpdateCheckFinished(result, source) => {
+                self.apply_update_check_result(result);
+                if source == UpdateCheckSource::Manual {
+                    self.manual_update_check_in_flight = false;
+                    self.set_update_dialog_mode_result();
+                }
+            }
             #[cfg(target_os = "macos")]
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
         }
@@ -1673,7 +2366,10 @@ fn main() -> std::process::ExitCode {
     let heartbeat_interval = heartbeat_interval();
     std::thread::spawn(move || loop {
         std::thread::sleep(heartbeat_interval);
-        if heartbeat_proxy.send_event(AppEvent::TelemetryHeartbeat).is_err() {
+        if heartbeat_proxy
+            .send_event(AppEvent::TelemetryHeartbeat)
+            .is_err()
+        {
             break;
         }
     });
@@ -1735,5 +2431,12 @@ mod tests {
             heartbeat_interval(),
             Duration::from_secs(MAX_HEARTBEAT_INTERVAL_SEC)
         );
+    }
+
+    #[test]
+    fn newer_version_detection_handles_v_prefix() {
+        assert!(is_newer_version("v0.2.0", "0.1.5"));
+        assert!(!is_newer_version("0.1.5", "0.1.5"));
+        assert!(!is_newer_version("0.1.4", "0.1.5"));
     }
 }

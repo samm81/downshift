@@ -1,6 +1,6 @@
 [package]
 name = "downshift"
-version = "0.1.5"
+version = "0.1.4"
 edition = "2021"
 
 [dependencies]
@@ -11,6 +11,7 @@ fastrand = "2.3"
 sentry = "0.45"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+semver = "1.0"
 toml = "0.8"
 ureq = "2.12"
 uuid = { version = "1.10", features = ["v4"] }
