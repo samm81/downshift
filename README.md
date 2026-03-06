@@ -95,6 +95,32 @@ this creates:
 - `dist/Downshift-unsigned.dmg`
 - `dist/SHA256SUMS.txt`
 
+## mac distribution (signed + notarized dmg)
+
+required env vars:
+
+```bash
+export MACOS_CERT_P12_B64='...'
+export MACOS_CERT_P12_PASSWORD='...'
+export MACOS_KEYCHAIN_PASSWORD='...'
+export MACOS_SIGNING_IDENTITY='Developer ID Application: Example, Inc. (TEAMID)'
+export MACOS_NOTARY_APPLE_ID='name@example.com'
+export MACOS_NOTARY_APP_PASSWORD='app-specific-password'
+export MACOS_NOTARY_TEAM_ID='TEAMID'
+```
+
+build signed + notarized release archives:
+
+```bash
+make release-notarized
+```
+
+this creates:
+
+- `dist/Downshift-signed.zip`
+- `dist/Downshift-notarized.dmg`
+- `dist/SHA256SUMS.txt`
+
 ## versioning and tag sync
 
 rust stores the app version in `Cargo.toml` under `[package].version`.
@@ -112,6 +138,11 @@ with `TAG` set, the release archives include the version in the filename:
 - `dist/Downshift-unsigned-v0.1.0.zip`
 - `dist/Downshift-unsigned-v0.1.0.dmg`
 
+for notarized releases, filenames are:
+
+- `dist/Downshift-signed-v0.1.0.zip`
+- `dist/Downshift-notarized-v0.1.0.dmg`
+
 this fails if:
 
 - tag is `v0.1.0` but `Cargo.toml` version is not `0.1.0`
@@ -123,7 +154,7 @@ recommended release sequence:
 # edit Cargo.toml -> version = "0.1.0"
 
 # 2) verify packaging + tag sync
-make release TAG=v0.1.0
+make release-notarized TAG=v0.1.0
 
 # 3) commit, tag, push
 git add Cargo.toml Cargo.lock Makefile README.md

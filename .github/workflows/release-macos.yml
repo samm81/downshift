@@ -20,6 +20,13 @@ jobs:
       DOWNSHIFT_BETTERSTACK_LOGS_HOST: ${{ secrets.DOWNSHIFT_BETTERSTACK_LOGS_HOST }}
       DOWNSHIFT_BETTERSTACK_ERRORS_DSN: ${{ secrets.DOWNSHIFT_BETTERSTACK_ERRORS_DSN }}
       DOWNSHIFT_BUILD_CHANNEL: ${{ vars.DOWNSHIFT_BUILD_CHANNEL }}
+      MACOS_CERT_P12_B64: ${{ secrets.MACOS_CERT_P12_B64 }}
+      MACOS_CERT_P12_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+      MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+      MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+      MACOS_NOTARY_APP_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+      MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -33,15 +40,15 @@ jobs:
       - name: cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: build app + archives
+      - name: build signed + notarized release
         run: |
-          make release TAG="${GITHUB_REF_NAME}"
+          make release-notarized TAG="${GITHUB_REF_NAME}"
 
       - name: collect artifacts
         run: |
           mkdir -p release-artifacts
-          cp dist/${APP_NAME}-unsigned*.zip release-artifacts/
-          cp dist/${APP_NAME}-unsigned*.dmg release-artifacts/
+          cp dist/${APP_NAME}-signed*.zip release-artifacts/
+          cp dist/${APP_NAME}-notarized*.dmg release-artifacts/
           cp "dist/SHA256SUMS.txt" release-artifacts/
 
       - name: upload workflow artifacts
@@ -55,6 +62,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-artifacts/${{ env.APP_NAME }}-unsigned*.zip
-            release-artifacts/${{ env.APP_NAME }}-unsigned*.dmg
+            release-artifacts/${{ env.APP_NAME }}-signed*.zip
+            release-artifacts/${{ env.APP_NAME }}-notarized*.dmg
             release-artifacts/SHA256SUMS.txt
