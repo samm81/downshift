@@ -57,6 +57,7 @@ fn logs_sink_sends_auth_and_expected_payload_shape() {
         assert_eq!(array.len(), 1);
         assert_eq!(array[0]["event_name"], "menu_action");
         assert_eq!(array[0]["schema_version"], 1);
+        assert_eq!(array[0][".env"], "unset");
         received_clone.store(1, Ordering::SeqCst);
 
         let _ = request.respond(Response::empty(200));
@@ -93,6 +94,7 @@ fn logs_sink_sends_auth_and_expected_payload_shape() {
             os: "macos".to_string(),
             arch: "aarch64".to_string(),
             build_channel: "alpha".to_string(),
+            telemetry_env: "unset".to_string(),
             properties: sample,
         }
     };

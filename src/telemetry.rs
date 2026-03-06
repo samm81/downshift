@@ -108,6 +108,8 @@ pub struct Envelope {
     pub os: String,
     pub arch: String,
     pub build_channel: String,
+    #[serde(rename = ".env", default = "default_telemetry_env")]
+    pub telemetry_env: String,
     pub properties: serde_json::Value,
 }
 
@@ -279,6 +281,14 @@ fn bool_true() -> bool {
     true
 }
 
+fn default_telemetry_env() -> String {
+    "unset".to_string()
+}
+
+fn telemetry_env_from_process() -> String {
+    env::var("DOWNSHIFT_ENV").unwrap_or_else(|_| default_telemetry_env())
+}
+
 #[derive(Clone)]
 pub struct RuntimeTelemetryClient {
     sender: mpsc::Sender<WorkerCommand>,
@@ -291,6 +301,7 @@ struct SharedContext {
     usage_enabled: Mutex<bool>,
     crash_enabled: Mutex<bool>,
     build_channel: String,
+    telemetry_env: String,
 }
 
 #[derive(Debug, Clone)]
@@ -365,6 +376,7 @@ impl RuntimeTelemetryClient {
             crash_enabled: Mutex::new(state.crash_enabled),
             build_channel: env_or_compiled("DOWNSHIFT_BUILD_CHANNEL", COMPILED_BUILD_CHANNEL)
                 .unwrap_or_else(|| "dev".to_string()),
+            telemetry_env: telemetry_env_from_process(),
         });
 
         let mut worker = Worker {
@@ -417,6 +429,7 @@ impl RuntimeTelemetryClient {
             os: env::consts::OS.to_string(),
             arch: env::consts::ARCH.to_string(),
             build_channel: self.shared.build_channel.clone(),
+            telemetry_env: self.shared.telemetry_env.clone(),
             properties,
         }
     }
@@ -1062,6 +1075,7 @@ mod tests {
             os: "macos".to_string(),
             arch: "aarch64".to_string(),
             build_channel: "alpha".to_string(),
+            telemetry_env: "unset".to_string(),
             properties: serde_json::json!({"action": "pause"}),
         };
 
@@ -1165,6 +1179,42 @@ mod tests {
             .expect("disabled duration should be u64 seconds");
         assert!(active_duration_sec >= 1);
         assert!(disabled_duration_sec >= 1);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    #[serial]
+    fn telemetry_env_defaults_to_unset_when_var_missing() {
+        let root = temp_dir("env-default");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+        std::env::remove_var("DOWNSHIFT_ENV");
+        let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let state = TelemetryState {
+            anon_user_id: Uuid::new_v4().to_string(),
+            usage_enabled: true,
+            crash_enabled: true,
+            install_first_run: false,
+        };
+        let client = RuntimeTelemetryClient::new_with_sinks(
+            state,
+            Box::new(CollectingSink {
+                events: captured_events.clone(),
+            }),
+            Box::new(NoopSink),
+        );
+        client.track(
+            EventName::MenuAction,
+            serde_json::json!({"action": "pause"}),
+        );
+        client.flush(Duration::from_millis(250));
+        client.shutdown(Duration::from_millis(250));
+
+        let events = captured_events.lock().expect("captured events lock");
+        let menu_event = events
+            .iter()
+            .find(|event| event.event_name == EventName::MenuAction)
+            .expect("menu action should be captured");
+        assert_eq!(menu_event.telemetry_env, "unset");
         std::fs::remove_dir_all(root).ok();
     }
 }
