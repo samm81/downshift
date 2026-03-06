@@ -109,7 +109,7 @@ pub struct Envelope {
     pub os: String,
     pub arch: String,
     pub build_channel: String,
-    #[serde(rename = ".env", default = "default_telemetry_env")]
+    #[serde(rename = "env", default = "default_telemetry_env")]
     pub telemetry_env: String,
     pub properties: serde_json::Value,
 }
