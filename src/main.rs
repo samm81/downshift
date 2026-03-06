@@ -6,6 +6,7 @@ use downshift::{
     apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
     PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
 };
+use std::time::Duration;
 #[cfg(target_os = "macos")]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 #[cfg(target_os = "macos")]
@@ -23,6 +24,9 @@ use wry::{Rect, WebView, WebViewBuilder};
 const DEFAULT_SIZE_SHORT_SIDE_RATIO: f64 = 0.10;
 const DEFAULT_EDGE_MARGIN_RATIO: f64 = 0.05;
 const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
+const DEFAULT_HEARTBEAT_INTERVAL_SEC: u64 = 60;
+const MIN_HEARTBEAT_INTERVAL_SEC: u64 = 5;
+const MAX_HEARTBEAT_INTERVAL_SEC: u64 = 3600;
 #[cfg(target_os = "macos")]
 const MENU_ID_PAUSE: &str = "pause";
 #[cfg(target_os = "macos")]
@@ -483,6 +487,7 @@ const TELEMETRY_INFO_HTML: &str = r#"<!doctype html>
 enum AppEvent {
     ExitRequested,
     Ipc(String),
+    TelemetryHeartbeat,
     #[cfg(target_os = "macos")]
     MenuActivated(String),
 }
@@ -721,6 +726,36 @@ impl App {
             serde_json::json!({
                 "setting": setting,
                 "new_value": if enabled { "enabled" } else { "disabled" },
+            }),
+        );
+    }
+
+    fn widget_dimensions_px(&self) -> (u32, u32) {
+        if let Some(window) = self.window.as_ref() {
+            let size = window.inner_size();
+            return (size.width, size.height);
+        }
+        let size = self.settings.size.round().max(0.0) as u32;
+        (size, size)
+    }
+
+    fn telemetry_heartbeat(&self) {
+        if self.session_ended {
+            return;
+        }
+        let (width_px, height_px) = self.widget_dimensions_px();
+        self.telemetry.track(
+            EventName::SessionHeartbeat,
+            serde_json::json!({
+                "state": if self.settings.paused { "disabled" } else { "active" },
+                "config": {
+                    "paused": self.settings.paused,
+                    "half_cycle_seconds": self.settings.half_cycle_seconds,
+                    "width_px": width_px,
+                    "height_px": height_px,
+                    "usage_enabled": self.settings.usage_data_sharing,
+                    "crash_enabled": self.settings.crash_reports_sharing,
+                }
             }),
         );
     }
@@ -1517,6 +1552,7 @@ impl ApplicationHandler<AppEvent> for App {
                 };
                 self.handle_ipc_command(event_loop, command);
             }
+            AppEvent::TelemetryHeartbeat => self.telemetry_heartbeat(),
             #[cfg(target_os = "macos")]
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
         }
@@ -1573,6 +1609,15 @@ fn default_size_for_monitor(monitor: &MonitorHandle) -> f64 {
     clamp_size(shorter_side * DEFAULT_SIZE_SHORT_SIDE_RATIO)
 }
 
+fn heartbeat_interval() -> Duration {
+    let value = std::env::var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .map(|seconds| seconds.clamp(MIN_HEARTBEAT_INTERVAL_SEC, MAX_HEARTBEAT_INTERVAL_SEC))
+        .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SEC);
+    Duration::from_secs(value)
+}
+
 fn size_presets_for_monitor(monitor: &MonitorHandle) -> [f64; 4] {
     let scale = monitor.scale_factor();
     let logical = monitor.size().to_logical::<f64>(scale);
@@ -1624,6 +1669,14 @@ fn main() -> std::process::ExitCode {
             let _ = menu_proxy.send_event(AppEvent::MenuActivated(event.id().as_ref().to_string()));
         }));
     }
+    let heartbeat_proxy = event_loop_proxy.clone();
+    let heartbeat_interval = heartbeat_interval();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(heartbeat_interval);
+        if heartbeat_proxy.send_event(AppEvent::TelemetryHeartbeat).is_err() {
+            break;
+        }
+    });
 
     let mut app = App::default();
     app.event_loop_proxy = Some(event_loop_proxy);
@@ -1647,4 +1700,40 @@ fn main() -> std::process::ExitCode {
     }
     app.finish_session(SessionEndReason::Unknown);
     std::process::ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn heartbeat_interval_defaults_to_sixty_seconds() {
+        std::env::remove_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC");
+        assert_eq!(heartbeat_interval(), Duration::from_secs(60));
+    }
+
+    #[test]
+    #[serial]
+    fn heartbeat_interval_uses_env_var_within_bounds() {
+        std::env::set_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC", "75");
+        assert_eq!(heartbeat_interval(), Duration::from_secs(75));
+    }
+
+    #[test]
+    #[serial]
+    fn heartbeat_interval_clamps_to_min_and_max() {
+        std::env::set_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC", "1");
+        assert_eq!(
+            heartbeat_interval(),
+            Duration::from_secs(MIN_HEARTBEAT_INTERVAL_SEC)
+        );
+
+        std::env::set_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC", "7200");
+        assert_eq!(
+            heartbeat_interval(),
+            Duration::from_secs(MAX_HEARTBEAT_INTERVAL_SEC)
+        );
+    }
 }

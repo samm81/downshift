@@ -28,6 +28,7 @@ const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNE
 pub enum EventName {
     InstallFirstRun,
     SessionStart,
+    SessionHeartbeat,
     SessionEnd,
     ActivityStateChanged,
     MenuAction,
@@ -982,6 +983,13 @@ mod tests {
         assert_eq!(disabled_timed, "\"disabled_timed\"");
         assert_eq!(expiry_timed, "\"expiry_timed\"");
         assert_eq!(disabled_forever, "\"disabled_forever\"");
+    }
+
+    #[test]
+    fn event_name_serializes_session_heartbeat() {
+        let heartbeat = serde_json::to_string(&EventName::SessionHeartbeat)
+            .expect("serialize event name");
+        assert_eq!(heartbeat, "\"session_heartbeat\"");
     }
 
     #[test]
