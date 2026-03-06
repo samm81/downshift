@@ -780,6 +780,15 @@ enum UpdateCheckSource {
     Manual,
 }
 
+impl UpdateCheckSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Background => "background",
+            Self::Manual => "manual",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct UpdateCheckResult {
     latest_version: Option<String>,
@@ -1174,6 +1183,11 @@ impl App {
         );
     }
 
+    fn telemetry_update_flow(&self, action: &str, mut properties: serde_json::Value) {
+        properties["action"] = serde_json::json!(action);
+        self.telemetry.track(EventName::UpdateFlow, properties);
+    }
+
     fn apply_usage_data_sharing(&mut self, enabled: bool) {
         self.settings.usage_data_sharing = enabled;
         if enabled {
@@ -1391,6 +1405,12 @@ impl App {
         let Some(latest) = self.updates.latest_version.as_ref() else {
             return;
         };
+        self.telemetry_update_flow(
+            "badge_dismissed",
+            serde_json::json!({
+                "latest_version": latest,
+            }),
+        );
         self.settings.dismissed_update_version = Some(latest.clone());
         self.updates.dismissed_badge_version = Some(latest.clone());
         self.save_settings();
@@ -1419,7 +1439,16 @@ impl App {
         self.sync_update_surfaces();
     }
 
-    fn launch_update_download(&self) {
+    fn launch_update_download(&self, source: &str) {
+        let latest_version = self.updates.latest_version.clone();
+        self.telemetry_update_flow(
+            "download_opened",
+            serde_json::json!({
+                "source": source,
+                "has_update_available": self.updates.has_update_available(),
+                "latest_version": latest_version,
+            }),
+        );
         let url = if self.updates.has_update_available() {
             self.updates.download_url.as_str()
         } else {
@@ -1524,6 +1553,7 @@ impl App {
         if self.manual_update_check_in_flight {
             return;
         }
+        self.telemetry_update_flow("manual_check_started", serde_json::json!({}));
         self.manual_update_check_in_flight = true;
         self.updates.checking = true;
         let Some(proxy) = self.event_loop_proxy.as_ref().cloned() else {
@@ -1537,7 +1567,7 @@ impl App {
     fn handle_update_primary_action(&mut self, event_loop: &ActiveEventLoop) {
         if self.updates.has_update_available() {
             self.dismiss_current_update_badge();
-            self.launch_update_download();
+            self.launch_update_download("menu");
             return;
         }
         self.run_manual_update_check_with_dialog(event_loop);
@@ -1831,7 +1861,7 @@ impl App {
             IpcCommand::CloseUpdateDialog => self.close_update_dialog_window(),
             IpcCommand::DownloadUpdate => {
                 self.close_update_dialog_window();
-                self.launch_update_download();
+                self.launch_update_download("dialog");
             }
             IpcCommand::ShowContextMenu { x, y } => {
                 self.telemetry_menu_action(MenuAction::AnalyticsMenu, None);
@@ -2240,6 +2270,19 @@ impl ApplicationHandler<AppEvent> for App {
             }
             AppEvent::TelemetryHeartbeat => self.telemetry_heartbeat(),
             AppEvent::UpdateCheckFinished(result, source) => {
+                let latest_version = result.latest_version.clone();
+                let has_update_available = latest_version
+                    .as_deref()
+                    .map(|latest| is_newer_version(latest, env!("CARGO_PKG_VERSION")))
+                    .unwrap_or(false);
+                self.telemetry_update_flow(
+                    "check_completed",
+                    serde_json::json!({
+                        "source": source.as_str(),
+                        "latest_version": latest_version,
+                        "has_update_available": has_update_available,
+                    }),
+                );
                 self.apply_update_check_result(result);
                 if source == UpdateCheckSource::Manual {
                     self.manual_update_check_in_flight = false;

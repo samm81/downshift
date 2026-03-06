@@ -13,9 +13,11 @@ use uuid::Uuid;
 pub const SCHEMA_VERSION: u32 = 1;
 const MAX_EVENTS_PER_SEC: usize = 5;
 const COMPILED_TELEMETRY_ENABLED: Option<&str> = option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
-const COMPILED_BETTERSTACK_LOGS_TOKEN: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN");
+const COMPILED_BETTERSTACK_LOGS_TOKEN: Option<&str> =
+    option_env!("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN");
 const COMPILED_BETTERSTACK_LOGS_HOST: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_HOST");
-const COMPILED_BETTERSTACK_ERRORS_DSN: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_ERRORS_DSN");
+const COMPILED_BETTERSTACK_ERRORS_DSN: Option<&str> =
+    option_env!("DOWNSHIFT_BETTERSTACK_ERRORS_DSN");
 const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +29,7 @@ pub enum EventName {
     SessionEnd,
     ActivityStateChanged,
     MenuAction,
+    UpdateFlow,
     PrivacyPreferenceChanged,
     AppError,
     AppCrash,
@@ -146,8 +149,14 @@ pub struct BetterStackLogsSink {
 impl BetterStackLogsSink {
     pub fn from_env() -> Option<Self> {
         static MISSING_LOGS_CONFIG_WARNING: Once = Once::new();
-        let token = env_or_compiled("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN", COMPILED_BETTERSTACK_LOGS_TOKEN);
-        let host = env_or_compiled("DOWNSHIFT_BETTERSTACK_LOGS_HOST", COMPILED_BETTERSTACK_LOGS_HOST);
+        let token = env_or_compiled(
+            "DOWNSHIFT_BETTERSTACK_LOGS_TOKEN",
+            COMPILED_BETTERSTACK_LOGS_TOKEN,
+        );
+        let host = env_or_compiled(
+            "DOWNSHIFT_BETTERSTACK_LOGS_HOST",
+            COMPILED_BETTERSTACK_LOGS_HOST,
+        );
         let (Some(token), Some(host)) = (token, host) else {
             MISSING_LOGS_CONFIG_WARNING.call_once(|| {
                 eprintln!(
@@ -189,19 +198,20 @@ pub struct SentryErrorSink {
 impl SentryErrorSink {
     pub fn from_env() -> Option<Self> {
         static MISSING_ERRORS_DSN_WARNING: Once = Once::new();
-        let dsn =
-            match env_or_compiled("DOWNSHIFT_BETTERSTACK_ERRORS_DSN", COMPILED_BETTERSTACK_ERRORS_DSN)
-            {
-                Some(dsn) => dsn,
-                None => {
+        let dsn = match env_or_compiled(
+            "DOWNSHIFT_BETTERSTACK_ERRORS_DSN",
+            COMPILED_BETTERSTACK_ERRORS_DSN,
+        ) {
+            Some(dsn) => dsn,
+            None => {
                 MISSING_ERRORS_DSN_WARNING.call_once(|| {
                     eprintln!(
                         "warning: telemetry crash sink disabled; set DOWNSHIFT_BETTERSTACK_ERRORS_DSN at runtime or build time"
                     );
                 });
                 return None;
-                }
-            };
+            }
+        };
         let release = format!("downshift@{}", env!("CARGO_PKG_VERSION"));
         let guard = sentry::init((
             dsn,
@@ -495,7 +505,8 @@ impl TelemetryClient for RuntimeTelemetryClient {
                 let elapsed = now.duration_since(session.state_started_at).as_secs();
                 match session.activity_state {
                     ActivityState::Active => {
-                        session.active_duration_sec = session.active_duration_sec.saturating_add(elapsed)
+                        session.active_duration_sec =
+                            session.active_duration_sec.saturating_add(elapsed)
                     }
                     ActivityState::Disabled => {
                         session.disabled_duration_sec =
@@ -861,9 +872,16 @@ mod tests {
 
     #[test]
     fn event_name_serializes_session_heartbeat() {
-        let heartbeat = serde_json::to_string(&EventName::SessionHeartbeat)
-            .expect("serialize event name");
+        let heartbeat =
+            serde_json::to_string(&EventName::SessionHeartbeat).expect("serialize event name");
         assert_eq!(heartbeat, "\"session_heartbeat\"");
+    }
+
+    #[test]
+    fn event_name_serializes_update_flow() {
+        let update_flow =
+            serde_json::to_string(&EventName::UpdateFlow).expect("serialize event name");
+        assert_eq!(update_flow, "\"update_flow\"");
     }
 
     #[test]

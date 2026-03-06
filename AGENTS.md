@@ -40,6 +40,7 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - by default, add or update tests in conjunction with code changes; do not treat tests as optional follow-up work.
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - `npm run check` is lint/format only and does not run rust tests.
+- when adding a new feature, add telemetry events when they are meaningful for product/usage visibility.
 
 ## pre-commit policy
 
