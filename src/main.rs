@@ -730,6 +730,36 @@ impl App {
         );
     }
 
+    fn apply_usage_data_sharing(&mut self, enabled: bool) {
+        self.settings.usage_data_sharing = enabled;
+        if enabled {
+            self.telemetry.set_usage_enabled(true);
+            self.telemetry_privacy_change("usage_data", true);
+        } else {
+            // Emit the opt-out event while usage telemetry is still enabled.
+            self.telemetry_privacy_change("usage_data", false);
+            self.telemetry.set_usage_enabled(false);
+        }
+        self.sync_privacy_state_to_webview();
+        self.sync_analytics_menu_state();
+        self.save_settings();
+    }
+
+    fn apply_crash_reports_sharing(&mut self, enabled: bool) {
+        self.settings.crash_reports_sharing = enabled;
+        if enabled {
+            self.telemetry.set_crash_enabled(true);
+            self.telemetry_privacy_change("crash_reports", true);
+        } else {
+            // Emit the opt-out event before disabling crash telemetry.
+            self.telemetry_privacy_change("crash_reports", false);
+            self.telemetry.set_crash_enabled(false);
+        }
+        self.sync_privacy_state_to_webview();
+        self.sync_analytics_menu_state();
+        self.save_settings();
+    }
+
     fn widget_dimensions_px(&self) -> (u32, u32) {
         if let Some(window) = self.window.as_ref() {
             let size = window.inner_size();
@@ -1135,20 +1165,10 @@ impl App {
                 self.save_settings();
             }
             IpcCommand::SetUsageDataSharing { enabled } => {
-                self.settings.usage_data_sharing = enabled;
-                self.telemetry.set_usage_enabled(enabled);
-                self.telemetry_privacy_change("usage_data", enabled);
-                self.sync_privacy_state_to_webview();
-                self.sync_analytics_menu_state();
-                self.save_settings();
+                self.apply_usage_data_sharing(enabled);
             }
             IpcCommand::SetCrashReportsSharing { enabled } => {
-                self.settings.crash_reports_sharing = enabled;
-                self.telemetry.set_crash_enabled(enabled);
-                self.telemetry_privacy_change("crash_reports", enabled);
-                self.sync_privacy_state_to_webview();
-                self.sync_analytics_menu_state();
-                self.save_settings();
+                self.apply_crash_reports_sharing(enabled);
             }
             IpcCommand::AnalyticsMenuOpened => {
                 self.telemetry_menu_action(MenuAction::AnalyticsMenu, None);
@@ -1311,36 +1331,16 @@ impl App {
                 event_loop.exit();
             }
             MENU_ID_USAGE_ON => {
-                self.settings.usage_data_sharing = true;
-                self.telemetry.set_usage_enabled(true);
-                self.telemetry_privacy_change("usage_data", true);
-                self.sync_privacy_state_to_webview();
-                self.sync_analytics_menu_state();
-                self.save_settings();
+                self.apply_usage_data_sharing(true);
             }
             MENU_ID_USAGE_OFF => {
-                self.settings.usage_data_sharing = false;
-                self.telemetry.set_usage_enabled(false);
-                self.telemetry_privacy_change("usage_data", false);
-                self.sync_privacy_state_to_webview();
-                self.sync_analytics_menu_state();
-                self.save_settings();
+                self.apply_usage_data_sharing(false);
             }
             MENU_ID_CRASH_ON => {
-                self.settings.crash_reports_sharing = true;
-                self.telemetry.set_crash_enabled(true);
-                self.telemetry_privacy_change("crash_reports", true);
-                self.sync_privacy_state_to_webview();
-                self.sync_analytics_menu_state();
-                self.save_settings();
+                self.apply_crash_reports_sharing(true);
             }
             MENU_ID_CRASH_OFF => {
-                self.settings.crash_reports_sharing = false;
-                self.telemetry.set_crash_enabled(false);
-                self.telemetry_privacy_change("crash_reports", false);
-                self.sync_privacy_state_to_webview();
-                self.sync_analytics_menu_state();
-                self.save_settings();
+                self.apply_crash_reports_sharing(false);
             }
             MENU_ID_ANALYTICS_INFO => self.show_analytics_modal(event_loop),
             _ => {}
