@@ -106,7 +106,7 @@ fn logs_sink_sends_auth_and_expected_payload_shape() {
 
 #[test]
 #[serial]
-fn retries_after_transient_failure_and_drains_when_recovered() {
+fn transient_failure_is_not_retried() {
     let server = Server::http("127.0.0.1:0").expect("start tiny_http server");
     let addr = format!("http://{}", server.server_addr());
     std::env::set_var("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN", "token-456");
@@ -115,12 +115,9 @@ fn retries_after_transient_failure_and_drains_when_recovered() {
     let hits = Arc::new(AtomicUsize::new(0));
     let hits_clone = hits.clone();
     let handle = std::thread::spawn(move || {
-        for index in 0..2 {
-            let request = server.recv().expect("receive request");
-            hits_clone.fetch_add(1, Ordering::SeqCst);
-            let status = if index == 0 { 500 } else { 200 };
-            let _ = request.respond(Response::empty(StatusCode(status)));
-        }
+        let request = server.recv().expect("receive request");
+        hits_clone.fetch_add(1, Ordering::SeqCst);
+        let _ = request.respond(Response::empty(StatusCode(500)));
     });
 
     let sink = BetterStackLogsSink::from_env().expect("sink from env");
@@ -136,10 +133,8 @@ fn retries_after_transient_failure_and_drains_when_recovered() {
     );
 
     client.flush(Duration::from_millis(250));
-    std::thread::sleep(Duration::from_secs(2));
-    client.flush(Duration::from_millis(500));
 
-    assert_eq!(hits.load(Ordering::SeqCst), 2);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
     client.shutdown(Duration::from_millis(400));
     handle.join().expect("server thread should join");
 }

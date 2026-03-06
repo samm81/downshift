@@ -3,8 +3,7 @@ use std::collections::VecDeque;
 use std::env;
 use std::fmt;
 use std::fs;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, Once};
 use std::thread;
@@ -12,11 +11,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 pub const SCHEMA_VERSION: u32 = 1;
-const MAX_QUEUE_EVENTS: usize = 1000;
-const MAX_QUEUE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_EVENTS_PER_SEC: usize = 5;
-const MAX_BATCH_SIZE: usize = 25;
-const FLUSH_INTERVAL: Duration = Duration::from_secs(5);
 const COMPILED_TELEMETRY_ENABLED: Option<&str> = option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
 const COMPILED_BETTERSTACK_LOGS_TOKEN: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN");
 const COMPILED_BETTERSTACK_LOGS_HOST: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_HOST");
@@ -327,14 +322,9 @@ enum WorkerCommand {
 struct Worker {
     usage_sink: Box<dyn TelemetrySink>,
     crash_sink: Box<dyn TelemetrySink>,
-    usage_queue: VecDeque<Envelope>,
-    usage_queue_bytes: usize,
     usage_enabled: bool,
     crash_enabled: bool,
-    spool_path: PathBuf,
     recent_events: VecDeque<Instant>,
-    retry_backoff: Duration,
-    next_retry_at: Instant,
 }
 
 impl RuntimeTelemetryClient {
@@ -368,7 +358,6 @@ impl RuntimeTelemetryClient {
         usage_sink: Box<dyn TelemetrySink>,
         crash_sink: Box<dyn TelemetrySink>,
     ) -> Self {
-        let spool_path = telemetry_queue_path();
         let (sender, receiver) = mpsc::channel();
         let shared = Arc::new(SharedContext {
             anon_user_id: state.anon_user_id,
@@ -383,21 +372,10 @@ impl RuntimeTelemetryClient {
         let mut worker = Worker {
             usage_sink,
             crash_sink,
-            usage_queue: load_spool(&spool_path),
-            usage_queue_bytes: 0,
             usage_enabled: state.usage_enabled,
             crash_enabled: state.crash_enabled,
-            spool_path,
             recent_events: VecDeque::new(),
-            retry_backoff: Duration::from_secs(1),
-            next_retry_at: Instant::now(),
         };
-        worker.usage_queue_bytes = worker
-            .usage_queue
-            .iter()
-            .map(serialized_event_size)
-            .sum::<usize>();
-        let _ = worker.persist_spool();
 
         thread::spawn(move || worker.run(receiver));
 
@@ -617,20 +595,9 @@ impl TelemetryClient for RuntimeTelemetryClient {
 
 impl Worker {
     fn run(&mut self, receiver: mpsc::Receiver<WorkerCommand>) {
-        loop {
-            match receiver.recv_timeout(FLUSH_INTERVAL) {
-                Ok(command) => {
-                    if self.handle_command(command) {
-                        break;
-                    }
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.flush_usage();
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    self.flush_usage();
-                    break;
-                }
+        while let Ok(command) = receiver.recv() {
+            if self.handle_command(command) {
+                break;
             }
         }
     }
@@ -639,10 +606,7 @@ impl Worker {
         match command {
             WorkerCommand::TrackUsage(envelope) => {
                 if self.usage_enabled && self.allow_event() {
-                    self.push_usage(envelope);
-                    if self.usage_queue.len() >= MAX_BATCH_SIZE {
-                        self.flush_usage();
-                    }
+                    let _ = self.usage_sink.send_batch(&[envelope]);
                 }
             }
             WorkerCommand::TrackCrash(envelope) => {
@@ -657,11 +621,9 @@ impl Worker {
                 self.crash_enabled = enabled;
             }
             WorkerCommand::Flush(done) => {
-                self.flush_usage();
                 let _ = done.send(());
             }
             WorkerCommand::Shutdown(done) => {
-                self.flush_usage();
                 let _ = done.send(());
                 return true;
             }
@@ -684,70 +646,6 @@ impl Worker {
         self.recent_events.push_back(now);
         true
     }
-
-    fn push_usage(&mut self, envelope: Envelope) {
-        let size = serialized_event_size(&envelope);
-        self.usage_queue.push_back(envelope);
-        self.usage_queue_bytes += size;
-        while self.usage_queue.len() > MAX_QUEUE_EVENTS || self.usage_queue_bytes > MAX_QUEUE_BYTES
-        {
-            if let Some(oldest) = self.usage_queue.pop_front() {
-                self.usage_queue_bytes = self
-                    .usage_queue_bytes
-                    .saturating_sub(serialized_event_size(&oldest));
-            } else {
-                break;
-            }
-        }
-        let _ = self.persist_spool();
-    }
-
-    fn flush_usage(&mut self) {
-        if !self.usage_enabled || self.usage_queue.is_empty() || Instant::now() < self.next_retry_at
-        {
-            return;
-        }
-
-        let batch: Vec<_> = self
-            .usage_queue
-            .iter()
-            .take(MAX_BATCH_SIZE)
-            .cloned()
-            .collect();
-        match self.usage_sink.send_batch(&batch) {
-            Ok(()) => {
-                for item in &batch {
-                    self.usage_queue_bytes = self
-                        .usage_queue_bytes
-                        .saturating_sub(serialized_event_size(item));
-                    let _ = self.usage_queue.pop_front();
-                }
-                self.retry_backoff = Duration::from_secs(1);
-                self.next_retry_at = Instant::now();
-                let _ = self.persist_spool();
-            }
-            Err(_) => {
-                let jitter_ms = fastrand::u64(0..500);
-                self.next_retry_at =
-                    Instant::now() + self.retry_backoff + Duration::from_millis(jitter_ms);
-                self.retry_backoff = (self.retry_backoff * 2).min(Duration::from_secs(60));
-            }
-        }
-    }
-
-    fn persist_spool(&self) -> Result<(), std::io::Error> {
-        if let Some(parent) = self.spool_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut content = String::new();
-        for event in &self.usage_queue {
-            if let Ok(line) = serde_json::to_string(event) {
-                content.push_str(&line);
-                content.push('\n');
-            }
-        }
-        fs::write(&self.spool_path, content)
-    }
 }
 
 fn normalize_logs_url(host: &str) -> String {
@@ -757,12 +655,6 @@ fn normalize_logs_url(host: &str) -> String {
     } else {
         format!("https://{trimmed}/")
     }
-}
-
-fn serialized_event_size(event: &Envelope) -> usize {
-    serde_json::to_vec(event)
-        .map(|bytes| bytes.len())
-        .unwrap_or(256)
 }
 
 fn global_telemetry_enabled() -> bool {
@@ -846,11 +738,6 @@ fn telemetry_state_path() -> PathBuf {
     base.join("telemetry.toml")
 }
 
-fn telemetry_queue_path() -> PathBuf {
-    let base = telemetry_dir();
-    base.join("telemetry-queue.ndjson")
-}
-
 fn telemetry_dir() -> PathBuf {
     if let Ok(path) = env::var("DOWNSHIFT_TELEMETRY_DIR") {
         return PathBuf::from(path);
@@ -860,19 +747,6 @@ fn telemetry_dir() -> PathBuf {
         return dir;
     }
     PathBuf::from(".")
-}
-
-fn load_spool(path: &Path) -> VecDeque<Envelope> {
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(_) => return VecDeque::new(),
-    };
-    let reader = BufReader::new(file);
-    reader
-        .lines()
-        .filter_map(|line| line.ok())
-        .filter_map(|line| serde_json::from_str::<Envelope>(&line).ok())
-        .collect()
 }
 
 pub fn menu_action_size_target(size_slot: usize) -> Option<SizeTarget> {
@@ -1056,48 +930,8 @@ mod tests {
     }
 
     #[test]
-    fn queue_overflow_drops_oldest() {
-        let mut worker = Worker {
-            usage_sink: Box::new(NoopSink),
-            crash_sink: Box::new(NoopSink),
-            usage_queue: VecDeque::new(),
-            usage_queue_bytes: 0,
-            usage_enabled: true,
-            crash_enabled: true,
-            spool_path: temp_dir("queue").join("telemetry-queue.ndjson"),
-            recent_events: VecDeque::new(),
-            retry_backoff: Duration::from_secs(1),
-            next_retry_at: Instant::now(),
-        };
-
-        let base = Envelope {
-            schema_version: SCHEMA_VERSION,
-            event_name: EventName::MenuAction,
-            event_id: String::new(),
-            occurred_at_utc: "2026-01-01T00:00:00Z".to_string(),
-            local_date: "2026-01-01".to_string(),
-            local_tz_offset_min: 0,
-            anon_user_id: Uuid::new_v4().to_string(),
-            session_id: Some(Uuid::new_v4().to_string()),
-            app_version: "0.1.0".to_string(),
-            os: "macos".to_string(),
-            arch: "aarch64".to_string(),
-            build_channel: "alpha".to_string(),
-            telemetry_env: "unset".to_string(),
-            properties: serde_json::json!({"action": "pause"}),
-        };
-
-        for _ in 0..(MAX_QUEUE_EVENTS + 25) {
-            let mut event = base.clone();
-            event.event_id = Uuid::new_v4().to_string();
-            worker.push_usage(event);
-        }
-        assert!(worker.usage_queue.len() <= MAX_QUEUE_EVENTS);
-    }
-
-    #[test]
     #[serial]
-    fn backoff_retries_and_drains_after_recovery() {
+    fn transient_send_failure_is_not_retried() {
         let root = temp_dir("retry");
         std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
 
@@ -1124,10 +958,8 @@ mod tests {
             serde_json::json!({"action": "pause"}),
         );
         client.flush(Duration::from_millis(250));
-        thread::sleep(Duration::from_secs(2));
-        client.flush(Duration::from_millis(500));
-        assert!(usage_calls.load(Ordering::SeqCst) >= 2);
-        assert!(usage_events.load(Ordering::SeqCst) >= 1);
+        assert_eq!(usage_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(usage_events.load(Ordering::SeqCst), 1);
 
         client.shutdown(Duration::from_millis(500));
         std::fs::remove_dir_all(root).ok();
