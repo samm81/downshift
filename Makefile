@@ -204,9 +204,18 @@ release-notarized: check-tag-sync require-telemetry-env require-notarization-env
 	security delete-keychain "$$KEYCHAIN_PATH" >/dev/null 2>&1 || true; \
 	security create-keychain -p "$$MACOS_KEYCHAIN_PASSWORD" "$$KEYCHAIN_PATH"; \
 	security set-keychain-settings -lut 21600 "$$KEYCHAIN_PATH"; \
+	security list-keychains -d user -s "$$KEYCHAIN_PATH"; \
+	security default-keychain -s "$$KEYCHAIN_PATH"; \
 	security unlock-keychain -p "$$MACOS_KEYCHAIN_PASSWORD" "$$KEYCHAIN_PATH"; \
 	security import "$$CERT_PATH" -k "$$KEYCHAIN_PATH" -P "$$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security; \
-	security set-key-partition-list -S apple-tool:,apple: -s -k "$$MACOS_KEYCHAIN_PASSWORD" "$$KEYCHAIN_PATH"; \
+	IDENTITY_SHA="$$(security find-identity -v -p codesigning "$$KEYCHAIN_PATH" | awk 'match($$0,/([0-9A-F]{40})/){print substr($$0,RSTART,RLENGTH); exit}')"; \
+	if [ -z "$$IDENTITY_SHA" ]; then \
+		echo "error: no codesigning identity found after certificate import"; \
+		exit 1; \
+	fi; \
+	if ! security set-key-partition-list -S apple-tool:,apple: -s -k "$$MACOS_KEYCHAIN_PASSWORD" "$$KEYCHAIN_PATH" >/dev/null 2>&1; then \
+		security set-key-partition-list -S apple-tool:,apple: -s -k "$$MACOS_KEYCHAIN_PASSWORD" -Z "$$IDENTITY_SHA" "$$KEYCHAIN_PATH"; \
+	fi; \
 	find "$(APP_BUNDLE)/Contents" -type d \( -name "*.framework" -o -name "*.app" -o -name "*.xpc" -o -name "*.appex" -o -name "*.bundle" \) -print | \
 		awk '{ print length, $$0 }' | sort -rn | cut -d" " -f2- | \
 		while IFS= read -r nested; do \
