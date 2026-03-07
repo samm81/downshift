@@ -100,6 +100,8 @@ this creates:
 required env vars:
 
 ```bash
+# generate from your .p12 file as a single line:
+# base64 < developer-id.p12 | tr -d '\n' | pbcopy
 export MACOS_CERT_P12_B64='...'
 export MACOS_CERT_P12_PASSWORD='...'
 export MACOS_KEYCHAIN_PASSWORD='...'

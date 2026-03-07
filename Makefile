@@ -191,7 +191,8 @@ release-notarized: check-tag-sync require-telemetry-env require-notarization-env
 	}; \
 	trap cleanup EXIT; \
 	mkdir -p "$(DIST_DIR)"; \
-	printf '%s' "$$MACOS_CERT_P12_B64" | openssl base64 -d -A > "$$CERT_PATH"; \
+	printf '%s' "$$MACOS_CERT_P12_B64" | tr -d '\r' | openssl base64 -d > "$$CERT_PATH"; \
+	openssl pkcs12 -in "$$CERT_PATH" -passin "pass:$$MACOS_CERT_P12_PASSWORD" -noout >/dev/null; \
 	security delete-keychain "$$KEYCHAIN_PATH" >/dev/null 2>&1 || true; \
 	security create-keychain -p "$$MACOS_KEYCHAIN_PASSWORD" "$$KEYCHAIN_PATH"; \
 	security set-keychain-settings -lut 21600 "$$KEYCHAIN_PATH"; \
