@@ -191,8 +191,16 @@ release-notarized: check-tag-sync require-telemetry-env require-notarization-env
 	}; \
 	trap cleanup EXIT; \
 	mkdir -p "$(DIST_DIR)"; \
-	printf '%s' "$$MACOS_CERT_P12_B64" | tr -d '\r' | openssl base64 -d > "$$CERT_PATH"; \
-	openssl pkcs12 -in "$$CERT_PATH" -passin "pass:$$MACOS_CERT_P12_PASSWORD" -noout >/dev/null; \
+	printf '%s' "$$MACOS_CERT_P12_B64" | tr -d '\r\n\t ' | openssl base64 -d -A > "$$CERT_PATH"; \
+	if [ ! -s "$$CERT_PATH" ]; then \
+		echo "error: decoded signing certificate is empty; check MACOS_CERT_P12_B64 secret"; \
+		exit 1; \
+	fi; \
+	if ! openssl pkcs12 -in "$$CERT_PATH" -passin "pass:$$MACOS_CERT_P12_PASSWORD" -noout >/dev/null 2>&1; then \
+		echo "error: decoded signing certificate is not a valid PKCS#12 bundle or password is incorrect"; \
+		echo "hint: re-export the Developer ID certificate as .p12, base64 it, and update MACOS_CERT_P12_B64 + MACOS_CERT_P12_PASSWORD"; \
+		exit 1; \
+	fi; \
 	security delete-keychain "$$KEYCHAIN_PATH" >/dev/null 2>&1 || true; \
 	security create-keychain -p "$$MACOS_KEYCHAIN_PASSWORD" "$$KEYCHAIN_PATH"; \
 	security set-keychain-settings -lut 21600 "$$KEYCHAIN_PATH"; \
