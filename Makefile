@@ -2,7 +2,7 @@ APP_NAME := Downshift
 BIN_NAME := downshift
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 BUNDLE_ID := app.getdownshift
-MIN_MACOS := 12.0
+MIN_MACOS := 13.0
 DIST_DIR := dist
 TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))

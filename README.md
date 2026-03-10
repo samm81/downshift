@@ -81,6 +81,8 @@ requirements: macos desktop session with screen recording permission enabled for
 
 ## mac distribution (unsigned)
 
+minimum supported macOS for packaged app builds: `13.0`
+
 build local app bundle:
 
 ```bash
