@@ -11,7 +11,7 @@ use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 #[cfg(target_os = "macos")]
 use muda::{CheckMenuItem, ContextMenu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use semver::Version;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
@@ -36,8 +36,23 @@ const UPDATE_RELEASE_API_URL: &str =
     "https://api.github.com/repos/samm81/downshift/releases/latest";
 const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
 const UPDATE_TOOLTIP: &str = "new version available";
+const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
 #[cfg(target_os = "macos")]
 const MENU_ID_PAUSE: &str = "pause";
+#[cfg(target_os = "macos")]
+const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
+#[cfg(target_os = "macos")]
+const MENU_ID_SNOOZE_5: &str = "snooze_5";
+#[cfg(target_os = "macos")]
+const MENU_ID_SNOOZE_10: &str = "snooze_10";
+#[cfg(target_os = "macos")]
+const MENU_ID_SNOOZE_15: &str = "snooze_15";
+#[cfg(target_os = "macos")]
+const MENU_ID_SNOOZE_30: &str = "snooze_30";
+#[cfg(target_os = "macos")]
+const MENU_ID_SNOOZE_60: &str = "snooze_60";
+#[cfg(target_os = "macos")]
+const MENU_ID_SNOOZE_CUSTOM: &str = "snooze_custom";
 #[cfg(target_os = "macos")]
 const MENU_ID_SIZE_S: &str = "size_s";
 #[cfg(target_os = "macos")]
@@ -208,6 +223,16 @@ const BREATH_HTML: &str = r#"<!doctype html>
       <button id="menu-pause">pause</button>
       <div class="divider"></div>
       <div class="group">
+        <div class="label">snooze</div>
+        <button data-snooze-minutes="5">snooze for 5 minutes</button>
+        <button data-snooze-minutes="10">snooze for 10 minutes</button>
+        <button data-snooze-minutes="15">snooze for 15 minutes</button>
+        <button data-snooze-minutes="30">snooze for 30 minutes</button>
+        <button data-snooze-minutes="60">snooze for 60 minutes</button>
+        <button id="menu-snooze-custom">snooze for custom minutes…</button>
+      </div>
+      <div class="divider"></div>
+      <div class="group">
         <div class="label">size</div>
         <button data-size-slot="0">S</button>
         <button data-size-slot="1">M</button>
@@ -240,6 +265,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const quitButton = document.getElementById("menu-quit");
         const updatePrimaryButton = document.getElementById("menu-update-primary");
         const updateBadge = document.getElementById("update-badge");
+        const customSnoozeButton = document.getElementById("menu-snooze-custom");
         const analyticsToggleButton = document.getElementById("menu-analytics-toggle");
         const analyticsSubmenu = document.getElementById("analytics-submenu");
         const usageOnButton = document.getElementById("menu-usage-on");
@@ -248,6 +274,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const crashOffButton = document.getElementById("menu-crash-off");
         const whatWeCollectButton = document.getElementById("menu-what-we-collect");
         const sizeButtons = Array.from(document.querySelectorAll("[data-size-slot]"));
+        const snoozeButtons = Array.from(document.querySelectorAll("[data-snooze-minutes]"));
         const init = window.__BB_INIT__ || { paused: false, half_cycle_seconds: 5.5, use_native_menu: false };
         const useNativeMenu = Boolean(init.use_native_menu);
         const state = {
@@ -440,6 +467,20 @@ const BREATH_HTML: &str = r#"<!doctype html>
             post({ cmd: "set_size", size });
             hideMenu();
           });
+        });
+
+        snoozeButtons.forEach((button) => {
+          button.addEventListener("click", () => {
+            const minutes = Number(button.dataset.snoozeMinutes);
+            if (!Number.isFinite(minutes) || minutes <= 0) return;
+            post({ cmd: "set_snooze", minutes: Math.round(minutes) });
+            hideMenu();
+          });
+        });
+
+        customSnoozeButton.addEventListener("click", () => {
+          post({ cmd: "show_custom_snooze" });
+          hideMenu();
         });
 
         resetButton.addEventListener("click", () => {
@@ -766,14 +807,125 @@ const UPDATE_DIALOG_HTML: &str = r#"<!doctype html>
   </body>
 </html>"#;
 
+const CUSTOM_SNOOZE_HTML: &str = r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #f7f9fc;
+        color: #18202a;
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        align-content: center;
+        gap: 14px;
+        padding: 18px;
+        box-sizing: border-box;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+      }
+      input {
+        border: 1px solid #c8d3ea;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 14px;
+        font: inherit;
+        cursor: default;
+      }
+      button.secondary {
+        background: #dce5f7;
+        color: #24324d;
+      }
+      button.primary {
+        background: #2f6bdb;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <label>
+      <span>snooze for how many minutes?</span>
+      <input id="minutes" type="number" min="1" step="1" value="20" autofocus />
+    </label>
+    <div class="actions">
+      <button class="secondary" id="cancel">cancel</button>
+      <button class="primary" id="confirm">snooze</button>
+    </div>
+    <script>
+      (() => {
+        const input = document.getElementById("minutes");
+        const cancelButton = document.getElementById("cancel");
+        const confirmButton = document.getElementById("confirm");
+
+        function post(payload) {
+          if (window.ipc && typeof window.ipc.postMessage === "function") {
+            window.ipc.postMessage(JSON.stringify(payload));
+          }
+        }
+
+        function submit() {
+          const minutes = Number(input.value);
+          if (!Number.isFinite(minutes) || minutes < 1) {
+            input.focus();
+            input.select();
+            return;
+          }
+          post({ cmd: "set_snooze", minutes: Math.round(minutes) });
+        }
+
+        cancelButton.addEventListener("click", () => {
+          post({ cmd: "close_custom_snooze" });
+        });
+        confirmButton.addEventListener("click", submit);
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            submit();
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>"#;
+
 #[derive(Debug, Clone)]
 enum AppEvent {
     ExitRequested,
     Ipc(String),
     TelemetryHeartbeat,
+    SnoozeExpired(u64),
     UpdateCheckFinished(UpdateCheckResult, UpdateCheckSource),
     #[cfg(target_os = "macos")]
     MenuActivated(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActivityMode {
+    Active,
+    Paused,
+    Snoozed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -929,6 +1081,13 @@ fn spawn_update_check(proxy: EventLoopProxy<AppEvent>, source: UpdateCheckSource
 struct NativeContextMenu {
     root: Submenu,
     pause: CheckMenuItem,
+    snooze_menu: Submenu,
+    snooze_5: MenuItem,
+    snooze_10: MenuItem,
+    snooze_15: MenuItem,
+    snooze_30: MenuItem,
+    snooze_60: MenuItem,
+    snooze_custom: MenuItem,
     size_menu: Submenu,
     size_s: MenuItem,
     size_m: MenuItem,
@@ -949,6 +1108,13 @@ struct NativeContextMenu {
 impl NativeContextMenu {
     fn new() -> Option<Self> {
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
+        let snooze_5 = MenuItem::with_id(MENU_ID_SNOOZE_5, "snooze for 5 minutes", true, None);
+        let snooze_10 = MenuItem::with_id(MENU_ID_SNOOZE_10, "snooze for 10 minutes", true, None);
+        let snooze_15 = MenuItem::with_id(MENU_ID_SNOOZE_15, "snooze for 15 minutes", true, None);
+        let snooze_30 = MenuItem::with_id(MENU_ID_SNOOZE_30, "snooze for 30 minutes", true, None);
+        let snooze_60 = MenuItem::with_id(MENU_ID_SNOOZE_60, "snooze for 60 minutes", true, None);
+        let snooze_custom =
+            MenuItem::with_id(MENU_ID_SNOOZE_CUSTOM, "snooze for custom minutes…", true, None);
         let size_s = MenuItem::with_id(MENU_ID_SIZE_S, "S (64px)", true, None);
         let size_m = MenuItem::with_id(MENU_ID_SIZE_M, "M (96px)", true, None);
         let size_l = MenuItem::with_id(MENU_ID_SIZE_L, "L (128px)", true, None);
@@ -993,6 +1159,25 @@ impl NativeContextMenu {
             MenuItem::with_id(MENU_ID_ANALYTICS_INFO, "what we collect…", true, None);
         let analytics_separator_one = PredefinedMenuItem::separator();
         let analytics_separator_two = PredefinedMenuItem::separator();
+        let snooze_submenu = match Submenu::with_id_and_items(
+            MENU_ID_SNOOZE_ROOT,
+            "snooze",
+            true,
+            &[
+                &snooze_5,
+                &snooze_10,
+                &snooze_15,
+                &snooze_30,
+                &snooze_60,
+                &snooze_custom,
+            ],
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                eprintln!("warning: failed to build snooze submenu: {error}");
+                return None;
+            }
+        };
         let analytics_menu = match Submenu::with_id_and_items(
             MENU_ID_ANALYTICS_ROOT,
             "help improve downshift",
@@ -1025,19 +1210,22 @@ impl NativeContextMenu {
         let separator_two = PredefinedMenuItem::separator();
         let separator_three = PredefinedMenuItem::separator();
         let separator_four = PredefinedMenuItem::separator();
+        let separator_five = PredefinedMenuItem::separator();
         let root = match Submenu::with_items(
             "menu",
             true,
             &[
                 &pause,
                 &separator_one,
-                &size_submenu,
+                &snooze_submenu,
                 &separator_two,
+                &size_submenu,
+                &separator_three,
                 &reset,
                 &quit,
-                &separator_three,
-                &update_primary,
                 &separator_four,
+                &update_primary,
+                &separator_five,
                 &analytics_menu,
             ],
         ) {
@@ -1050,6 +1238,13 @@ impl NativeContextMenu {
         Some(Self {
             root,
             pause,
+            snooze_menu: snooze_submenu,
+            snooze_5,
+            snooze_10,
+            snooze_15,
+            snooze_30,
+            snooze_60,
+            snooze_custom,
             size_menu: size_submenu,
             size_s,
             size_m,
@@ -1071,6 +1266,13 @@ impl NativeContextMenu {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
+        self.snooze_menu.set_enabled(true);
+        self.snooze_5.set_enabled(true);
+        self.snooze_10.set_enabled(true);
+        self.snooze_15.set_enabled(true);
+        self.snooze_30.set_enabled(true);
+        self.snooze_60.set_enabled(true);
+        self.snooze_custom.set_enabled(true);
         self.size_menu
             .set_text(format!("size ({}px)", settings.size.round() as i32));
         self.size_s
@@ -1101,6 +1303,9 @@ struct App {
     window: Option<Window>,
     window_id: Option<WindowId>,
     webview: Option<WebView>,
+    custom_snooze_window: Option<Window>,
+    custom_snooze_window_id: Option<WindowId>,
+    custom_snooze_webview: Option<WebView>,
     telemetry_info_window: Option<Window>,
     telemetry_info_window_id: Option<WindowId>,
     telemetry_info_webview: Option<WebView>,
@@ -1115,6 +1320,9 @@ struct App {
     event_loop_proxy: Option<EventLoopProxy<AppEvent>>,
     drag_anchor_window_pos: Option<LogicalPosition<f64>>,
     drag_anchor_pointer_pos: Option<LogicalPosition<f64>>,
+    activity_mode: ActivityMode,
+    snooze_deadline: Option<Instant>,
+    snooze_generation: u64,
     telemetry: RuntimeTelemetryClient,
     telemetry_install_first_run: bool,
     session_ended: bool,
@@ -1131,6 +1339,9 @@ impl Default for App {
             window: None,
             window_id: None,
             webview: None,
+            custom_snooze_window: None,
+            custom_snooze_window_id: None,
+            custom_snooze_webview: None,
             telemetry_info_window: None,
             telemetry_info_window_id: None,
             telemetry_info_webview: None,
@@ -1145,6 +1356,9 @@ impl Default for App {
             event_loop_proxy: None,
             drag_anchor_window_pos: None,
             drag_anchor_pointer_pos: None,
+            activity_mode: ActivityMode::Active,
+            snooze_deadline: None,
+            snooze_generation: 0,
             telemetry,
             telemetry_install_first_run,
             session_ended: false,
@@ -1155,6 +1369,22 @@ impl Default for App {
 }
 
 impl App {
+    fn current_activity_state(&self) -> ActivityState {
+        match self.activity_mode {
+            ActivityMode::Active => ActivityState::Active,
+            ActivityMode::Paused => ActivityState::Paused,
+            ActivityMode::Snoozed => ActivityState::Snoozed,
+        }
+    }
+
+    fn current_activity_label(&self) -> &'static str {
+        match self.activity_mode {
+            ActivityMode::Active => "active",
+            ActivityMode::Paused => "paused",
+            ActivityMode::Snoozed => "snoozed",
+        }
+    }
+
     fn telemetry_activity_state(
         &self,
         state: ActivityState,
@@ -1237,9 +1467,10 @@ impl App {
         self.telemetry.track(
             EventName::SessionHeartbeat,
             serde_json::json!({
-                "state": if self.settings.paused { "disabled" } else { "active" },
+                "state": self.current_activity_label(),
                 "config": {
-                    "paused": self.settings.paused,
+                    "paused": self.activity_mode == ActivityMode::Paused,
+                    "snoozed": self.activity_mode == ActivityMode::Snoozed,
                     "half_cycle_seconds": self.settings.half_cycle_seconds,
                     "width_px": width_px,
                     "height_px": height_px,
@@ -1575,6 +1806,74 @@ impl App {
         self.run_manual_update_check_with_dialog(event_loop);
     }
 
+    fn open_custom_snooze_window(&mut self, event_loop: &ActiveEventLoop) {
+        if self.custom_snooze_window.is_some() {
+            if let Some(window) = self.custom_snooze_window.as_ref() {
+                window.focus_window();
+            }
+            return;
+        }
+        let attrs = Window::default_attributes()
+            .with_title("custom snooze")
+            .with_resizable(false)
+            .with_inner_size(LogicalSize::new(320.0, 144.0))
+            .with_min_inner_size(LogicalSize::new(320.0, 144.0))
+            .with_max_inner_size(LogicalSize::new(320.0, 144.0));
+        let window = match event_loop.create_window(attrs) {
+            Ok(window) => window,
+            Err(error) => {
+                eprintln!("warning: failed to create custom snooze window: {error}");
+                return;
+            }
+        };
+        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
+            eprintln!("warning: missing event loop proxy for custom snooze window");
+            return;
+        };
+        let window_id = window.id();
+        let webview = match WebViewBuilder::new()
+            .with_html(CUSTOM_SNOOZE_HTML)
+            .with_ipc_handler(move |request: wry::http::Request<String>| {
+                let payload = request.into_body();
+                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
+            })
+            .build_as_child(&window)
+        {
+            Ok(webview) => webview,
+            Err(error) => {
+                eprintln!("warning: failed to create custom snooze webview: {error}");
+                return;
+            }
+        };
+        self.custom_snooze_window = Some(window);
+        self.custom_snooze_window_id = Some(window_id);
+        self.custom_snooze_webview = Some(webview);
+        self.sync_custom_snooze_webview_bounds();
+    }
+
+    fn sync_custom_snooze_webview_bounds(&self) {
+        let (Some(window), Some(webview)) = (
+            self.custom_snooze_window.as_ref(),
+            self.custom_snooze_webview.as_ref(),
+        ) else {
+            return;
+        };
+        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
+        let bounds = Rect {
+            position: LogicalPosition::new(0, 0).into(),
+            size: LogicalSize::new(size.width, size.height).into(),
+        };
+        if let Err(error) = webview.set_bounds(bounds) {
+            eprintln!("warning: failed to sync custom snooze webview bounds: {error}");
+        }
+    }
+
+    fn close_custom_snooze_window(&mut self) {
+        self.custom_snooze_webview = None;
+        self.custom_snooze_window = None;
+        self.custom_snooze_window_id = None;
+    }
+
     fn open_telemetry_info_window(&mut self, event_loop: &ActiveEventLoop) {
         if self.telemetry_info_window.is_some() {
             if let Some(window) = self.telemetry_info_window.as_ref() {
@@ -1646,6 +1945,14 @@ impl App {
         }
     }
 
+    fn handle_custom_snooze_window_event(&mut self, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => self.close_custom_snooze_window(),
+            WindowEvent::Resized(_) => self.sync_custom_snooze_webview_bounds(),
+            _ => {}
+        }
+    }
+
     fn handle_update_dialog_window_event(&mut self, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => self.close_update_dialog_window(),
@@ -1703,7 +2010,7 @@ impl App {
 
     fn build_init_script(&self, size_presets: [f64; 4]) -> String {
         let payload = serde_json::json!({
-          "paused": self.settings.paused,
+          "paused": self.activity_mode == ActivityMode::Paused,
           "half_cycle_seconds": self.settings.half_cycle_seconds,
           "usage_data_sharing": self.settings.usage_data_sharing,
           "crash_reports_sharing": self.settings.crash_reports_sharing,
@@ -1757,12 +2064,75 @@ impl App {
         }
     }
 
+    fn sync_window_visibility(&self) {
+        if let Some(window) = self.window.as_ref() {
+            window.set_visible(self.activity_mode != ActivityMode::Snoozed);
+        }
+    }
+
+    fn cancel_snooze(&mut self) {
+        self.snooze_generation = self.snooze_generation.wrapping_add(1);
+        self.snooze_deadline = None;
+    }
+
     fn apply_paused(&mut self, paused: bool) {
+        self.cancel_snooze();
         self.settings.paused = paused;
+        self.activity_mode = if paused {
+            ActivityMode::Paused
+        } else {
+            ActivityMode::Active
+        };
+        self.sync_window_visibility();
         if let Some(webview) = self.webview.as_ref() {
             let js = format!("window.breathBallApplyState({{ paused: {} }});", paused);
             let _ = webview.evaluate_script(&js);
         }
+    }
+
+    fn schedule_snooze_expiry(&self, generation: u64, duration: Duration) {
+        let Some(proxy) = self.event_loop_proxy.as_ref().cloned() else {
+            return;
+        };
+        std::thread::spawn(move || {
+            std::thread::sleep(duration);
+            let _ = proxy.send_event(AppEvent::SnoozeExpired(generation));
+        });
+    }
+
+    fn apply_snooze(&mut self, minutes: u64) -> Option<u64> {
+        let minutes = minutes.max(1);
+        let duration = Duration::from_secs(minutes.saturating_mul(60));
+        self.close_custom_snooze_window();
+        self.settings.paused = false;
+        self.activity_mode = ActivityMode::Snoozed;
+        self.snooze_deadline = Some(Instant::now() + duration);
+        self.snooze_generation = self.snooze_generation.wrapping_add(1);
+        let generation = self.snooze_generation;
+        self.sync_window_visibility();
+        if let Some(webview) = self.webview.as_ref() {
+            let _ = webview.evaluate_script("window.breathBallApplyState({ paused: false });");
+        }
+        self.schedule_snooze_expiry(generation, duration);
+        Some(duration.as_secs())
+    }
+
+    fn expire_snooze(&mut self, generation: u64) {
+        if self.activity_mode != ActivityMode::Snoozed || self.snooze_generation != generation {
+            return;
+        }
+        self.snooze_deadline = None;
+        self.settings.paused = false;
+        self.activity_mode = ActivityMode::Active;
+        self.sync_window_visibility();
+        if let Some(webview) = self.webview.as_ref() {
+            let _ = webview.evaluate_script("window.breathBallApplyState({ paused: false });");
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.focus_window();
+        }
+        self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::SnoozeExpired, None);
+        self.save_settings();
     }
 
     fn update_position_from_physical(&mut self, physical: PhysicalPosition<i32>) {
@@ -1791,6 +2161,7 @@ impl App {
             .unwrap_or(DEFAULT_SIZE);
         self.apply_size(reset_size);
         self.apply_half_cycle(DEFAULT_HALF_CYCLE_SECONDS);
+        self.close_custom_snooze_window();
         self.apply_paused(false);
         self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
         if let Some(window) = self.window.as_ref() {
@@ -1823,19 +2194,22 @@ impl App {
                 self.telemetry_menu_action(action, None);
                 self.apply_paused(paused);
                 if paused {
-                    self.telemetry_activity_state(
-                        ActivityState::Disabled,
-                        ActivityTrigger::DisabledForever,
-                        None,
-                    );
+                    self.telemetry_activity_state(ActivityState::Paused, ActivityTrigger::Manual, None);
                 } else {
-                    self.telemetry_activity_state(
-                        ActivityState::Active,
-                        ActivityTrigger::Manual,
-                        None,
-                    );
+                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
                 }
                 self.save_settings();
+            }
+            IpcCommand::SetSnooze { minutes } => {
+                self.telemetry_menu_action(MenuAction::Snooze, None);
+                if let Some(requested_duration_sec) = self.apply_snooze(minutes) {
+                    self.telemetry_activity_state(
+                        ActivityState::Snoozed,
+                        ActivityTrigger::SnoozeTimed,
+                        Some(requested_duration_sec),
+                    );
+                    self.save_settings();
+                }
             }
             IpcCommand::SetSpeed { half_cycle_seconds } => {
                 self.apply_half_cycle(half_cycle_seconds);
@@ -1854,6 +2228,8 @@ impl App {
                 self.open_telemetry_info_window(event_loop);
             }
             IpcCommand::CloseTelemetryInfo => self.close_telemetry_info_window(),
+            IpcCommand::ShowCustomSnooze => self.open_custom_snooze_window(event_loop),
+            IpcCommand::CloseCustomSnooze => self.close_custom_snooze_window(),
             IpcCommand::UpdatePrimaryAction => {
                 self.handle_update_primary_action(event_loop);
             }
@@ -1983,20 +2359,31 @@ impl App {
                 let next_paused = !self.settings.paused;
                 self.apply_paused(next_paused);
                 if next_paused {
-                    self.telemetry_activity_state(
-                        ActivityState::Disabled,
-                        ActivityTrigger::DisabledForever,
-                        None,
-                    );
+                    self.telemetry_activity_state(ActivityState::Paused, ActivityTrigger::Manual, None);
                 } else {
-                    self.telemetry_activity_state(
-                        ActivityState::Active,
-                        ActivityTrigger::Manual,
-                        None,
-                    );
+                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
                 }
                 self.save_settings();
             }
+            MENU_ID_SNOOZE_5
+            | MENU_ID_SNOOZE_10
+            | MENU_ID_SNOOZE_15
+            | MENU_ID_SNOOZE_30
+            | MENU_ID_SNOOZE_60 => {
+                let Some(minutes) = snooze_minutes_for_menu_id(id) else {
+                    return;
+                };
+                self.telemetry_menu_action(MenuAction::Snooze, None);
+                if let Some(requested_duration_sec) = self.apply_snooze(minutes) {
+                    self.telemetry_activity_state(
+                        ActivityState::Snoozed,
+                        ActivityTrigger::SnoozeTimed,
+                        Some(requested_duration_sec),
+                    );
+                    self.save_settings();
+                }
+            }
+            MENU_ID_SNOOZE_CUSTOM => self.open_custom_snooze_window(event_loop),
             MENU_ID_SIZE_S | MENU_ID_SIZE_M | MENU_ID_SIZE_L | MENU_ID_SIZE_XL => {
                 let presets = self.current_size_presets();
                 let size = match id {
@@ -2067,6 +2454,12 @@ impl ApplicationHandler<AppEvent> for App {
                 self.settings.size = default_size_for_monitor(&primary);
             }
         }
+        self.activity_mode = if self.settings.paused {
+            ActivityMode::Paused
+        } else {
+            ActivityMode::Active
+        };
+        self.snooze_deadline = None;
 
         let mut window_attributes = Window::default_attributes()
             .with_title("downshift")
@@ -2166,11 +2559,7 @@ impl ApplicationHandler<AppEvent> for App {
         }
         self.sync_analytics_menu_state();
         self.sync_update_surfaces();
-        self.telemetry.start_session(if self.settings.paused {
-            ActivityState::Disabled
-        } else {
-            ActivityState::Active
-        });
+        self.telemetry.start_session(self.current_activity_state());
         if self.telemetry_install_first_run {
             self.telemetry.track(
                 EventName::InstallFirstRun,
@@ -2206,6 +2595,10 @@ impl ApplicationHandler<AppEvent> for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        if Some(window_id) == self.custom_snooze_window_id {
+            self.handle_custom_snooze_window_event(event);
+            return;
+        }
         if Some(window_id) == self.telemetry_info_window_id {
             self.handle_telemetry_info_window_event(event);
             return;
@@ -2271,6 +2664,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.handle_ipc_command(event_loop, command);
             }
             AppEvent::TelemetryHeartbeat => self.telemetry_heartbeat(),
+            AppEvent::SnoozeExpired(generation) => self.expire_snooze(generation),
             AppEvent::UpdateCheckFinished(result, source) => {
                 let latest_version = result.latest_version.clone();
                 let has_update_available = latest_version
@@ -2365,6 +2759,18 @@ fn size_presets_for_monitor(monitor: &MonitorHandle) -> [f64; 4] {
         presets[index] = clamp_size((shorter_side * ratio).round());
     }
     presets
+}
+
+#[cfg(target_os = "macos")]
+fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
+    match id {
+        MENU_ID_SNOOZE_5 => Some(SNOOZE_PRESET_MINUTES[0]),
+        MENU_ID_SNOOZE_10 => Some(SNOOZE_PRESET_MINUTES[1]),
+        MENU_ID_SNOOZE_15 => Some(SNOOZE_PRESET_MINUTES[2]),
+        MENU_ID_SNOOZE_30 => Some(SNOOZE_PRESET_MINUTES[3]),
+        MENU_ID_SNOOZE_60 => Some(SNOOZE_PRESET_MINUTES[4]),
+        _ => None,
+    }
 }
 
 fn main() -> std::process::ExitCode {
@@ -2486,5 +2892,16 @@ mod tests {
         assert!(is_newer_version("v0.2.0", "0.1.5"));
         assert!(!is_newer_version("0.1.5", "0.1.5"));
         assert!(!is_newer_version("0.1.4", "0.1.5"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn snooze_menu_id_maps_to_expected_minutes() {
+        assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_5), Some(5));
+        assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_10), Some(10));
+        assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_15), Some(15));
+        assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_30), Some(30));
+        assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_60), Some(60));
+        assert_eq!(snooze_minutes_for_menu_id("nope"), None);
     }
 }

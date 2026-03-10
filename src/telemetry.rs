@@ -58,6 +58,7 @@ impl SessionEndReason {
 pub enum MenuAction {
     Pause,
     Resume,
+    Snooze,
     SizeChange,
     Reset,
     Quit,
@@ -68,16 +69,16 @@ pub enum MenuAction {
 #[serde(rename_all = "snake_case")]
 pub enum ActivityState {
     Active,
-    Disabled,
+    Paused,
+    Snoozed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActivityTrigger {
     Manual,
-    DisabledForever,
-    DisabledTimed,
-    ExpiryTimed,
+    SnoozeTimed,
+    SnoozeExpired,
     AppStart,
 }
 
@@ -317,7 +318,8 @@ struct SessionContext {
     activity_state: ActivityState,
     state_started_at: Instant,
     active_duration_sec: u64,
-    disabled_duration_sec: u64,
+    paused_duration_sec: u64,
+    snoozed_duration_sec: u64,
 }
 
 enum WorkerCommand {
@@ -468,7 +470,8 @@ impl TelemetryClient for RuntimeTelemetryClient {
                     activity_state: initial_state,
                     state_started_at: now,
                     active_duration_sec: 0,
-                    disabled_duration_sec: 0,
+                    paused_duration_sec: 0,
+                    snoozed_duration_sec: 0,
                 });
             }
         }
@@ -508,9 +511,13 @@ impl TelemetryClient for RuntimeTelemetryClient {
                         session.active_duration_sec =
                             session.active_duration_sec.saturating_add(elapsed)
                     }
-                    ActivityState::Disabled => {
-                        session.disabled_duration_sec =
-                            session.disabled_duration_sec.saturating_add(elapsed)
+                    ActivityState::Paused => {
+                        session.paused_duration_sec =
+                            session.paused_duration_sec.saturating_add(elapsed)
+                    }
+                    ActivityState::Snoozed => {
+                        session.snoozed_duration_sec =
+                            session.snoozed_duration_sec.saturating_add(elapsed)
                     }
                 }
                 session.state_started_at = now;
@@ -536,7 +543,12 @@ impl TelemetryClient for RuntimeTelemetryClient {
     }
 
     fn end_session(&self, reason: SessionEndReason) {
-        let (duration, active_duration_sec, disabled_duration_sec) = self
+        let (
+            duration,
+            active_duration_sec,
+            paused_duration_sec,
+            snoozed_duration_sec,
+        ) = self
             .shared
             .session
             .lock()
@@ -545,31 +557,37 @@ impl TelemetryClient for RuntimeTelemetryClient {
                 session.as_ref().map(|ctx| {
                     let now = Instant::now();
                     let mut active_duration_sec = ctx.active_duration_sec;
-                    let mut disabled_duration_sec = ctx.disabled_duration_sec;
+                    let mut paused_duration_sec = ctx.paused_duration_sec;
+                    let mut snoozed_duration_sec = ctx.snoozed_duration_sec;
                     let trailing = now.duration_since(ctx.state_started_at).as_secs();
                     match ctx.activity_state {
                         ActivityState::Active => {
                             active_duration_sec = active_duration_sec.saturating_add(trailing)
                         }
-                        ActivityState::Disabled => {
-                            disabled_duration_sec = disabled_duration_sec.saturating_add(trailing)
+                        ActivityState::Paused => {
+                            paused_duration_sec = paused_duration_sec.saturating_add(trailing)
+                        }
+                        ActivityState::Snoozed => {
+                            snoozed_duration_sec = snoozed_duration_sec.saturating_add(trailing)
                         }
                     }
                     (
                         ctx.started_at.elapsed().as_secs(),
                         active_duration_sec,
-                        disabled_duration_sec,
+                        paused_duration_sec,
+                        snoozed_duration_sec,
                     )
                 })
             })
-            .unwrap_or((0, 0, 0));
+            .unwrap_or((0, 0, 0, 0));
         self.track(
             EventName::SessionEnd,
             serde_json::json!({
                 "reason": serde_json::to_value(reason).unwrap_or_else(|_| serde_json::json!("unknown")),
                 "session_duration_sec": duration,
                 "active_duration_sec": active_duration_sec,
-                "disabled_duration_sec": disabled_duration_sec,
+                "paused_duration_sec": paused_duration_sec,
+                "snoozed_duration_sec": snoozed_duration_sec,
                 "clean_exit": reason.clean_exit(),
             }),
         );
@@ -859,15 +877,12 @@ mod tests {
 
     #[test]
     fn activity_trigger_serializes_with_adjective_last() {
-        let disabled_timed =
-            serde_json::to_string(&ActivityTrigger::DisabledTimed).expect("serialize trigger");
-        let expiry_timed =
-            serde_json::to_string(&ActivityTrigger::ExpiryTimed).expect("serialize trigger");
-        let disabled_forever =
-            serde_json::to_string(&ActivityTrigger::DisabledForever).expect("serialize trigger");
-        assert_eq!(disabled_timed, "\"disabled_timed\"");
-        assert_eq!(expiry_timed, "\"expiry_timed\"");
-        assert_eq!(disabled_forever, "\"disabled_forever\"");
+        let snooze_timed =
+            serde_json::to_string(&ActivityTrigger::SnoozeTimed).expect("serialize trigger");
+        let snooze_expired =
+            serde_json::to_string(&ActivityTrigger::SnoozeExpired).expect("serialize trigger");
+        assert_eq!(snooze_timed, "\"snooze_timed\"");
+        assert_eq!(snooze_expired, "\"snooze_expired\"");
     }
 
     #[test]
@@ -985,7 +1000,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn session_end_reports_active_and_disabled_durations() {
+    fn session_end_reports_activity_durations() {
         let root = temp_dir("durations");
         std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
         let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
@@ -1005,9 +1020,15 @@ mod tests {
         client.start_session(ActivityState::Active);
         thread::sleep(Duration::from_secs(1));
         client.track_activity_state(
-            ActivityState::Disabled,
-            ActivityTrigger::DisabledForever,
+            ActivityState::Paused,
+            ActivityTrigger::Manual,
             None,
+        );
+        thread::sleep(Duration::from_secs(1));
+        client.track_activity_state(
+            ActivityState::Snoozed,
+            ActivityTrigger::SnoozeTimed,
+            Some(60),
         );
         thread::sleep(Duration::from_secs(1));
         client.end_session(SessionEndReason::Unknown);
@@ -1020,11 +1041,16 @@ mod tests {
                 && event.properties["trigger"] == "app_start"
         });
         assert!(activity_app_start.is_some());
-        let activity_disabled = events.iter().find(|event| {
+        let activity_paused = events.iter().find(|event| {
             event.event_name == EventName::ActivityStateChanged
-                && event.properties["trigger"] == "disabled_forever"
+                && event.properties["state"] == "paused"
         });
-        assert!(activity_disabled.is_some());
+        assert!(activity_paused.is_some());
+        let activity_snoozed = events.iter().find(|event| {
+            event.event_name == EventName::ActivityStateChanged
+                && event.properties["trigger"] == "snooze_timed"
+        });
+        assert!(activity_snoozed.is_some());
         let session_end = events
             .iter()
             .find(|event| event.event_name == EventName::SessionEnd)
@@ -1032,11 +1058,15 @@ mod tests {
         let active_duration_sec = session_end.properties["active_duration_sec"]
             .as_u64()
             .expect("active duration should be u64 seconds");
-        let disabled_duration_sec = session_end.properties["disabled_duration_sec"]
+        let paused_duration_sec = session_end.properties["paused_duration_sec"]
             .as_u64()
-            .expect("disabled duration should be u64 seconds");
+            .expect("paused duration should be u64 seconds");
+        let snoozed_duration_sec = session_end.properties["snoozed_duration_sec"]
+            .as_u64()
+            .expect("snoozed duration should be u64 seconds");
         assert!(active_duration_sec >= 1);
-        assert!(disabled_duration_sec >= 1);
+        assert!(paused_duration_sec >= 1);
+        assert!(snoozed_duration_sec >= 1);
         std::fs::remove_dir_all(root).ok();
     }
 

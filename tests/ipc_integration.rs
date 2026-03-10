@@ -81,6 +81,23 @@ fn ipc_json_deserializes_supported_commands() {
         IpcCommand::CloseTelemetryInfo
     ));
 
+    let set_snooze: IpcCommand = serde_json::from_str(r#"{"cmd":"set_snooze","minutes":15}"#)
+        .expect("set_snooze should parse");
+    assert!(matches!(set_snooze, IpcCommand::SetSnooze { minutes: 15 }));
+
+    let show_custom_snooze: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"show_custom_snooze"}"#)
+            .expect("show_custom_snooze should parse");
+    assert!(matches!(show_custom_snooze, IpcCommand::ShowCustomSnooze));
+
+    let close_custom_snooze: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"close_custom_snooze"}"#)
+            .expect("close_custom_snooze should parse");
+    assert!(matches!(
+        close_custom_snooze,
+        IpcCommand::CloseCustomSnooze
+    ));
+
     let update_primary_action: IpcCommand =
         serde_json::from_str(r#"{"cmd":"update_primary_action"}"#)
             .expect("update_primary_action should parse");

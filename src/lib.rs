@@ -74,12 +74,15 @@ impl Settings {
 pub enum IpcCommand {
     Quit,
     SetPaused { paused: bool },
+    SetSnooze { minutes: u64 },
     SetSpeed { half_cycle_seconds: f64 },
     SetUsageDataSharing { enabled: bool },
     SetCrashReportsSharing { enabled: bool },
     AnalyticsMenuOpened,
     ShowTelemetryInfo,
     CloseTelemetryInfo,
+    ShowCustomSnooze,
+    CloseCustomSnooze,
     UpdatePrimaryAction,
     DismissUpdateBadge,
     CloseUpdateDialog,
@@ -208,6 +211,11 @@ mod tests {
             .expect("serialize set_paused command");
         assert!(encoded.contains("\"cmd\":\"set_paused\""));
         assert!(encoded.contains("\"paused\":true"));
+
+        let snooze = serde_json::to_string(&IpcCommand::SetSnooze { minutes: 15 })
+            .expect("serialize set_snooze command");
+        assert!(snooze.contains("\"cmd\":\"set_snooze\""));
+        assert!(snooze.contains("\"minutes\":15"));
 
         let show_menu: IpcCommand =
             serde_json::from_str(r#"{"cmd":"show_context_menu","x":15,"y":23}"#)
