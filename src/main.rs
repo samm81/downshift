@@ -11,6 +11,10 @@ use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 #[cfg(target_os = "macos")]
 use muda::{CheckMenuItem, ContextMenu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use semver::Version;
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
@@ -914,6 +918,7 @@ const CUSTOM_SNOOZE_HTML: &str = r#"<!doctype html>
 enum AppEvent {
     ExitRequested,
     Ipc(String),
+    InstanceActivate,
     TelemetryHeartbeat,
     SnoozeExpired(u64),
     UpdateCheckFinished(UpdateCheckResult, UpdateCheckSource),
@@ -926,6 +931,26 @@ enum ActivityMode {
     Active,
     Paused,
     Snoozed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstanceCommand {
+    Activate,
+}
+
+impl InstanceCommand {
+    fn as_bytes(self) -> &'static [u8] {
+        match self {
+            Self::Activate => b"activate\n",
+        }
+    }
+
+    fn parse(input: &str) -> Option<Self> {
+        match input.trim() {
+            "activate" => Some(Self::Activate),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2135,6 +2160,24 @@ impl App {
         self.save_settings();
     }
 
+    fn handle_instance_activate(&mut self) {
+        if self.activity_mode == ActivityMode::Snoozed {
+            self.cancel_snooze();
+            self.settings.paused = false;
+            self.activity_mode = ActivityMode::Active;
+            self.sync_window_visibility();
+            if let Some(webview) = self.webview.as_ref() {
+                let _ = webview.evaluate_script("window.breathBallApplyState({ paused: false });");
+            }
+            self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Relaunch, None);
+            self.save_settings();
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.set_visible(true);
+            window.focus_window();
+        }
+    }
+
     fn update_position_from_physical(&mut self, physical: PhysicalPosition<i32>) {
         if let Some(window) = self.window.as_ref() {
             let logical = physical.to_logical::<f64>(window.scale_factor());
@@ -2663,6 +2706,7 @@ impl ApplicationHandler<AppEvent> for App {
                 };
                 self.handle_ipc_command(event_loop, command);
             }
+            AppEvent::InstanceActivate => self.handle_instance_activate(),
             AppEvent::TelemetryHeartbeat => self.telemetry_heartbeat(),
             AppEvent::SnoozeExpired(generation) => self.expire_snooze(generation),
             AppEvent::UpdateCheckFinished(result, source) => {
@@ -2761,6 +2805,53 @@ fn size_presets_for_monitor(monitor: &MonitorHandle) -> [f64; 4] {
     presets
 }
 
+#[cfg(unix)]
+fn instance_socket_path() -> Option<PathBuf> {
+    let mut path = dirs::config_dir()?;
+    path.push("downshift");
+    path.push("instance.sock");
+    Some(path)
+}
+
+#[cfg(unix)]
+fn connect_to_existing_instance(path: &PathBuf, command: InstanceCommand) -> bool {
+    let Ok(mut stream) = UnixStream::connect(path) else {
+        return false;
+    };
+    stream.write_all(command.as_bytes()).is_ok()
+}
+
+#[cfg(unix)]
+fn spawn_instance_server(path: PathBuf, proxy: EventLoopProxy<AppEvent>) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if path.exists() {
+        match connect_to_existing_instance(&path, InstanceCommand::Activate) {
+            true => return Err(std::io::Error::new(std::io::ErrorKind::AddrInUse, "instance already running")),
+            false => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    let listener = UnixListener::bind(&path)?;
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buffer = String::new();
+            if stream.read_to_string(&mut buffer).is_err() {
+                continue;
+            }
+            if matches!(InstanceCommand::parse(&buffer), Some(InstanceCommand::Activate)) {
+                let _ = proxy.send_event(AppEvent::InstanceActivate);
+            }
+        }
+    });
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
     match id {
@@ -2802,6 +2893,19 @@ fn main() -> std::process::ExitCode {
         }
     };
     let event_loop_proxy = event_loop.create_proxy();
+
+    #[cfg(unix)]
+    if let Some(path) = instance_socket_path() {
+        if connect_to_existing_instance(&path, InstanceCommand::Activate) {
+            return std::process::ExitCode::SUCCESS;
+        }
+        if let Err(error) = spawn_instance_server(path, event_loop_proxy.clone()) {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                return std::process::ExitCode::SUCCESS;
+            }
+            eprintln!("warning: failed to start instance server: {error}");
+        }
+    }
 
     let ctrlc_proxy = event_loop_proxy.clone();
     if let Err(error) = ctrlc::set_handler(move || {
@@ -2892,6 +2996,13 @@ mod tests {
         assert!(is_newer_version("v0.2.0", "0.1.5"));
         assert!(!is_newer_version("0.1.5", "0.1.5"));
         assert!(!is_newer_version("0.1.4", "0.1.5"));
+    }
+
+    #[test]
+    fn instance_command_round_trips() {
+        assert_eq!(InstanceCommand::parse("activate\n"), Some(InstanceCommand::Activate));
+        assert_eq!(InstanceCommand::Activate.as_bytes(), b"activate\n");
+        assert_eq!(InstanceCommand::parse("nope"), None);
     }
 
     #[test]

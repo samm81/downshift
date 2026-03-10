@@ -77,6 +77,7 @@ pub enum ActivityState {
 #[serde(rename_all = "snake_case")]
 pub enum ActivityTrigger {
     Manual,
+    Relaunch,
     SnoozeTimed,
     SnoozeExpired,
     AppStart,
@@ -877,10 +878,13 @@ mod tests {
 
     #[test]
     fn activity_trigger_serializes_with_adjective_last() {
+        let relaunch =
+            serde_json::to_string(&ActivityTrigger::Relaunch).expect("serialize trigger");
         let snooze_timed =
             serde_json::to_string(&ActivityTrigger::SnoozeTimed).expect("serialize trigger");
         let snooze_expired =
             serde_json::to_string(&ActivityTrigger::SnoozeExpired).expect("serialize trigger");
+        assert_eq!(relaunch, "\"relaunch\"");
         assert_eq!(snooze_timed, "\"snooze_timed\"");
         assert_eq!(snooze_expired, "\"snooze_expired\"");
     }
