@@ -24,6 +24,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	dmg dmg-no-telemetry \
 	zip zip-no-telemetry \
 	checksums checksums-no-telemetry \
+	verify-notarized-dmg \
 	check-tag-sync require-telemetry-env package-app \
 	require-notarization-env release release-no-telemetry release-notarized clean
 
@@ -181,6 +182,25 @@ release: check-tag-sync checksums
 
 release-no-telemetry: check-tag-sync checksums-no-telemetry
 
+verify-notarized-dmg:
+	@set -euo pipefail; \
+	MOUNT_POINT=""; \
+	cleanup() { \
+		if [ -n "$$MOUNT_POINT" ]; then \
+			hdiutil detach "$$MOUNT_POINT" >/dev/null 2>&1 || true; \
+		fi; \
+	}; \
+	trap cleanup EXIT; \
+	if [ ! -f "$(NOTARIZED_DMG_PATH)" ]; then \
+		echo "error: notarized dmg not found at $(NOTARIZED_DMG_PATH)"; \
+		exit 1; \
+	fi; \
+	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"; \
+	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"; \
+	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"; \
+	hdiutil detach "$$MOUNT_POINT"; \
+	MOUNT_POINT=""
+
 release-notarized: check-tag-sync require-telemetry-env require-notarization-env build package-app
 	@set -euo pipefail; \
 	KEYCHAIN_PATH="$(PWD)/$(DIST_DIR)/downshift-signing.keychain-db"; \
@@ -234,7 +254,7 @@ release-notarized: check-tag-sync require-telemetry-env require-notarization-env
 	codesign --force --timestamp --sign "$$MACOS_SIGNING_IDENTITY" --keychain "$$KEYCHAIN_PATH" "$(NOTARIZED_DMG_PATH)"; \
 	xcrun notarytool submit "$(NOTARIZED_DMG_PATH)" --apple-id "$$MACOS_NOTARY_APPLE_ID" --password "$$MACOS_NOTARY_APP_PASSWORD" --team-id "$$MACOS_NOTARY_TEAM_ID" --wait; \
 	xcrun stapler staple -v "$(NOTARIZED_DMG_PATH)"; \
-	spctl -a -vv --type open "$(NOTARIZED_DMG_PATH)"; \
+	$(MAKE) verify-notarized-dmg TAG="$(TAG)"; \
 	shasum -a 256 "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" > "$(CHECKSUMS_PATH)"
 
 clean:

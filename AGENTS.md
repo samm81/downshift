@@ -42,6 +42,12 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - `npm run check` is lint/format only and does not run rust tests.
 - when adding a new feature, add telemetry events when they are meaningful for product/usage visibility.
 
+## notarization policy
+
+- never run notarization submission as part of agent work unless the user explicitly asks for it in that turn.
+- specifically, do not execute `xcrun notarytool submit` or `make release-notarized` unless the user explicitly asks for it in that turn.
+- standalone post-notarization verification is allowed when requested, including `make verify-notarized-dmg`.
+
 ## pre-commit policy
 
 - treat pre-commit hook failures as first-class blocking issues.
