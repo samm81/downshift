@@ -84,6 +84,46 @@ const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
 #[cfg(target_os = "macos")]
 const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
 
+struct HeartbeatSnapshot {
+    state: String,
+    paused: bool,
+    snoozed: bool,
+    half_cycle_seconds: f64,
+    width_px: u32,
+    height_px: u32,
+    usage_enabled: bool,
+    crash_enabled: bool,
+}
+
+impl HeartbeatSnapshot {
+    fn into_properties(self) -> serde_json::Value {
+        serde_json::json!({
+            "state": self.state,
+            "config": {
+                "paused": self.paused,
+                "snoozed": self.snoozed,
+                "half_cycle_seconds": self.half_cycle_seconds,
+                "width_px": self.width_px,
+                "height_px": self.height_px,
+                "usage_enabled": self.usage_enabled,
+                "crash_enabled": self.crash_enabled,
+            }
+        })
+    }
+}
+
+fn emit_startup_telemetry(
+    telemetry: &RuntimeTelemetryClient,
+    initial_state: ActivityState,
+    heartbeat_snapshot: HeartbeatSnapshot,
+) {
+    telemetry.start_session(initial_state);
+    telemetry.track(
+        EventName::SessionHeartbeat,
+        heartbeat_snapshot.into_properties(),
+    );
+}
+
 const BREATH_HTML: &str = r#"<!doctype html>
 <html lang="en">
   <head>
@@ -1488,21 +1528,9 @@ impl App {
         if self.session_ended {
             return;
         }
-        let (width_px, height_px) = self.widget_dimensions_px();
         self.telemetry.track(
             EventName::SessionHeartbeat,
-            serde_json::json!({
-                "state": self.current_activity_label(),
-                "config": {
-                    "paused": self.activity_mode == ActivityMode::Paused,
-                    "snoozed": self.activity_mode == ActivityMode::Snoozed,
-                    "half_cycle_seconds": self.settings.half_cycle_seconds,
-                    "width_px": width_px,
-                    "height_px": height_px,
-                    "usage_enabled": self.settings.usage_data_sharing,
-                    "crash_enabled": self.settings.crash_reports_sharing,
-                }
-            }),
+            self.heartbeat_snapshot().into_properties(),
         );
     }
 
@@ -1627,6 +1655,20 @@ impl App {
                 self.settings.usage_data_sharing,
                 self.settings.crash_reports_sharing,
             );
+        }
+    }
+
+    fn heartbeat_snapshot(&self) -> HeartbeatSnapshot {
+        let (width_px, height_px) = self.widget_dimensions_px();
+        HeartbeatSnapshot {
+            state: self.current_activity_label().to_string(),
+            paused: self.activity_mode == ActivityMode::Paused,
+            snoozed: self.activity_mode == ActivityMode::Snoozed,
+            half_cycle_seconds: self.settings.half_cycle_seconds,
+            width_px,
+            height_px,
+            usage_enabled: self.settings.usage_data_sharing,
+            crash_enabled: self.settings.crash_reports_sharing,
         }
     }
 
@@ -2602,7 +2644,11 @@ impl ApplicationHandler<AppEvent> for App {
         }
         self.sync_analytics_menu_state();
         self.sync_update_surfaces();
-        self.telemetry.start_session(self.current_activity_state());
+        emit_startup_telemetry(
+            &self.telemetry,
+            self.current_activity_state(),
+            self.heartbeat_snapshot(),
+        );
         if self.telemetry_install_first_run {
             self.telemetry.track(
                 EventName::InstallFirstRun,
@@ -2959,7 +3005,41 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use downshift::telemetry::{Envelope, NoopSink, TelemetryError, TelemetrySink, TelemetryState};
     use serial_test::serial;
+    use std::sync::{Arc, Mutex};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct CollectingSink {
+        events: Arc<Mutex<Vec<Envelope>>>,
+    }
+
+    impl TelemetrySink for CollectingSink {
+        fn send_batch(&mut self, events: &[Envelope]) -> Result<(), TelemetryError> {
+            self.events
+                .lock()
+                .expect("collecting sink lock")
+                .extend_from_slice(events);
+            Ok(())
+        }
+    }
+
+    fn telemetry_test_dir(name: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("downshift-main-{name}-{nanos}"))
+    }
+
+    fn telemetry_test_state() -> TelemetryState {
+        TelemetryState {
+            anon_user_id: uuid::Uuid::new_v4().to_string(),
+            usage_enabled: true,
+            crash_enabled: true,
+            install_first_run: false,
+        }
+    }
 
     #[test]
     #[serial]
@@ -2989,6 +3069,57 @@ mod tests {
             heartbeat_interval(),
             Duration::from_secs(MAX_HEARTBEAT_INTERVAL_SEC)
         );
+    }
+
+    #[test]
+    #[serial]
+    fn startup_telemetry_emits_immediate_heartbeat() {
+        let root = telemetry_test_dir("startup-heartbeat");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+
+        let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let client = RuntimeTelemetryClient::new_with_sinks(
+            telemetry_test_state(),
+            Box::new(CollectingSink {
+                events: captured_events.clone(),
+            }),
+            Box::new(NoopSink),
+        );
+
+        emit_startup_telemetry(
+            &client,
+            ActivityState::Active,
+            HeartbeatSnapshot {
+                state: "active".to_string(),
+                paused: false,
+                snoozed: false,
+                half_cycle_seconds: 5.5,
+                width_px: 240,
+                height_px: 240,
+                usage_enabled: true,
+                crash_enabled: true,
+            },
+        );
+        client.flush(Duration::from_millis(400));
+        client.shutdown(Duration::from_millis(400));
+
+        let event_names = captured_events
+            .lock()
+            .expect("captured events lock")
+            .iter()
+            .map(|event| event.event_name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            event_names,
+            vec![
+                EventName::SessionStart,
+                EventName::ActivityStateChanged,
+                EventName::SessionHeartbeat,
+            ]
+        );
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
