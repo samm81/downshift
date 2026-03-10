@@ -37,6 +37,11 @@ run the app locally:
 make run
 ```
 
+enable launch at login:
+
+- open the widget context menu and toggle `start at login`
+- this writes a per-user macos `LaunchAgent` and takes effect on the next login
+
 reset saved position/settings before launching:
 
 ```bash

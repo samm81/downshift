@@ -7,6 +7,8 @@ use downshift::{
     PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
 };
 #[cfg(target_os = "macos")]
+use downshift::{launch_agent_path_from_home, launch_agent_plist};
+#[cfg(target_os = "macos")]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 #[cfg(target_os = "macos")]
 use muda::{CheckMenuItem, ContextMenu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
@@ -14,6 +16,8 @@ use semver::Version;
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(target_os = "macos")]
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -83,6 +87,8 @@ const MENU_ID_CRASH_OFF: &str = "crash_off";
 const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
 #[cfg(target_os = "macos")]
 const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
+#[cfg(target_os = "macos")]
+const MENU_ID_LAUNCH_AT_LOGIN: &str = "launch_at_login";
 
 struct HeartbeatSnapshot {
     state: String,
@@ -122,6 +128,29 @@ fn emit_startup_telemetry(
         EventName::SessionHeartbeat,
         heartbeat_snapshot.into_properties(),
     );
+}
+
+#[cfg(target_os = "macos")]
+fn launch_agent_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| launch_agent_path_from_home(&home))
+}
+
+#[cfg(target_os = "macos")]
+fn write_launch_agent(path: &Path, executable: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("invalid launch agent path: {}", path.display()))?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    std::fs::write(path, launch_agent_plist(executable)).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn remove_launch_agent(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 const BREATH_HTML: &str = r#"<!doctype html>
@@ -1146,6 +1175,7 @@ fn spawn_update_check(proxy: EventLoopProxy<AppEvent>, source: UpdateCheckSource
 struct NativeContextMenu {
     root: Submenu,
     pause: CheckMenuItem,
+    launch_at_login: CheckMenuItem,
     snooze_menu: Submenu,
     snooze_5: MenuItem,
     snooze_10: MenuItem,
@@ -1173,13 +1203,19 @@ struct NativeContextMenu {
 impl NativeContextMenu {
     fn new() -> Option<Self> {
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
+        let launch_at_login =
+            CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, false, None);
         let snooze_5 = MenuItem::with_id(MENU_ID_SNOOZE_5, "snooze for 5 minutes", true, None);
         let snooze_10 = MenuItem::with_id(MENU_ID_SNOOZE_10, "snooze for 10 minutes", true, None);
         let snooze_15 = MenuItem::with_id(MENU_ID_SNOOZE_15, "snooze for 15 minutes", true, None);
         let snooze_30 = MenuItem::with_id(MENU_ID_SNOOZE_30, "snooze for 30 minutes", true, None);
         let snooze_60 = MenuItem::with_id(MENU_ID_SNOOZE_60, "snooze for 60 minutes", true, None);
-        let snooze_custom =
-            MenuItem::with_id(MENU_ID_SNOOZE_CUSTOM, "snooze for custom minutes…", true, None);
+        let snooze_custom = MenuItem::with_id(
+            MENU_ID_SNOOZE_CUSTOM,
+            "snooze for custom minutes…",
+            true,
+            None,
+        );
         let size_s = MenuItem::with_id(MENU_ID_SIZE_S, "S (64px)", true, None);
         let size_m = MenuItem::with_id(MENU_ID_SIZE_M, "M (96px)", true, None);
         let size_l = MenuItem::with_id(MENU_ID_SIZE_L, "L (128px)", true, None);
@@ -1276,6 +1312,7 @@ impl NativeContextMenu {
         let separator_three = PredefinedMenuItem::separator();
         let separator_four = PredefinedMenuItem::separator();
         let separator_five = PredefinedMenuItem::separator();
+        let separator_six = PredefinedMenuItem::separator();
         let root = match Submenu::with_items(
             "menu",
             true,
@@ -1287,10 +1324,12 @@ impl NativeContextMenu {
                 &size_submenu,
                 &separator_three,
                 &reset,
-                &quit,
+                &launch_at_login,
                 &separator_four,
-                &update_primary,
+                &quit,
                 &separator_five,
+                &update_primary,
+                &separator_six,
                 &analytics_menu,
             ],
         ) {
@@ -1303,6 +1342,7 @@ impl NativeContextMenu {
         Some(Self {
             root,
             pause,
+            launch_at_login,
             snooze_menu: snooze_submenu,
             snooze_5,
             snooze_10,
@@ -1331,6 +1371,8 @@ impl NativeContextMenu {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
+        self.launch_at_login.set_checked(settings.launch_at_login);
+        self.launch_at_login.set_enabled(true);
         self.snooze_menu.set_enabled(true);
         self.snooze_5.set_enabled(true);
         self.snooze_10.set_enabled(true);
@@ -1480,6 +1522,16 @@ impl App {
         );
     }
 
+    fn telemetry_launch_at_login_change(&self, enabled: bool) {
+        self.telemetry.track(
+            EventName::MenuAction,
+            serde_json::json!({
+                "action": "launch_at_login",
+                "enabled": enabled,
+            }),
+        );
+    }
+
     fn telemetry_update_flow(&self, action: &str, mut properties: serde_json::Value) {
         properties["action"] = serde_json::json!(action);
         self.telemetry.track(EventName::UpdateFlow, properties);
@@ -1513,6 +1565,44 @@ impl App {
         self.sync_privacy_state_to_webview();
         self.sync_analytics_menu_state();
         self.save_settings();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sync_launch_at_login_setting(&mut self, enabled: bool) {
+        let Some(path) = launch_agent_path() else {
+            eprintln!("warning: failed to resolve launch agent path");
+            return;
+        };
+
+        let result = if enabled {
+            match std::env::current_exe() {
+                Ok(executable) => write_launch_agent(&path, &executable),
+                Err(error) => Err(error.to_string()),
+            }
+        } else {
+            remove_launch_agent(&path)
+        };
+
+        match result {
+            Ok(()) => {
+                self.settings.launch_at_login = enabled;
+            }
+            Err(error) => {
+                eprintln!("warning: failed to update launch-at-login setting: {error}");
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn apply_launch_at_login(&mut self, enabled: bool) {
+        self.sync_launch_at_login_setting(enabled);
+        self.sync_update_menu_state();
+        self.save_settings();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn reconcile_launch_at_login(&mut self) {
+        self.sync_launch_at_login_setting(self.settings.launch_at_login);
     }
 
     fn widget_dimensions_px(&self) -> (u32, u32) {
@@ -2279,9 +2369,17 @@ impl App {
                 self.telemetry_menu_action(action, None);
                 self.apply_paused(paused);
                 if paused {
-                    self.telemetry_activity_state(ActivityState::Paused, ActivityTrigger::Manual, None);
+                    self.telemetry_activity_state(
+                        ActivityState::Paused,
+                        ActivityTrigger::Manual,
+                        None,
+                    );
                 } else {
-                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
+                    self.telemetry_activity_state(
+                        ActivityState::Active,
+                        ActivityTrigger::Manual,
+                        None,
+                    );
                 }
                 self.save_settings();
             }
@@ -2444,16 +2542,21 @@ impl App {
                 let next_paused = !self.settings.paused;
                 self.apply_paused(next_paused);
                 if next_paused {
-                    self.telemetry_activity_state(ActivityState::Paused, ActivityTrigger::Manual, None);
+                    self.telemetry_activity_state(
+                        ActivityState::Paused,
+                        ActivityTrigger::Manual,
+                        None,
+                    );
                 } else {
-                    self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
+                    self.telemetry_activity_state(
+                        ActivityState::Active,
+                        ActivityTrigger::Manual,
+                        None,
+                    );
                 }
                 self.save_settings();
             }
-            MENU_ID_SNOOZE_5
-            | MENU_ID_SNOOZE_10
-            | MENU_ID_SNOOZE_15
-            | MENU_ID_SNOOZE_30
+            MENU_ID_SNOOZE_5 | MENU_ID_SNOOZE_10 | MENU_ID_SNOOZE_15 | MENU_ID_SNOOZE_30
             | MENU_ID_SNOOZE_60 => {
                 let Some(minutes) = snooze_minutes_for_menu_id(id) else {
                     return;
@@ -2491,6 +2594,11 @@ impl App {
                 self.telemetry_menu_action(MenuAction::Reset, None);
                 self.reset_widget(event_loop);
                 self.save_settings();
+            }
+            MENU_ID_LAUNCH_AT_LOGIN => {
+                let enabled = !self.settings.launch_at_login;
+                self.telemetry_launch_at_login_change(enabled);
+                self.apply_launch_at_login(enabled);
             }
             MENU_ID_QUIT => {
                 self.telemetry_menu_action(MenuAction::Quit, None);
@@ -2531,6 +2639,8 @@ impl ApplicationHandler<AppEvent> for App {
             .set_usage_enabled(self.settings.usage_data_sharing);
         self.telemetry
             .set_crash_enabled(self.settings.crash_reports_sharing);
+        #[cfg(target_os = "macos")]
+        self.reconcile_launch_at_login();
         if !settings_exist {
             if let Some(primary) = event_loop
                 .primary_monitor()
@@ -2874,7 +2984,12 @@ fn spawn_instance_server(path: PathBuf, proxy: EventLoopProxy<AppEvent>) -> std:
     }
     if path.exists() {
         match connect_to_existing_instance(&path, InstanceCommand::Activate) {
-            true => return Err(std::io::Error::new(std::io::ErrorKind::AddrInUse, "instance already running")),
+            true => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrInUse,
+                    "instance already running",
+                ))
+            }
             false => {
                 let _ = std::fs::remove_file(&path);
             }
@@ -2890,7 +3005,10 @@ fn spawn_instance_server(path: PathBuf, proxy: EventLoopProxy<AppEvent>) -> std:
             if stream.read_to_string(&mut buffer).is_err() {
                 continue;
             }
-            if matches!(InstanceCommand::parse(&buffer), Some(InstanceCommand::Activate)) {
+            if matches!(
+                InstanceCommand::parse(&buffer),
+                Some(InstanceCommand::Activate)
+            ) {
                 let _ = proxy.send_event(AppEvent::InstanceActivate);
             }
         }
@@ -3131,7 +3249,10 @@ mod tests {
 
     #[test]
     fn instance_command_round_trips() {
-        assert_eq!(InstanceCommand::parse("activate\n"), Some(InstanceCommand::Activate));
+        assert_eq!(
+            InstanceCommand::parse("activate\n"),
+            Some(InstanceCommand::Activate)
+        );
         assert_eq!(InstanceCommand::Activate.as_bytes(), b"activate\n");
         assert_eq!(InstanceCommand::parse("nope"), None);
     }
@@ -3145,5 +3266,22 @@ mod tests {
         assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_30), Some(30));
         assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_60), Some(60));
         assert_eq!(snooze_minutes_for_menu_id("nope"), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn write_and_remove_launch_agent_round_trips() {
+        let root = telemetry_test_dir("launch-agent");
+        let path = root.join("Library/LaunchAgents/com.samm81.downshift.plist");
+        let executable = Path::new("/Applications/Downshift.app/Contents/MacOS/downshift");
+
+        write_launch_agent(&path, executable).expect("write launch agent");
+        let content = std::fs::read_to_string(&path).expect("read launch agent");
+        assert!(content.contains("<string>com.samm81.downshift</string>"));
+        assert!(content.contains(executable.to_str().expect("utf8 executable path")));
+
+        remove_launch_agent(&path).expect("remove launch agent");
+        assert!(!path.exists());
+        std::fs::remove_dir_all(root).ok();
     }
 }

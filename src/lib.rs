@@ -11,6 +11,8 @@ pub const DEFAULT_HALF_CYCLE_SECONDS: f64 = 5.5;
 pub const FAST_HALF_CYCLE_SECONDS: f64 = 4.5;
 pub const SLOW_HALF_CYCLE_SECONDS: f64 = 6.5;
 pub const DEFAULT_MARGIN: f64 = 24.0;
+pub const LAUNCH_AGENT_LABEL: &str = "com.samm81.downshift";
+pub const LAUNCH_AGENT_FILENAME: &str = "com.samm81.downshift.plist";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct PersistedMonitor {
@@ -24,6 +26,8 @@ pub struct Settings {
     pub size: f64,
     pub half_cycle_seconds: f64,
     pub paused: bool,
+    #[serde(default)]
+    pub launch_at_login: bool,
     #[serde(default = "default_usage_data_sharing")]
     pub usage_data_sharing: bool,
     #[serde(default = "default_crash_reports_sharing")]
@@ -43,6 +47,7 @@ impl Default for Settings {
             size: DEFAULT_SIZE,
             half_cycle_seconds: DEFAULT_HALF_CYCLE_SECONDS,
             paused: false,
+            launch_at_login: false,
             usage_data_sharing: true,
             crash_reports_sharing: true,
             dismissed_update_version: None,
@@ -116,6 +121,54 @@ pub fn clamp_size(size: f64) -> f64 {
     size.clamp(MIN_SIZE, MAX_SIZE)
 }
 
+pub fn launch_agent_path_from_home(home: &Path) -> std::path::PathBuf {
+    home.join("Library")
+        .join("LaunchAgents")
+        .join(LAUNCH_AGENT_FILENAME)
+}
+
+pub fn launch_agent_plist(executable: &Path) -> String {
+    let executable = executable.display().to_string();
+    let working_directory = executable
+        .rsplit_once('/')
+        .map(|(parent, _)| parent.to_string())
+        .unwrap_or_else(|| "/".to_string());
+
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{label}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{executable}</string>
+  </array>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>WorkingDirectory</key>
+  <string>{working_directory}</string>
+</dict>
+</plist>
+"#,
+        label = LAUNCH_AGENT_LABEL,
+        executable = xml_escape(&executable),
+        working_directory = xml_escape(&working_directory),
+    )
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 pub fn load_settings(path: Option<&Path>) -> Settings {
     let mut settings = match path {
         Some(path) => std::fs::read_to_string(path)
@@ -157,6 +210,7 @@ mod tests {
             size: 999.0,
             half_cycle_seconds: 6.47,
             paused: true,
+            launch_at_login: true,
             usage_data_sharing: false,
             crash_reports_sharing: true,
             dismissed_update_version: Some("0.1.2".to_string()),
@@ -171,6 +225,7 @@ mod tests {
         assert_eq!(settings.size, MAX_SIZE);
         assert_eq!(settings.half_cycle_seconds, SLOW_HALF_CYCLE_SECONDS);
         assert!(settings.paused);
+        assert!(settings.launch_at_login);
         assert!(!settings.usage_data_sharing);
         assert!(settings.crash_reports_sharing);
         assert_eq!(settings.dismissed_update_version.as_deref(), Some("0.1.2"));
@@ -194,6 +249,29 @@ mod tests {
     fn apply_resize_step_clamps_to_bounds() {
         assert_eq!(apply_resize_step(MIN_SIZE, -10, false), MIN_SIZE);
         assert_eq!(apply_resize_step(MAX_SIZE, 10, true), MAX_SIZE);
+    }
+
+    #[test]
+    fn launch_agent_path_uses_standard_launch_agents_directory() {
+        let home = Path::new("/Users/tester");
+        assert_eq!(
+            launch_agent_path_from_home(home),
+            home.join("Library/LaunchAgents/com.samm81.downshift.plist")
+        );
+    }
+
+    #[test]
+    fn launch_agent_plist_escapes_xml_sensitive_characters() {
+        let plist = launch_agent_plist(Path::new(
+            "/Applications/Down&shift <alpha>.app/Contents/MacOS/Down\"shift'",
+        ));
+
+        assert!(plist.contains("<string>com.samm81.downshift</string>"));
+        assert!(plist.contains(
+            "/Applications/Down&amp;shift &lt;alpha&gt;.app/Contents/MacOS/Down&quot;shift&apos;"
+        ));
+        assert!(plist.contains("<key>RunAtLoad</key>"));
+        assert!(plist.contains("<string>Interactive</string>"));
     }
 
     #[test]

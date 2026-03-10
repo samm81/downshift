@@ -29,6 +29,7 @@ half_cycle_seconds = 4.52
 paused = true
 x = 120
 y = 240
+launch_at_login = true
 "#;
     std::fs::write(&path, raw).expect("should write temp settings file");
 
@@ -38,6 +39,7 @@ y = 240
     assert_eq!(settings.size, MAX_SIZE);
     assert_eq!(settings.half_cycle_seconds, 4.5);
     assert!(settings.paused);
+    assert!(settings.launch_at_login);
     assert!(settings.usage_data_sharing);
     assert!(settings.crash_reports_sharing);
     assert_eq!(settings.x, Some(120));
@@ -56,6 +58,7 @@ fn load_settings_falls_back_to_default_when_toml_is_invalid() {
     assert_eq!(settings.size, DEFAULT_SIZE);
     assert_eq!(settings.half_cycle_seconds, DEFAULT_HALF_CYCLE_SECONDS);
     assert!(!settings.paused);
+    assert!(!settings.launch_at_login);
     assert_eq!(settings.x, None);
     assert_eq!(settings.y, None);
 }
