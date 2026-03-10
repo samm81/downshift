@@ -18,6 +18,8 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
 #[cfg(target_os = "macos")]
+use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+#[cfg(target_os = "macos")]
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 use wry::{Rect, WebView, WebViewBuilder};
@@ -2383,7 +2385,10 @@ fn main() -> std::process::ExitCode {
         default_panic_hook(panic_info);
     }));
 
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().build() {
+    let mut event_loop_builder = EventLoop::<AppEvent>::with_user_event();
+    #[cfg(target_os = "macos")]
+    event_loop_builder.with_activation_policy(ActivationPolicy::Accessory);
+    let event_loop = match event_loop_builder.build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
             eprintln!("error: failed to create event loop: {error}");
