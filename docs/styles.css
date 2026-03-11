@@ -8,8 +8,6 @@
   --soft-card: #f4f7fbf5;
   --primary: #7ca3d8;
   --primary-hover: #6e98d2;
-  --warn-bg: #f2eddb;
-  --warn-line: #d7cfad;
   --shadow-lg: 0 20px 40px rgba(18, 35, 60, 0.12);
   --shadow-md: 0 8px 20px rgba(16, 34, 58, 0.11);
 }
@@ -175,23 +173,6 @@ h1 {
   font-size: 0.84rem;
 }
 
-.hero-warning {
-  margin: 10px auto 0;
-  max-width: 540px;
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-line);
-  color: #4f3b22;
-  font-size: 0.84rem;
-  line-height: 1.35;
-}
-
-.hero-warning a {
-  color: inherit;
-  font-weight: 650;
-}
-
 .demo-block {
   margin-top: 18px;
 }
@@ -339,8 +320,8 @@ h1 {
 }
 
 .notice-card {
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-line);
+  background: var(--soft-card);
+  border: 1px solid var(--line);
   box-shadow: var(--shadow-md);
   padding: 14px 16px;
 }

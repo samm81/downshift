@@ -86,5 +86,5 @@ tracked custom events:
 ## notes
 
 - all external links open in a new tab.
-- install section includes gatekeeper steps for non-notarized alpha builds.
+- install section reflects the standard notarized macOS install flow.
 - this page explicitly states Apple Silicon only and that there is no intensity feature.
