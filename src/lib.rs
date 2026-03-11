@@ -286,6 +286,9 @@ pub enum IpcCommand {
         name: String,
         pattern: BreathingPattern,
     },
+    DeleteBreathingPreset {
+        preset_id: String,
+    },
     SetUsageDataSharing {
         enabled: bool,
     },
@@ -661,5 +664,15 @@ mod tests {
         let drag_end: IpcCommand =
             serde_json::from_str(r#"{"cmd":"end_drag"}"#).expect("valid end_drag command");
         assert_eq!(drag_end, IpcCommand::EndDrag);
+
+        let delete_preset: IpcCommand =
+            serde_json::from_str(r#"{"cmd":"delete_breathing_preset","preset_id":"focus"}"#)
+                .expect("valid delete_breathing_preset command");
+        assert_eq!(
+            delete_preset,
+            IpcCommand::DeleteBreathingPreset {
+                preset_id: "focus".to_string()
+            }
+        );
     }
 }

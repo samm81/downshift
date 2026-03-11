@@ -1188,12 +1188,16 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
         font-size: 12px;
       }
       .save-row,
+      .delete-row,
       .actions {
         display: flex;
         gap: 8px;
         align-items: center;
       }
       .save-row input {
+        flex: 1;
+      }
+      .delete-row select {
         flex: 1;
       }
       .actions {
@@ -1239,6 +1243,11 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
     <div class="save-row">
       <input id="preset-name" type="text" maxlength="40" placeholder="name required" />
     </div>
+    <div class="delete-row">
+      <select id="delete-preset">
+        <option value="">delete preset…</option>
+      </select>
+    </div>
     <div class="actions">
       <button class="secondary" id="cancel">close</button>
       <button class="primary" id="apply">add new</button>
@@ -1251,6 +1260,7 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
         const compressHoldInput = document.getElementById("compress-hold");
         const summary = document.getElementById("summary");
         const presetNameInput = document.getElementById("preset-name");
+        const deletePresetSelect = document.getElementById("delete-preset");
         const cancelButton = document.getElementById("cancel");
         const applyButton = document.getElementById("apply");
         const state = {
@@ -1260,6 +1270,7 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
             compressing_seconds: 5.5,
             compressed_hold_seconds: 0,
           },
+          deletablePresets: [],
         };
 
         function post(payload) {
@@ -1303,11 +1314,29 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
           summary.textContent = `cycle: ${pattern.expanding_seconds} / ${pattern.expanded_hold_seconds} / ${pattern.compressing_seconds} / ${pattern.compressed_hold_seconds} (${total}s total)`;
         }
 
+        function renderDeleteOptions() {
+          deletePresetSelect.textContent = "";
+          const placeholder = document.createElement("option");
+          placeholder.value = "";
+          placeholder.textContent = "delete preset…";
+          deletePresetSelect.appendChild(placeholder);
+          state.deletablePresets.forEach((preset) => {
+            const option = document.createElement("option");
+            option.value = preset.id;
+            option.textContent = preset.name;
+            deletePresetSelect.appendChild(option);
+          });
+          deletePresetSelect.disabled = state.deletablePresets.length === 0;
+          deletePresetSelect.value = "";
+        }
+
         window.breathingPatternApplyState = function(next) {
           const payload = next || {};
           state.pattern = normalizePattern(payload.pattern || state.pattern);
+          state.deletablePresets = Array.isArray(payload.deletable_presets) ? payload.deletable_presets : [];
           writeInputs(state.pattern);
           updateSummary(state.pattern);
+          renderDeleteOptions();
         };
 
         [expandInput, expandHoldInput, compressInput, compressHoldInput].forEach((input) => {
@@ -1332,6 +1361,11 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
 
         cancelButton.addEventListener("click", () => {
           post({ cmd: "close_breathing_pattern" });
+        });
+        deletePresetSelect.addEventListener("change", () => {
+          const presetId = String(deletePresetSelect.value || "");
+          if (!presetId) return;
+          post({ cmd: "delete_breathing_preset", preset_id: presetId });
         });
         presetNameInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
@@ -2770,6 +2804,12 @@ impl App {
     fn breathing_pattern_editor_payload(&self) -> serde_json::Value {
         serde_json::json!({
             "pattern": self.settings.breathing_pattern,
+            "deletable_presets": self.settings.saved_breathing_presets.iter().map(|preset| {
+                serde_json::json!({
+                    "id": preset.id,
+                    "name": format!("{} ({})", preset.name, breathing_pattern_summary(&preset.pattern)),
+                })
+            }).collect::<Vec<_>>(),
         })
     }
 
@@ -3165,6 +3205,23 @@ impl App {
         Some(preset)
     }
 
+    fn delete_breathing_preset(&mut self, preset_id: &str) -> Option<SavedBreathingPreset> {
+        let index = self
+            .settings
+            .saved_breathing_presets
+            .iter()
+            .position(|preset| preset.id == preset_id)?;
+        let removed = self.settings.saved_breathing_presets.remove(index);
+        if self.settings.active_breathing_preset_id == removed.id {
+            self.settings.active_breathing_preset_id = BREATHING_PRESET_ID_COHERENT.to_string();
+            self.settings.breathing_pattern = BreathingPattern::coherent();
+        }
+        self.sync_breathing_pattern_to_webview();
+        self.sync_update_menu_state();
+        self.sync_breathing_pattern_editor_state();
+        Some(removed)
+    }
+
     fn sync_window_visibility(&self) {
         if let Some(window) = self.window.as_ref() {
             window.set_visible(self.activity_mode != ActivityMode::Snoozed);
@@ -3379,6 +3436,17 @@ impl App {
                         &self.settings.breathing_pattern,
                     );
                     self.close_breathing_pattern_window();
+                    self.save_settings();
+                }
+            }
+            IpcCommand::DeleteBreathingPreset { preset_id } => {
+                if let Some(preset) = self.delete_breathing_preset(&preset_id) {
+                    self.telemetry_breathing_pattern_change(
+                        "deleted",
+                        &preset.id,
+                        Some(&preset.name),
+                        &preset.pattern,
+                    );
                     self.save_settings();
                 }
             }

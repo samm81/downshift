@@ -119,6 +119,14 @@ fn ipc_json_deserializes_supported_commands() {
         IpcCommand::SaveBreathingPreset { .. }
     ));
 
+    let delete_breathing_preset: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"delete_breathing_preset","preset_id":"focus"}"#)
+            .expect("delete_breathing_preset should parse");
+    assert!(matches!(
+        delete_breathing_preset,
+        IpcCommand::DeleteBreathingPreset { .. }
+    ));
+
     let show_custom_snooze: IpcCommand = serde_json::from_str(r#"{"cmd":"show_custom_snooze"}"#)
         .expect("show_custom_snooze should parse");
     assert!(matches!(show_custom_snooze, IpcCommand::ShowCustomSnooze));
