@@ -534,11 +534,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
 
         function applyBreathingButtons() {
           const activeId = state.activeBreathingPresetId;
-          const activePreset = state.breathingPresets.find((preset) => preset.id === activeId);
-          const activeLabel = activePreset
-            ? activePreset.name
-            : `custom (${breathingSummary(state.breathingPattern)})`;
-          breathingPatternButton.textContent = `breathing pattern (${activeLabel})`;
+          breathingPatternButton.textContent = `breathing pattern (${breathingSummary(state.breathingPattern)})`;
           breathingPresetList.textContent = "";
           state.breathingPresets.forEach((preset) => {
             const button = document.createElement("button");
@@ -1309,6 +1305,13 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
           state.pattern = normalizePattern(payload.pattern || state.pattern);
           writeInputs(state.pattern);
         };
+
+        [expandInput, expandHoldInput, compressInput, compressHoldInput].forEach((input) => {
+          input.addEventListener("input", () => {
+            state.pattern = readInputs();
+            writeInputs(state.pattern);
+          });
+        });
 
         applyButton.addEventListener("click", () => {
           const pattern = readInputs();
