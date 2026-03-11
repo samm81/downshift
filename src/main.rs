@@ -2482,40 +2482,42 @@ impl App {
         Some(duration.as_secs())
     }
 
-    fn expire_snooze(&mut self, generation: u64) {
-        if self.activity_mode != ActivityMode::Snoozed || self.snooze_generation != generation {
-            return;
+    fn show_main_window_without_focus(&self) {
+        if let Some(window) = self.window.as_ref() {
+            window.set_visible(true);
         }
-        self.snooze_deadline = None;
+    }
+
+    fn resume_from_snooze(&mut self) -> bool {
+        if self.activity_mode != ActivityMode::Snoozed {
+            return false;
+        }
+        self.cancel_snooze();
         self.settings.paused = false;
         self.activity_mode = ActivityMode::Active;
         self.sync_window_visibility();
         if let Some(webview) = self.webview.as_ref() {
             let _ = webview.evaluate_script("window.breathBallApplyState({ paused: false });");
         }
-        if let Some(window) = self.window.as_ref() {
-            window.focus_window();
+        self.show_main_window_without_focus();
+        true
+    }
+
+    fn expire_snooze(&mut self, generation: u64) {
+        if self.activity_mode != ActivityMode::Snoozed || self.snooze_generation != generation {
+            return;
         }
+        self.resume_from_snooze();
         self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::SnoozeExpired, None);
         self.save_settings();
     }
 
     fn handle_instance_activate(&mut self) {
-        if self.activity_mode == ActivityMode::Snoozed {
-            self.cancel_snooze();
-            self.settings.paused = false;
-            self.activity_mode = ActivityMode::Active;
-            self.sync_window_visibility();
-            if let Some(webview) = self.webview.as_ref() {
-                let _ = webview.evaluate_script("window.breathBallApplyState({ paused: false });");
-            }
+        if self.resume_from_snooze() {
             self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Relaunch, None);
             self.save_settings();
         }
-        if let Some(window) = self.window.as_ref() {
-            window.set_visible(true);
-            window.focus_window();
-        }
+        self.show_main_window_without_focus();
     }
 
     fn update_position_from_physical(&mut self, physical: PhysicalPosition<i32>) {
@@ -3535,6 +3537,30 @@ mod tests {
         );
         assert_eq!(InstanceCommand::Activate.as_bytes(), b"activate\n");
         assert_eq!(InstanceCommand::parse("nope"), None);
+    }
+
+    #[test]
+    fn resume_from_snooze_restores_active_state_without_pausing() {
+        let mut app = App::default();
+        app.activity_mode = ActivityMode::Snoozed;
+        app.settings.paused = true;
+        app.snooze_deadline = Some(Instant::now() + Duration::from_secs(60));
+
+        assert!(app.resume_from_snooze());
+        assert_eq!(app.activity_mode, ActivityMode::Active);
+        assert!(!app.settings.paused);
+        assert!(app.snooze_deadline.is_none());
+    }
+
+    #[test]
+    fn resume_from_snooze_is_noop_when_not_snoozed() {
+        let mut app = App::default();
+        app.activity_mode = ActivityMode::Paused;
+        app.settings.paused = true;
+
+        assert!(!app.resume_from_snooze());
+        assert_eq!(app.activity_mode, ActivityMode::Paused);
+        assert!(app.settings.paused);
     }
 
     #[test]
