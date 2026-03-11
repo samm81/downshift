@@ -8,6 +8,9 @@ TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
 RELEASE_SUFFIX := $(if $(TAG),-v$(TAG_VERSION),)
 APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
+DMG_STAGING_DIR := $(DIST_DIR)/$(APP_NAME)-dmg
+TEMP_DMG_PATH := $(DIST_DIR)/$(APP_NAME)-temp.dmg
+DMG_MOUNT_DIR := $(DIST_DIR)/dmg-mount
 DMG_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).dmg
 ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).zip
 CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
@@ -21,6 +24,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	run run-no-telemetry \
 	app app-no-telemetry \
 	sign-app \
+	stage-dmg-contents \
 	dmg dmg-no-telemetry \
 	zip zip-no-telemetry \
 	release-pre-notarize \
@@ -141,6 +145,12 @@ package-app:
 sign-app:
 	codesign --force --deep --sign - "$(APP_BUNDLE)"
 
+stage-dmg-contents: package-app
+	rm -rf "$(DMG_STAGING_DIR)"
+	mkdir -p "$(DMG_STAGING_DIR)"
+	cp -R "$(APP_BUNDLE)" "$(DMG_STAGING_DIR)/$(APP_NAME).app"
+	ln -s /Applications "$(DMG_STAGING_DIR)/Applications"
+
 app: build package-app sign-app
 
 app-no-telemetry: build-no-telemetry package-app sign-app
@@ -153,21 +163,37 @@ zip-no-telemetry: app-no-telemetry
 	rm -f "$(ZIP_PATH)"
 	ditto -c -k --sequesterRsrc --keepParent "$(APP_BUNDLE)" "$(ZIP_PATH)"
 
-dmg: app
-	rm -f "$(DMG_PATH)"
-	hdiutil create \
-		-volname "$(APP_NAME)" \
-		-srcfolder "$(APP_BUNDLE)" \
-		-ov -format UDZO \
-		"$(DMG_PATH)"
+dmg: app stage-dmg-contents
+	@set -euo pipefail; \
+	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true; \
+	rm -rf "$(DMG_MOUNT_DIR)"; \
+	rm -f "$(TEMP_DMG_PATH)" "$(DMG_PATH)"; \
+	SIZE_MB="$$(du -sm "$(DMG_STAGING_DIR)" | awk '{print $$1 + 32}')"; \
+	hdiutil create -size "$${SIZE_MB}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"; \
+	mkdir -p "$(DMG_MOUNT_DIR)"; \
+	hdiutil attach -nobrowse -readwrite -mountpoint "$(PWD)/$(DMG_MOUNT_DIR)" "$(TEMP_DMG_PATH)" >/dev/null; \
+	cp -R "$(DMG_STAGING_DIR)/$(APP_NAME).app" "$(DMG_MOUNT_DIR)/$(APP_NAME).app"; \
+	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"; \
+	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null; \
+	rm -rf "$(DMG_MOUNT_DIR)"; \
+	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(DMG_PATH)"; \
+	rm -f "$(TEMP_DMG_PATH)"
 
-dmg-no-telemetry: app-no-telemetry
-	rm -f "$(DMG_PATH)"
-	hdiutil create \
-		-volname "$(APP_NAME)" \
-		-srcfolder "$(APP_BUNDLE)" \
-		-ov -format UDZO \
-		"$(DMG_PATH)"
+dmg-no-telemetry: app-no-telemetry stage-dmg-contents
+	@set -euo pipefail; \
+	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true; \
+	rm -rf "$(DMG_MOUNT_DIR)"; \
+	rm -f "$(TEMP_DMG_PATH)" "$(DMG_PATH)"; \
+	SIZE_MB="$$(du -sm "$(DMG_STAGING_DIR)" | awk '{print $$1 + 32}')"; \
+	hdiutil create -size "$${SIZE_MB}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"; \
+	mkdir -p "$(DMG_MOUNT_DIR)"; \
+	hdiutil attach -nobrowse -readwrite -mountpoint "$(PWD)/$(DMG_MOUNT_DIR)" "$(TEMP_DMG_PATH)" >/dev/null; \
+	cp -R "$(DMG_STAGING_DIR)/$(APP_NAME).app" "$(DMG_MOUNT_DIR)/$(APP_NAME).app"; \
+	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"; \
+	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null; \
+	rm -rf "$(DMG_MOUNT_DIR)"; \
+	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(DMG_PATH)"; \
+	rm -f "$(TEMP_DMG_PATH)"
 
 checksums: zip dmg
 	shasum -a 256 "$(ZIP_PATH)" "$(DMG_PATH)" > "$(CHECKSUMS_PATH)"
@@ -234,7 +260,23 @@ release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-
 	codesign --verify --deep --strict --verbose=2 "$(APP_BUNDLE)"; \
 	rm -f "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" "$(CHECKSUMS_PATH)"; \
 	ditto -c -k --sequesterRsrc --keepParent "$(APP_BUNDLE)" "$(SIGNED_ZIP_PATH)"; \
-	hdiutil create -volname "$(APP_NAME)" -srcfolder "$(APP_BUNDLE)" -ov -format UDZO "$(NOTARIZED_DMG_PATH)"; \
+	rm -rf "$(DMG_STAGING_DIR)"; \
+	mkdir -p "$(DMG_STAGING_DIR)"; \
+	cp -R "$(APP_BUNDLE)" "$(DMG_STAGING_DIR)/$(APP_NAME).app"; \
+	ln -s /Applications "$(DMG_STAGING_DIR)/Applications"; \
+	rm -f "$(TEMP_DMG_PATH)"; \
+	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true; \
+	rm -rf "$(DMG_MOUNT_DIR)"; \
+	SIZE_MB="$$(du -sm "$(DMG_STAGING_DIR)" | awk '{print $$1 + 32}')"; \
+	hdiutil create -size "$${SIZE_MB}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"; \
+	mkdir -p "$(DMG_MOUNT_DIR)"; \
+	hdiutil attach -nobrowse -readwrite -mountpoint "$(PWD)/$(DMG_MOUNT_DIR)" "$(TEMP_DMG_PATH)" >/dev/null; \
+	cp -R "$(DMG_STAGING_DIR)/$(APP_NAME).app" "$(DMG_MOUNT_DIR)/$(APP_NAME).app"; \
+	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"; \
+	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null; \
+	rm -rf "$(DMG_MOUNT_DIR)"; \
+	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(NOTARIZED_DMG_PATH)"; \
+	rm -f "$(TEMP_DMG_PATH)"; \
 	codesign --force --timestamp --sign "$$MACOS_SIGNING_IDENTITY" --keychain "$$KEYCHAIN_PATH" "$(NOTARIZED_DMG_PATH)"
 
 staple-notarized-dmg:
@@ -258,6 +300,10 @@ verify-notarized-dmg:
 	fi; \
 	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"; \
 	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"; \
+	if [ ! -L "$$MOUNT_POINT/Applications" ]; then \
+		echo "error: dmg is missing Applications symlink"; \
+		exit 1; \
+	fi; \
 	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"; \
 	hdiutil detach "$$MOUNT_POINT"; \
 	MOUNT_POINT=""
@@ -271,6 +317,9 @@ release-notarized: release-pre-notarize
 
 clean:
 	rm -rf "$(APP_BUNDLE)"
+	rm -rf "$(DMG_STAGING_DIR)"
+	rm -rf "$(DMG_MOUNT_DIR)"
+	rm -f "$(TEMP_DMG_PATH)"
 	rm -f "$(DMG_PATH)" "$(ZIP_PATH)" "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" "$(CHECKSUMS_PATH)"
 	rm -f "$(DIST_DIR)/developer-id.p12"
 	rm -f "$(DIST_DIR)/downshift-signing.keychain-db" "$(DIST_DIR)/downshift-signing.keychain-db-db"

@@ -102,6 +102,13 @@ this creates:
 - `dist/Downshift-unsigned.dmg`
 - `dist/SHA256SUMS.txt`
 
+the `.dmg` now stages:
+
+- `Downshift.app`
+- `Applications -> /Applications`
+
+so users get the standard drag-`Downshift.app`-to-`Applications` install flow when they open the disk image.
+
 ## mac distribution (signed + notarized dmg)
 
 required env vars:
