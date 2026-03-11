@@ -106,6 +106,7 @@ the `.dmg` now stages:
 
 - `Downshift.app`
 - `Applications -> /Applications`
+- a hidden Finder background image used for the drag-to-install window layout
 
 so users get the standard drag-`Downshift.app`-to-`Applications` install flow when they open the disk image.
 

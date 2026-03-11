@@ -11,6 +11,11 @@ APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
 DMG_STAGING_DIR := $(DIST_DIR)/$(APP_NAME)-dmg
 TEMP_DMG_PATH := $(DIST_DIR)/$(APP_NAME)-temp.dmg
 DMG_MOUNT_DIR := $(DIST_DIR)/dmg-mount
+DMG_BACKGROUND_NAME := background.png
+DMG_BACKGROUND_SOURCE := $(DIST_DIR)/$(DMG_BACKGROUND_NAME)
+DMG_BACKGROUND_DIR := .background
+DMG_WINDOW_SCRIPT := dev/mac/configure_dmg_finder.applescript
+DMG_BACKGROUND_SCRIPT := dev/mac/render_dmg_background.swift
 DMG_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).dmg
 ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).zip
 CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
@@ -24,6 +29,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	run run-no-telemetry \
 	app app-no-telemetry \
 	sign-app \
+	generate-dmg-background \
 	stage-dmg-contents \
 	dmg dmg-no-telemetry \
 	zip zip-no-telemetry \
@@ -145,11 +151,15 @@ package-app:
 sign-app:
 	codesign --force --deep --sign - "$(APP_BUNDLE)"
 
+generate-dmg-background:
+	swift "$(DMG_BACKGROUND_SCRIPT)" "$(DMG_BACKGROUND_SOURCE)"
+
 stage-dmg-contents: package-app
 	rm -rf "$(DMG_STAGING_DIR)"
 	mkdir -p "$(DMG_STAGING_DIR)"
 	cp -R "$(APP_BUNDLE)" "$(DMG_STAGING_DIR)/$(APP_NAME).app"
-	ln -s /Applications "$(DMG_STAGING_DIR)/Applications"
+	mkdir -p "$(DMG_STAGING_DIR)/$(DMG_BACKGROUND_DIR)"
+	cp "$(DMG_BACKGROUND_SOURCE)" "$(DMG_STAGING_DIR)/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)"
 
 app: build package-app sign-app
 
@@ -163,7 +173,7 @@ zip-no-telemetry: app-no-telemetry
 	rm -f "$(ZIP_PATH)"
 	ditto -c -k --sequesterRsrc --keepParent "$(APP_BUNDLE)" "$(ZIP_PATH)"
 
-dmg: app stage-dmg-contents
+dmg: app generate-dmg-background stage-dmg-contents
 	@set -euo pipefail; \
 	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true; \
 	rm -rf "$(DMG_MOUNT_DIR)"; \
@@ -172,14 +182,16 @@ dmg: app stage-dmg-contents
 	hdiutil create -size "$${SIZE_MB}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"; \
 	mkdir -p "$(DMG_MOUNT_DIR)"; \
 	hdiutil attach -nobrowse -readwrite -mountpoint "$(PWD)/$(DMG_MOUNT_DIR)" "$(TEMP_DMG_PATH)" >/dev/null; \
-	cp -R "$(DMG_STAGING_DIR)/$(APP_NAME).app" "$(DMG_MOUNT_DIR)/$(APP_NAME).app"; \
+	cp -R "$(DMG_STAGING_DIR)/." "$(DMG_MOUNT_DIR)"; \
 	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"; \
+	SetFile -a V "$(DMG_MOUNT_DIR)/$(DMG_BACKGROUND_DIR)"; \
+	osascript "$(DMG_WINDOW_SCRIPT)" "$(PWD)/$(DMG_MOUNT_DIR)" "$(APP_NAME).app" "$(DMG_BACKGROUND_NAME)"; \
 	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null; \
 	rm -rf "$(DMG_MOUNT_DIR)"; \
 	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(DMG_PATH)"; \
 	rm -f "$(TEMP_DMG_PATH)"
 
-dmg-no-telemetry: app-no-telemetry stage-dmg-contents
+dmg-no-telemetry: app-no-telemetry generate-dmg-background stage-dmg-contents
 	@set -euo pipefail; \
 	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true; \
 	rm -rf "$(DMG_MOUNT_DIR)"; \
@@ -188,8 +200,10 @@ dmg-no-telemetry: app-no-telemetry stage-dmg-contents
 	hdiutil create -size "$${SIZE_MB}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"; \
 	mkdir -p "$(DMG_MOUNT_DIR)"; \
 	hdiutil attach -nobrowse -readwrite -mountpoint "$(PWD)/$(DMG_MOUNT_DIR)" "$(TEMP_DMG_PATH)" >/dev/null; \
-	cp -R "$(DMG_STAGING_DIR)/$(APP_NAME).app" "$(DMG_MOUNT_DIR)/$(APP_NAME).app"; \
+	cp -R "$(DMG_STAGING_DIR)/." "$(DMG_MOUNT_DIR)"; \
 	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"; \
+	SetFile -a V "$(DMG_MOUNT_DIR)/$(DMG_BACKGROUND_DIR)"; \
+	osascript "$(DMG_WINDOW_SCRIPT)" "$(PWD)/$(DMG_MOUNT_DIR)" "$(APP_NAME).app" "$(DMG_BACKGROUND_NAME)"; \
 	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null; \
 	rm -rf "$(DMG_MOUNT_DIR)"; \
 	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(DMG_PATH)"; \
@@ -211,7 +225,7 @@ release: check-tag-sync checksums
 
 release-no-telemetry: check-tag-sync checksums-no-telemetry
 
-release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-env build package-app
+release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-env build package-app generate-dmg-background
 	@set -euo pipefail; \
 	KEYCHAIN_PATH="$(PWD)/$(DIST_DIR)/downshift-signing.keychain-db"; \
 	CERT_PATH="$(PWD)/$(DIST_DIR)/developer-id.p12"; \
@@ -263,7 +277,8 @@ release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-
 	rm -rf "$(DMG_STAGING_DIR)"; \
 	mkdir -p "$(DMG_STAGING_DIR)"; \
 	cp -R "$(APP_BUNDLE)" "$(DMG_STAGING_DIR)/$(APP_NAME).app"; \
-	ln -s /Applications "$(DMG_STAGING_DIR)/Applications"; \
+	mkdir -p "$(DMG_STAGING_DIR)/$(DMG_BACKGROUND_DIR)"; \
+	cp "$(DMG_BACKGROUND_SOURCE)" "$(DMG_STAGING_DIR)/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)"; \
 	rm -f "$(TEMP_DMG_PATH)"; \
 	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true; \
 	rm -rf "$(DMG_MOUNT_DIR)"; \
@@ -271,8 +286,10 @@ release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-
 	hdiutil create -size "$${SIZE_MB}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"; \
 	mkdir -p "$(DMG_MOUNT_DIR)"; \
 	hdiutil attach -nobrowse -readwrite -mountpoint "$(PWD)/$(DMG_MOUNT_DIR)" "$(TEMP_DMG_PATH)" >/dev/null; \
-	cp -R "$(DMG_STAGING_DIR)/$(APP_NAME).app" "$(DMG_MOUNT_DIR)/$(APP_NAME).app"; \
+	cp -R "$(DMG_STAGING_DIR)/." "$(DMG_MOUNT_DIR)"; \
 	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"; \
+	SetFile -a V "$(DMG_MOUNT_DIR)/$(DMG_BACKGROUND_DIR)"; \
+	osascript "$(DMG_WINDOW_SCRIPT)" "$(PWD)/$(DMG_MOUNT_DIR)" "$(APP_NAME).app" "$(DMG_BACKGROUND_NAME)"; \
 	hdiutil detach "$(PWD)/$(DMG_MOUNT_DIR)" >/dev/null; \
 	rm -rf "$(DMG_MOUNT_DIR)"; \
 	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(NOTARIZED_DMG_PATH)"; \
@@ -302,6 +319,10 @@ verify-notarized-dmg:
 	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"; \
 	if [ ! -L "$$MOUNT_POINT/Applications" ]; then \
 		echo "error: dmg is missing Applications symlink"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$MOUNT_POINT/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)" ]; then \
+		echo "error: dmg is missing background image"; \
 		exit 1; \
 	fi; \
 	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"; \
