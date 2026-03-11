@@ -110,12 +110,6 @@ h1 {
   letter-spacing: -0.02em;
 }
 
-.tagline {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 0.97rem;
-}
-
 .canvas {
   margin-top: 12px;
 }
@@ -310,37 +304,12 @@ h1 {
   font-size: 0.84rem;
 }
 
-.notice-card,
 .download-card,
 .faq-card,
 .updates-card {
   margin: 14px auto 0;
   max-width: 510px;
   border-radius: 12px;
-}
-
-.notice-card {
-  background: var(--soft-card);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow-md);
-  padding: 14px 16px;
-}
-
-.notice-card h3 {
-  margin: 0 0 4px;
-  font-size: 1.05rem;
-}
-
-.notice-card p,
-.notice-card li {
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.38;
-}
-
-.notice-card ol {
-  margin: 8px 0 0;
-  padding-left: 18px;
 }
 
 .download-card {
@@ -530,7 +499,6 @@ details p {
     border-radius: 7px;
   }
 
-  .notice-card,
   .download-card,
   .faq-card,
   .updates-card {
