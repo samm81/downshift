@@ -110,10 +110,15 @@ jobs:
 
           gh api "/repos/${{ github.repository }}/git/ref/tags/${RELEASE_TAG}" >/dev/null
 
-          if RELEASE_ID="$(gh api "/repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}" --jq .id 2>/dev/null)"; then
+          if RELEASE_ID="$(
+            gh api --paginate "/repos/${{ github.repository }}/releases" \
+              --jq ".[] | select(.tag_name == \"$RELEASE_TAG\" or .name == \"$RELEASE_TAG\") | .id" \
+              | head -n 1
+          )" && [ -n "$RELEASE_ID" ]; then
             gh api \
               -X PATCH \
               "/repos/${{ github.repository }}/releases/${RELEASE_ID}" \
+              -f tag_name="$RELEASE_TAG" \
               -F draft=true \
               -f name="$RELEASE_TAG" >/dev/null
           else
@@ -123,7 +128,7 @@ jobs:
               -f tag_name="$RELEASE_TAG" \
               -f name="$RELEASE_TAG" \
               -F draft=true \
-              -f generate_release_notes=false >/dev/null
+              -F generate_release_notes=false >/dev/null
           fi
 
           gh release upload "$RELEASE_TAG" \
