@@ -4,7 +4,7 @@ use downshift::telemetry::{
 };
 use serial_test::serial;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tiny_http::{Response, Server, StatusCode};
 use uuid::Uuid;
@@ -23,6 +23,23 @@ fn test_state() -> TelemetryState {
         usage_enabled: true,
         crash_enabled: true,
         install_first_run: false,
+    }
+}
+
+struct CollectingSink {
+    events: Arc<Mutex<Vec<downshift::telemetry::Envelope>>>,
+}
+
+impl TelemetrySink for CollectingSink {
+    fn send_batch(
+        &mut self,
+        events: &[downshift::telemetry::Envelope],
+    ) -> Result<(), downshift::telemetry::TelemetryError> {
+        self.events
+            .lock()
+            .expect("collecting sink lock")
+            .extend_from_slice(events);
+        Ok(())
     }
 }
 
@@ -158,4 +175,47 @@ fn missing_config_gracefully_degrades_to_noop() {
     client.shutdown(Duration::from_millis(200));
 
     std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+#[serial]
+fn breathing_pattern_event_preserves_custom_pattern_payload() {
+    let captured = Arc::new(Mutex::new(Vec::<downshift::telemetry::Envelope>::new()));
+    let client = RuntimeTelemetryClient::new_with_sinks(
+        test_state(),
+        Box::new(CollectingSink {
+            events: captured.clone(),
+        }),
+        Box::new(downshift::telemetry::NoopSink),
+    );
+
+    client.start_session(ActivityState::Active);
+    client.track(
+        EventName::BreathingPatternChanged,
+        serde_json::json!({
+            "action": "saved",
+            "preset_id": "focus_reset",
+            "preset_name": "focus reset",
+            "is_custom": false,
+            "pattern": {
+                "expanding_seconds": 4.0,
+                "expanded_hold_seconds": 2.0,
+                "compressing_seconds": 6.0,
+                "compressed_hold_seconds": 2.0,
+                "total_seconds": 14.0
+            }
+        }),
+    );
+    client.flush(Duration::from_millis(200));
+    client.shutdown(Duration::from_millis(200));
+
+    let events = captured.lock().expect("captured telemetry");
+    let event = events
+        .iter()
+        .find(|event| event.event_name == EventName::BreathingPatternChanged)
+        .expect("breathing pattern event should be present");
+    assert_eq!(event.properties["action"], "saved");
+    assert_eq!(event.properties["preset_name"], "focus reset");
+    assert_eq!(event.properties["pattern"]["expanded_hold_seconds"], 2.0);
+    assert_eq!(event.properties["pattern"]["total_seconds"], 14.0);
 }

@@ -8,6 +8,13 @@ when people focus on screens, they often unconsciously hold their breath or brea
 
 the default rhythm is **5.5 seconds in / 5.5 seconds out** (11-second cycle), inspired by breathing cadence guidance discussed in james nestor's _breath_.
 
+you can now open `breathing pattern…` from the widget context menu to switch between:
+
+- `coherent breathing` (`5.5 / 0 / 5.5 / 0`)
+- `box breathing` (`4 / 4 / 4 / 4`)
+- `4-7-9` (`4 / 7 / 9 / 0`)
+- `custom`, with the option to save named presets
+
 ## principles
 
 - **tiny footprint**: small, calm, always-there companion
@@ -61,7 +68,7 @@ export DOWNSHIFT_BUILD_CHANNEL='alpha'
 breathing animation sync note:
 
 - the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
-- keep them aligned: `5.5s` means one half-breath (inhale or exhale), and `alternate` provides the in/out cycle.
+- keep them aligned conceptually: the app now drives a four-phase pattern (`expand / expanded_hold / compress / compressed_hold`) from javascript, while the docs preview still shows the default coherent-breathing loop.
 
 ## capture short demo webm (mac)
 
