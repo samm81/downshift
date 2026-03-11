@@ -43,10 +43,13 @@ const UPDATE_CHECK_BACKGROUND_INTERVAL_SEC: u64 = 6 * 60 * 60;
 const UPDATE_RELEASE_API_URL: &str =
     "https://api.github.com/repos/samm81/downshift/releases/latest";
 const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
+const DEFAULT_GITHUB_ISSUES_URL: &str = "github-issues-url-not-set";
+const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
 const UPDATE_TOOLTIP: &str = "new version available";
 const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
-const COMPILED_GITHUB_ISSUES_URL: &str = env!("DOWNSHIFT_GITHUB_ISSUES_URL");
-const COMPILED_SUPPORT_EMAIL: &str = env!("DOWNSHIFT_SUPPORT_EMAIL");
+const COMPILED_DOWNSHIFT_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
+const COMPILED_GITHUB_ISSUES_URL: Option<&str> = option_env!("DOWNSHIFT_GITHUB_ISSUES_URL");
+const COMPILED_SUPPORT_EMAIL: Option<&str> = option_env!("DOWNSHIFT_SUPPORT_EMAIL");
 #[cfg(target_os = "macos")]
 const MENU_ID_PAUSE: &str = "pause";
 #[cfg(target_os = "macos")]
@@ -1149,19 +1152,68 @@ fn open_external_url(url: &str) {
     }
 }
 
-fn github_issues_url() -> String {
-    COMPILED_GITHUB_ISSUES_URL.to_string()
+fn optional_env_value(name: &str, compiled: Option<&str>) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .or_else(|| compiled.map(str::to_string))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
-fn support_email_address() -> String {
-    COMPILED_SUPPORT_EMAIL.to_string()
+fn downshift_env() -> String {
+    optional_env_value("DOWNSHIFT_ENV", COMPILED_DOWNSHIFT_ENV)
+        .unwrap_or_else(|| "unset".to_string())
 }
 
-fn support_email_mailto() -> String {
-    format!(
-        "mailto:{}?subject=downshift%20bug%20report&body=please%20describe%20what%20happened%20and%20paste%20diagnostics%20if%20helpful.",
-        support_email_address()
+fn is_prod_env() -> bool {
+    downshift_env() == "prod"
+}
+
+fn resolve_external_contact_value(
+    env_name: &str,
+    compiled: Option<&str>,
+    fallback: &str,
+) -> Result<String, String> {
+    if let Some(value) = optional_env_value(env_name, compiled) {
+        return Ok(value);
+    }
+
+    if is_prod_env() {
+        return Err(format!(
+            "{env_name} is required when DOWNSHIFT_ENV=prod"
+        ));
+    }
+
+    Ok(fallback.to_string())
+}
+
+fn validate_external_contact_config() -> Result<(), String> {
+    github_issues_url()?;
+    support_email_address()?;
+    Ok(())
+}
+
+fn github_issues_url() -> Result<String, String> {
+    resolve_external_contact_value(
+        "DOWNSHIFT_GITHUB_ISSUES_URL",
+        COMPILED_GITHUB_ISSUES_URL,
+        DEFAULT_GITHUB_ISSUES_URL,
     )
+}
+
+fn support_email_address() -> Result<String, String> {
+    resolve_external_contact_value(
+        "DOWNSHIFT_SUPPORT_EMAIL",
+        COMPILED_SUPPORT_EMAIL,
+        DEFAULT_SUPPORT_EMAIL,
+    )
+}
+
+fn support_email_mailto() -> Result<String, String> {
+    Ok(format!(
+        "mailto:{}?subject=downshift%20bug%20report&body=please%20describe%20what%20happened%20and%20paste%20diagnostics%20if%20helpful.",
+        support_email_address()?
+    ))
 }
 
 fn current_os_version() -> String {
@@ -2777,8 +2829,14 @@ impl App {
             MENU_ID_ANALYTICS_INFO => self.show_analytics_modal(event_loop),
             MENU_ID_UPDATE_PRIMARY => self.handle_update_primary_action(event_loop),
             MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
-            MENU_ID_FILE_BUG_GITHUB => open_external_url(&github_issues_url()),
-            MENU_ID_FILE_BUG_EMAIL => open_external_url(&support_email_mailto()),
+            MENU_ID_FILE_BUG_GITHUB => match github_issues_url() {
+                Ok(url) => open_external_url(&url),
+                Err(error) => log_stderr!("error: {error}"),
+            },
+            MENU_ID_FILE_BUG_EMAIL => match support_email_mailto() {
+                Ok(url) => open_external_url(&url),
+                Err(error) => log_stderr!("error: {error}"),
+            },
             _ => {}
         }
     }
@@ -3188,6 +3246,11 @@ fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
 }
 
 fn main() -> std::process::ExitCode {
+    if let Err(error) = validate_external_contact_config() {
+        log_stderr!("error: {error}");
+        return std::process::ExitCode::from(1);
+    }
+
     let panic_telemetry = RuntimeTelemetryClient::from_env();
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
@@ -3318,6 +3381,12 @@ mod tests {
         }
     }
 
+    fn clear_external_contact_env() {
+        std::env::remove_var("DOWNSHIFT_ENV");
+        std::env::remove_var("DOWNSHIFT_GITHUB_ISSUES_URL");
+        std::env::remove_var("DOWNSHIFT_SUPPORT_EMAIL");
+    }
+
     #[test]
     #[serial]
     fn heartbeat_interval_defaults_to_sixty_seconds() {
@@ -3345,6 +3414,58 @@ mod tests {
         assert_eq!(
             heartbeat_interval(),
             Duration::from_secs(MAX_HEARTBEAT_INTERVAL_SEC)
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn external_contact_values_use_dummy_defaults_outside_prod() {
+        clear_external_contact_env();
+
+        assert_eq!(
+            github_issues_url().expect("github issues url"),
+            DEFAULT_GITHUB_ISSUES_URL
+        );
+        assert_eq!(
+            support_email_address().expect("support email"),
+            DEFAULT_SUPPORT_EMAIL
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn external_contact_values_are_required_in_prod() {
+        clear_external_contact_env();
+        std::env::set_var("DOWNSHIFT_ENV", "prod");
+
+        let github_error = github_issues_url().expect_err("github issues url should fail");
+        let email_error = support_email_address().expect_err("support email should fail");
+
+        assert_eq!(
+            github_error,
+            "DOWNSHIFT_GITHUB_ISSUES_URL is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            email_error,
+            "DOWNSHIFT_SUPPORT_EMAIL is required when DOWNSHIFT_ENV=prod"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn external_contact_values_use_runtime_env_when_set() {
+        clear_external_contact_env();
+        std::env::set_var("DOWNSHIFT_ENV", "prod");
+        std::env::set_var("DOWNSHIFT_GITHUB_ISSUES_URL", "https://example.com/issues");
+        std::env::set_var("DOWNSHIFT_SUPPORT_EMAIL", "support@example.com");
+
+        assert_eq!(
+            github_issues_url().expect("github issues url"),
+            "https://example.com/issues"
+        );
+        assert_eq!(
+            support_email_address().expect("support email"),
+            "support@example.com"
         );
     }
 
