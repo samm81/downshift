@@ -85,6 +85,40 @@ fn ipc_json_deserializes_supported_commands() {
         .expect("set_snooze should parse");
     assert!(matches!(set_snooze, IpcCommand::SetSnooze { minutes: 15 }));
 
+    let show_breathing_pattern: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"show_breathing_pattern"}"#)
+            .expect("show_breathing_pattern should parse");
+    assert!(matches!(
+        show_breathing_pattern,
+        IpcCommand::ShowBreathingPattern
+    ));
+
+    let close_breathing_pattern: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"close_breathing_pattern"}"#)
+            .expect("close_breathing_pattern should parse");
+    assert!(matches!(
+        close_breathing_pattern,
+        IpcCommand::CloseBreathingPattern
+    ));
+
+    let apply_breathing_pattern: IpcCommand = serde_json::from_str(
+        r#"{"cmd":"apply_breathing_pattern","preset_id":"custom","pattern":{"expanding_seconds":4.0,"expanded_hold_seconds":7.0,"compressing_seconds":9.0,"compressed_hold_seconds":0.0}}"#,
+    )
+    .expect("apply_breathing_pattern should parse");
+    assert!(matches!(
+        apply_breathing_pattern,
+        IpcCommand::ApplyBreathingPattern { .. }
+    ));
+
+    let save_breathing_preset: IpcCommand = serde_json::from_str(
+        r#"{"cmd":"save_breathing_preset","name":"focus","pattern":{"expanding_seconds":4.0,"expanded_hold_seconds":2.0,"compressing_seconds":6.0,"compressed_hold_seconds":2.0}}"#,
+    )
+    .expect("save_breathing_preset should parse");
+    assert!(matches!(
+        save_breathing_preset,
+        IpcCommand::SaveBreathingPreset { .. }
+    ));
+
     let show_custom_snooze: IpcCommand = serde_json::from_str(r#"{"cmd":"show_custom_snooze"}"#)
         .expect("show_custom_snooze should parse");
     assert!(matches!(show_custom_snooze, IpcCommand::ShowCustomSnooze));

@@ -11,9 +11,15 @@ pub const WHEEL_FINE_STEP: f64 = 1.0;
 pub const DEFAULT_HALF_CYCLE_SECONDS: f64 = 5.5;
 pub const FAST_HALF_CYCLE_SECONDS: f64 = 4.5;
 pub const SLOW_HALF_CYCLE_SECONDS: f64 = 6.5;
+pub const MIN_ACTIVE_PHASE_SECONDS: f64 = 0.5;
+pub const MAX_PHASE_SECONDS: f64 = 60.0;
 pub const DEFAULT_MARGIN: f64 = 24.0;
 pub const LAUNCH_AGENT_LABEL: &str = "com.samm81.downshift";
 pub const LAUNCH_AGENT_FILENAME: &str = "com.samm81.downshift.plist";
+pub const BREATHING_PRESET_ID_COHERENT: &str = "coherent_breathing";
+pub const BREATHING_PRESET_ID_BOX: &str = "box_breathing";
+pub const BREATHING_PRESET_ID_479: &str = "4_7_9";
+pub const BREATHING_PRESET_ID_CUSTOM: &str = "custom";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct PersistedMonitor {
@@ -23,9 +29,128 @@ pub struct PersistedMonitor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BreathingPattern {
+    pub expanding_seconds: f64,
+    #[serde(default)]
+    pub expanded_hold_seconds: f64,
+    pub compressing_seconds: f64,
+    #[serde(default)]
+    pub compressed_hold_seconds: f64,
+}
+
+impl BreathingPattern {
+    pub fn coherent() -> Self {
+        Self {
+            expanding_seconds: DEFAULT_HALF_CYCLE_SECONDS,
+            expanded_hold_seconds: 0.0,
+            compressing_seconds: DEFAULT_HALF_CYCLE_SECONDS,
+            compressed_hold_seconds: 0.0,
+        }
+    }
+
+    pub fn box_breathing() -> Self {
+        Self {
+            expanding_seconds: 4.0,
+            expanded_hold_seconds: 4.0,
+            compressing_seconds: 4.0,
+            compressed_hold_seconds: 4.0,
+        }
+    }
+
+    pub fn four_seven_nine() -> Self {
+        Self {
+            expanding_seconds: 4.0,
+            expanded_hold_seconds: 7.0,
+            compressing_seconds: 9.0,
+            compressed_hold_seconds: 0.0,
+        }
+    }
+
+    pub fn sanitize(&mut self) {
+        let default = Self::coherent();
+        self.expanding_seconds =
+            normalize_pattern_phase(self.expanding_seconds, default.expanding_seconds, false);
+        self.expanded_hold_seconds = normalize_pattern_phase(
+            self.expanded_hold_seconds,
+            default.expanded_hold_seconds,
+            true,
+        );
+        self.compressing_seconds =
+            normalize_pattern_phase(self.compressing_seconds, default.compressing_seconds, false);
+        self.compressed_hold_seconds = normalize_pattern_phase(
+            self.compressed_hold_seconds,
+            default.compressed_hold_seconds,
+            true,
+        );
+    }
+}
+
+impl Default for BreathingPattern {
+    fn default() -> Self {
+        Self::coherent()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SavedBreathingPreset {
+    pub id: String,
+    pub name: String,
+    pub pattern: BreathingPattern,
+}
+
+impl SavedBreathingPreset {
+    pub fn sanitize(&mut self) -> bool {
+        self.id = self.id.trim().to_string();
+        self.name = self.name.trim().to_string();
+        self.pattern.sanitize();
+        !(self.id.is_empty() || self.name.is_empty())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BuiltInBreathingPreset {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub pattern: BreathingPattern,
+}
+
+pub fn built_in_breathing_presets() -> [BuiltInBreathingPreset; 3] {
+    [
+        BuiltInBreathingPreset {
+            id: BREATHING_PRESET_ID_COHERENT,
+            name: "coherent breathing",
+            pattern: BreathingPattern::coherent(),
+        },
+        BuiltInBreathingPreset {
+            id: BREATHING_PRESET_ID_BOX,
+            name: "box breathing",
+            pattern: BreathingPattern::box_breathing(),
+        },
+        BuiltInBreathingPreset {
+            id: BREATHING_PRESET_ID_479,
+            name: "4-7-9",
+            pattern: BreathingPattern::four_seven_nine(),
+        },
+    ]
+}
+
+pub fn built_in_breathing_preset(id: &str) -> Option<BuiltInBreathingPreset> {
+    built_in_breathing_presets()
+        .into_iter()
+        .find(|preset| preset.id == id)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub size: f64,
-    pub half_cycle_seconds: f64,
+    #[serde(default)]
+    pub breathing_pattern: BreathingPattern,
+    #[serde(default = "default_active_breathing_preset_id")]
+    pub active_breathing_preset_id: String,
+    #[serde(default)]
+    pub saved_breathing_presets: Vec<SavedBreathingPreset>,
+    #[serde(rename = "half_cycle_seconds", default, skip_serializing)]
+    legacy_half_cycle_seconds: Option<f64>,
     pub paused: bool,
     #[serde(default)]
     pub launch_at_login: bool,
@@ -46,7 +171,10 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             size: DEFAULT_SIZE,
-            half_cycle_seconds: DEFAULT_HALF_CYCLE_SECONDS,
+            breathing_pattern: BreathingPattern::default(),
+            active_breathing_preset_id: default_active_breathing_preset_id(),
+            saved_breathing_presets: Vec::new(),
+            legacy_half_cycle_seconds: None,
             paused: false,
             launch_at_login: true,
             usage_data_sharing: true,
@@ -68,10 +196,73 @@ fn default_crash_reports_sharing() -> bool {
     true
 }
 
+fn default_active_breathing_preset_id() -> String {
+    BREATHING_PRESET_ID_COHERENT.to_string()
+}
+
 impl Settings {
     pub fn sanitize(&mut self) {
         self.size = self.size.clamp(MIN_SIZE, MAX_SIZE);
-        self.half_cycle_seconds = normalize_half_cycle(self.half_cycle_seconds);
+        self.breathing_pattern.sanitize();
+
+        if let Some(legacy_half_cycle_seconds) = self.legacy_half_cycle_seconds.take() {
+            self.breathing_pattern = legacy_pattern_from_half_cycle(legacy_half_cycle_seconds);
+        }
+
+        self.saved_breathing_presets
+            .retain_mut(SavedBreathingPreset::sanitize);
+        dedupe_saved_preset_ids(&mut self.saved_breathing_presets);
+
+        let active_id = self.active_breathing_preset_id.trim().to_string();
+        let should_preserve_custom_pattern = active_id == BREATHING_PRESET_ID_CUSTOM
+            || (active_id == BREATHING_PRESET_ID_COHERENT
+                && !patterns_match(&self.breathing_pattern, &BreathingPattern::coherent()));
+
+        self.active_breathing_preset_id = if should_preserve_custom_pattern {
+            if let Some(matching_id) = self.matching_preset_id_for_pattern() {
+                matching_id
+            } else {
+                BREATHING_PRESET_ID_CUSTOM.to_string()
+            }
+        } else if active_id == BREATHING_PRESET_ID_CUSTOM
+            || built_in_breathing_preset(&active_id).is_some()
+            || self
+                .saved_breathing_presets
+                .iter()
+                .any(|preset| preset.id == active_id)
+        {
+            active_id
+        } else {
+            self.matching_preset_id_for_pattern()
+                .unwrap_or_else(|| BREATHING_PRESET_ID_CUSTOM.to_string())
+        };
+
+        if let Some(pattern) = self.active_pattern_from_presets() {
+            self.breathing_pattern = pattern;
+        }
+    }
+
+    pub fn active_pattern_from_presets(&self) -> Option<BreathingPattern> {
+        if let Some(preset) = built_in_breathing_preset(&self.active_breathing_preset_id) {
+            return Some(preset.pattern);
+        }
+        self.saved_breathing_presets
+            .iter()
+            .find(|preset| preset.id == self.active_breathing_preset_id)
+            .map(|preset| preset.pattern.clone())
+    }
+
+    fn matching_preset_id_for_pattern(&self) -> Option<String> {
+        if let Some(preset) = built_in_breathing_presets()
+            .into_iter()
+            .find(|preset| patterns_match(&self.breathing_pattern, &preset.pattern))
+        {
+            return Some(preset.id.to_string());
+        }
+        self.saved_breathing_presets
+            .iter()
+            .find(|preset| patterns_match(&self.breathing_pattern, &preset.pattern))
+            .map(|preset| preset.id.clone())
     }
 }
 
@@ -79,11 +270,28 @@ impl Settings {
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum IpcCommand {
     Quit,
-    SetPaused { paused: bool },
-    SetSnooze { minutes: u64 },
-    SetSpeed { half_cycle_seconds: f64 },
-    SetUsageDataSharing { enabled: bool },
-    SetCrashReportsSharing { enabled: bool },
+    SetPaused {
+        paused: bool,
+    },
+    SetSnooze {
+        minutes: u64,
+    },
+    ShowBreathingPattern,
+    CloseBreathingPattern,
+    ApplyBreathingPattern {
+        preset_id: String,
+        pattern: BreathingPattern,
+    },
+    SaveBreathingPreset {
+        name: String,
+        pattern: BreathingPattern,
+    },
+    SetUsageDataSharing {
+        enabled: bool,
+    },
+    SetCrashReportsSharing {
+        enabled: bool,
+    },
     AnalyticsMenuOpened,
     ShowTelemetryInfo,
     CloseTelemetryInfo,
@@ -93,13 +301,37 @@ pub enum IpcCommand {
     DismissUpdateBadge,
     CloseUpdateDialog,
     DownloadUpdate,
-    ShowContextMenu { x: i32, y: i32 },
-    Resize { delta: i32, fine: bool },
-    SetSize { size: f64 },
-    StartDrag { screen_x: i32, screen_y: i32 },
-    DragTo { screen_x: i32, screen_y: i32 },
+    ShowContextMenu {
+        x: i32,
+        y: i32,
+    },
+    Resize {
+        delta: i32,
+        fine: bool,
+    },
+    SetSize {
+        size: f64,
+    },
+    StartDrag {
+        screen_x: i32,
+        screen_y: i32,
+    },
+    DragTo {
+        screen_x: i32,
+        screen_y: i32,
+    },
     EndDrag,
     Reset,
+}
+
+pub fn legacy_pattern_from_half_cycle(value: f64) -> BreathingPattern {
+    let half_cycle_seconds = normalize_half_cycle(value);
+    BreathingPattern {
+        expanding_seconds: half_cycle_seconds,
+        expanded_hold_seconds: 0.0,
+        compressing_seconds: half_cycle_seconds,
+        compressed_hold_seconds: 0.0,
+    }
 }
 
 pub fn normalize_half_cycle(value: f64) -> f64 {
@@ -120,6 +352,33 @@ pub fn apply_resize_step(current_size: f64, delta: i32, fine: bool) -> f64 {
 
 pub fn clamp_size(size: f64) -> f64 {
     size.clamp(MIN_SIZE, MAX_SIZE)
+}
+
+fn normalize_pattern_phase(value: f64, default: f64, allow_zero: bool) -> f64 {
+    if !value.is_finite() {
+        return default;
+    }
+    let minimum = if allow_zero {
+        0.0
+    } else {
+        MIN_ACTIVE_PHASE_SECONDS
+    };
+    if value < minimum {
+        return default;
+    }
+    value.clamp(minimum, MAX_PHASE_SECONDS)
+}
+
+fn dedupe_saved_preset_ids(presets: &mut Vec<SavedBreathingPreset>) {
+    let mut seen = std::collections::HashSet::new();
+    presets.retain(|preset| seen.insert(preset.id.clone()));
+}
+
+fn patterns_match(left: &BreathingPattern, right: &BreathingPattern) -> bool {
+    (left.expanding_seconds - right.expanding_seconds).abs() <= 0.001
+        && (left.expanded_hold_seconds - right.expanded_hold_seconds).abs() <= 0.001
+        && (left.compressing_seconds - right.compressing_seconds).abs() <= 0.001
+        && (left.compressed_hold_seconds - right.compressed_hold_seconds).abs() <= 0.001
 }
 
 pub fn launch_agent_path_from_home(home: &Path) -> std::path::PathBuf {
@@ -206,10 +465,64 @@ mod tests {
     }
 
     #[test]
-    fn settings_sanitize_clamps_size_and_normalizes_speed() {
+    fn breathing_pattern_sanitize_normalizes_invalid_phases() {
+        let mut pattern = BreathingPattern {
+            expanding_seconds: f64::NAN,
+            expanded_hold_seconds: -1.0,
+            compressing_seconds: 999.0,
+            compressed_hold_seconds: 90.0,
+        };
+
+        pattern.sanitize();
+
+        assert_eq!(pattern.expanding_seconds, DEFAULT_HALF_CYCLE_SECONDS);
+        assert_eq!(pattern.expanded_hold_seconds, 0.0);
+        assert_eq!(pattern.compressing_seconds, MAX_PHASE_SECONDS);
+        assert_eq!(pattern.compressed_hold_seconds, MAX_PHASE_SECONDS);
+    }
+
+    #[test]
+    fn legacy_pattern_from_half_cycle_maps_to_symmetric_pattern() {
+        assert_eq!(
+            legacy_pattern_from_half_cycle(4.54),
+            BreathingPattern {
+                expanding_seconds: FAST_HALF_CYCLE_SECONDS,
+                expanded_hold_seconds: 0.0,
+                compressing_seconds: FAST_HALF_CYCLE_SECONDS,
+                compressed_hold_seconds: 0.0,
+            }
+        );
+    }
+
+    #[test]
+    fn settings_sanitize_clamps_size_and_normalizes_pattern_state() {
         let mut settings = Settings {
             size: 999.0,
-            half_cycle_seconds: 6.47,
+            breathing_pattern: BreathingPattern {
+                expanding_seconds: 3.0,
+                expanded_hold_seconds: -4.0,
+                compressing_seconds: 6.47,
+                compressed_hold_seconds: 1.0,
+            },
+            active_breathing_preset_id: "missing".to_string(),
+            saved_breathing_presets: vec![
+                SavedBreathingPreset {
+                    id: " focus ".to_string(),
+                    name: " focus ".to_string(),
+                    pattern: BreathingPattern::four_seven_nine(),
+                },
+                SavedBreathingPreset {
+                    id: "focus".to_string(),
+                    name: "duplicate".to_string(),
+                    pattern: BreathingPattern::box_breathing(),
+                },
+                SavedBreathingPreset {
+                    id: "  ".to_string(),
+                    name: "ignored".to_string(),
+                    pattern: BreathingPattern::box_breathing(),
+                },
+            ],
+            legacy_half_cycle_seconds: None,
             paused: true,
             launch_at_login: true,
             usage_data_sharing: false,
@@ -224,7 +537,22 @@ mod tests {
         settings.sanitize();
 
         assert_eq!(settings.size, MAX_SIZE);
-        assert_eq!(settings.half_cycle_seconds, SLOW_HALF_CYCLE_SECONDS);
+        assert_eq!(
+            settings.breathing_pattern,
+            BreathingPattern {
+                expanding_seconds: 3.0,
+                expanded_hold_seconds: 0.0,
+                compressing_seconds: 6.47,
+                compressed_hold_seconds: 1.0,
+            }
+        );
+        assert_eq!(
+            settings.active_breathing_preset_id,
+            BREATHING_PRESET_ID_CUSTOM
+        );
+        assert_eq!(settings.saved_breathing_presets.len(), 1);
+        assert_eq!(settings.saved_breathing_presets[0].id, "focus");
+        assert_eq!(settings.saved_breathing_presets[0].name, "focus");
         assert!(settings.paused);
         assert!(settings.launch_at_login);
         assert!(!settings.usage_data_sharing);
@@ -277,12 +605,19 @@ mod tests {
 
     #[test]
     fn ipc_command_serde_uses_snake_case_tagged_format() {
-        let raw = r#"{"cmd":"set_speed","half_cycle_seconds":4.5}"#;
-        let command: IpcCommand = serde_json::from_str(raw).expect("valid set_speed command");
+        let raw = r#"{"cmd":"apply_breathing_pattern","preset_id":"custom","pattern":{"expanding_seconds":4.0,"expanded_hold_seconds":1.0,"compressing_seconds":6.0,"compressed_hold_seconds":0.0}}"#;
+        let command: IpcCommand =
+            serde_json::from_str(raw).expect("valid apply_breathing_pattern command");
         assert_eq!(
             command,
-            IpcCommand::SetSpeed {
-                half_cycle_seconds: 4.5
+            IpcCommand::ApplyBreathingPattern {
+                preset_id: "custom".to_string(),
+                pattern: BreathingPattern {
+                    expanding_seconds: 4.0,
+                    expanded_hold_seconds: 1.0,
+                    compressing_seconds: 6.0,
+                    compressed_hold_seconds: 0.0,
+                }
             }
         );
 

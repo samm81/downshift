@@ -3,8 +3,10 @@ use downshift::telemetry::{
     RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,
 };
 use downshift::{
-    apply_resize_step, clamp_size, diagnostics, load_settings, normalize_half_cycle, IpcCommand,
-    PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
+    apply_resize_step, built_in_breathing_preset, built_in_breathing_presets, clamp_size,
+    diagnostics, load_settings, BreathingPattern, IpcCommand, PersistedMonitor,
+    SavedBreathingPreset, Settings, BREATHING_PRESET_ID_COHERENT, BREATHING_PRESET_ID_CUSTOM,
+    DEFAULT_SIZE,
 };
 #[cfg(target_os = "macos")]
 use downshift::{launch_agent_path_from_home, launch_agent_plist};
@@ -75,6 +77,8 @@ const MENU_ID_SIZE_L: &str = "size_l";
 #[cfg(target_os = "macos")]
 const MENU_ID_SIZE_XL: &str = "size_xl";
 #[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_PATTERN: &str = "breathing_pattern";
+#[cfg(target_os = "macos")]
 const MENU_ID_RESET: &str = "reset";
 #[cfg(target_os = "macos")]
 const MENU_ID_QUIT: &str = "quit";
@@ -114,7 +118,8 @@ struct HeartbeatSnapshot {
     state: String,
     paused: bool,
     snoozed: bool,
-    half_cycle_seconds: f64,
+    active_breathing_preset_id: String,
+    breathing_pattern: BreathingPattern,
     width_px: u32,
     height_px: u32,
     usage_enabled: bool,
@@ -128,7 +133,17 @@ impl HeartbeatSnapshot {
             "config": {
                 "paused": self.paused,
                 "snoozed": self.snoozed,
-                "half_cycle_seconds": self.half_cycle_seconds,
+                "active_breathing_preset_id": self.active_breathing_preset_id,
+                "breathing_pattern": {
+                    "expanding_seconds": self.breathing_pattern.expanding_seconds,
+                    "expanded_hold_seconds": self.breathing_pattern.expanded_hold_seconds,
+                    "compressing_seconds": self.breathing_pattern.compressing_seconds,
+                    "compressed_hold_seconds": self.breathing_pattern.compressed_hold_seconds,
+                    "total_seconds": self.breathing_pattern.expanding_seconds
+                        + self.breathing_pattern.expanded_hold_seconds
+                        + self.breathing_pattern.compressing_seconds
+                        + self.breathing_pattern.compressed_hold_seconds,
+                },
                 "width_px": self.width_px,
                 "height_px": self.height_px,
                 "usage_enabled": self.usage_enabled,
@@ -205,11 +220,8 @@ const BREATH_HTML: &str = r#"<!doctype html>
         box-shadow: inset 0 0 0 1px rgba(124, 182, 255, 0.35);
         transform: scale(0.8);
         transform-origin: center;
-        /* keep in sync with docs/styles.css .demo-ball animation */
-        animation: breathe 5.5s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
       }
       .ball.paused {
-        animation-play-state: paused;
         opacity: 0.55;
       }
       .badge {
@@ -278,14 +290,6 @@ const BREATH_HTML: &str = r#"<!doctype html>
         padding: 2px 8px 4px;
         font-size: 11px;
       }
-      @keyframes breathe {
-        from {
-          transform: scale(0.8);
-        }
-        to {
-          transform: scale(1);
-        }
-      }
       @keyframes badge-boing {
         0% {
           transform: scale(0.6);
@@ -333,6 +337,8 @@ const BREATH_HTML: &str = r#"<!doctype html>
         <button data-size-slot="3">XL</button>
       </div>
       <div class="divider"></div>
+      <button id="menu-breathing-pattern">breathing pattern…</button>
+      <div class="divider"></div>
       <button id="menu-reset">reset</button>
       <button id="menu-quit">quit</button>
       <div class="divider"></div>
@@ -368,11 +374,64 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const whatWeCollectButton = document.getElementById("menu-what-we-collect");
         const sizeButtons = Array.from(document.querySelectorAll("[data-size-slot]"));
         const snoozeButtons = Array.from(document.querySelectorAll("[data-snooze-minutes]"));
-        const init = window.__BB_INIT__ || { paused: false, half_cycle_seconds: 5.5, use_native_menu: false };
+        const breathingPatternButton = document.getElementById("menu-breathing-pattern");
+        const init = window.__BB_INIT__ || { paused: false, use_native_menu: false };
         const useNativeMenu = Boolean(init.use_native_menu);
+        let breathAnimation = null;
+
+        function normalizePattern(pattern) {
+          const fallback = {
+            expanding_seconds: 5.5,
+            expanded_hold_seconds: 0,
+            compressing_seconds: 5.5,
+            compressed_hold_seconds: 0,
+          };
+          const candidate = pattern && typeof pattern === "object" ? pattern : fallback;
+          const next = {
+            expanding_seconds: Number(candidate.expanding_seconds),
+            expanded_hold_seconds: Number(candidate.expanded_hold_seconds),
+            compressing_seconds: Number(candidate.compressing_seconds),
+            compressed_hold_seconds: Number(candidate.compressed_hold_seconds),
+          };
+          if (!Number.isFinite(next.expanding_seconds) || next.expanding_seconds <= 0) {
+            next.expanding_seconds = fallback.expanding_seconds;
+          }
+          if (!Number.isFinite(next.expanded_hold_seconds) || next.expanded_hold_seconds < 0) {
+            next.expanded_hold_seconds = fallback.expanded_hold_seconds;
+          }
+          if (!Number.isFinite(next.compressing_seconds) || next.compressing_seconds <= 0) {
+            next.compressing_seconds = fallback.compressing_seconds;
+          }
+          if (!Number.isFinite(next.compressed_hold_seconds) || next.compressed_hold_seconds < 0) {
+            next.compressed_hold_seconds = fallback.compressed_hold_seconds;
+          }
+          return next;
+        }
+
+        function totalPatternSeconds(pattern) {
+          return pattern.expanding_seconds
+            + pattern.expanded_hold_seconds
+            + pattern.compressing_seconds
+            + pattern.compressed_hold_seconds;
+        }
+
+        function keyframesForPattern(pattern) {
+          const total = Math.max(totalPatternSeconds(pattern), 0.1);
+          const expandEnd = pattern.expanding_seconds / total;
+          const topHoldEnd = (pattern.expanding_seconds + pattern.expanded_hold_seconds) / total;
+          const compressEnd = (pattern.expanding_seconds + pattern.expanded_hold_seconds + pattern.compressing_seconds) / total;
+          return [
+            { transform: "scale(0.8)", offset: 0 },
+            { transform: "scale(1)", offset: expandEnd },
+            { transform: "scale(1)", offset: topHoldEnd },
+            { transform: "scale(0.8)", offset: compressEnd },
+            { transform: "scale(0.8)", offset: 1 },
+          ];
+        }
+
         const state = {
           paused: Boolean(init.paused),
-          halfCycleSeconds: Number(init.half_cycle_seconds) || 5.5,
+          breathingPattern: normalizePattern(init.breathing_pattern),
           usageDataSharing: Object.prototype.hasOwnProperty.call(init, "usage_data_sharing") ? Boolean(init.usage_data_sharing) : true,
           crashReportsSharing: Object.prototype.hasOwnProperty.call(init, "crash_reports_sharing") ? Boolean(init.crash_reports_sharing) : true,
           analyticsOpen: false,
@@ -406,15 +465,33 @@ const BREATH_HTML: &str = r#"<!doctype html>
           menu.hidden = false;
         }
 
+        function syncAnimationPauseState() {
+          if (!breathAnimation) return;
+          if (state.paused) {
+            breathAnimation.pause();
+          } else {
+            breathAnimation.play();
+          }
+        }
+
+        function restartBreathingAnimation() {
+          if (breathAnimation) {
+            breathAnimation.cancel();
+          }
+          breathAnimation = ball.animate(keyframesForPattern(state.breathingPattern), {
+            duration: Math.round(totalPatternSeconds(state.breathingPattern) * 1000),
+            iterations: Infinity,
+            easing: "linear",
+          });
+          syncAnimationPauseState();
+        }
+
         function applyBallState() {
           ball.classList.toggle("paused", state.paused);
-          // halfCycleSeconds is inhale OR exhale duration; with CSS `alternate`,
-          // one animation iteration maps to one half-breath.
-          const seconds = Math.max(2.0, state.halfCycleSeconds);
-          ball.style.animationDuration = `${seconds}s`;
           pauseButton.textContent = state.paused ? "resume" : "pause";
           updatePrimaryButton.textContent = state.updateLabel;
           updatePrimaryButton.dataset.newVersion = state.updateHasNewVersion ? "1" : "0";
+          syncAnimationPauseState();
           positionBadge();
         }
 
@@ -487,11 +564,9 @@ const BREATH_HTML: &str = r#"<!doctype html>
           if (Object.prototype.hasOwnProperty.call(next, "paused")) {
             state.paused = Boolean(next.paused);
           }
-          if (Object.prototype.hasOwnProperty.call(next, "half_cycle_seconds")) {
-            const value = Number(next.half_cycle_seconds);
-            if (Number.isFinite(value) && value > 0) {
-              state.halfCycleSeconds = value;
-            }
+          if (Object.prototype.hasOwnProperty.call(next, "breathing_pattern")) {
+            state.breathingPattern = normalizePattern(next.breathing_pattern);
+            restartBreathingAnimation();
           }
           if (Object.prototype.hasOwnProperty.call(next, "size_presets")) {
             const values = Array.isArray(next.size_presets)
@@ -578,9 +653,13 @@ const BREATH_HTML: &str = r#"<!doctype html>
 
         resetButton.addEventListener("click", () => {
           state.paused = false;
-          state.halfCycleSeconds = 5.5;
           applyBallState();
           post({ cmd: "reset" });
+          hideMenu();
+        });
+
+        breathingPatternButton.addEventListener("click", () => {
+          post({ cmd: "show_breathing_pattern" });
           hideMenu();
         });
 
@@ -698,6 +777,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
         ball.addEventListener("pointerup", endDrag);
         ball.addEventListener("pointercancel", endDrag);
 
+        restartBreathingAnimation();
         applyBallState();
         applyAnalyticsButtons();
         applySizePresetButtons();
@@ -1003,6 +1083,263 @@ const CUSTOM_SNOOZE_HTML: &str = r#"<!doctype html>
   </body>
 </html>"#;
 
+const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #f7f9fc;
+        color: #18202a;
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        box-sizing: border-box;
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      input,
+      select {
+        border: 1px solid #c8d3ea;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #fff;
+        color: inherit;
+        font: inherit;
+      }
+      .hint {
+        color: #58657d;
+        font-size: 12px;
+      }
+      .save-row,
+      .actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .save-row input {
+        flex: 1;
+      }
+      .actions {
+        justify-content: flex-end;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 14px;
+        font: inherit;
+        cursor: default;
+      }
+      button.secondary {
+        background: #dce5f7;
+        color: #24324d;
+      }
+      button.primary {
+        background: #2f6bdb;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <label class="field">
+      <span>pattern preset</span>
+      <select id="preset"></select>
+    </label>
+    <div class="grid">
+      <label class="field">
+        <span>expand</span>
+        <input id="expand" type="number" min="0.5" step="0.5" />
+      </label>
+      <label class="field">
+        <span>expanded hold</span>
+        <input id="expand-hold" type="number" min="0" step="0.5" />
+      </label>
+      <label class="field">
+        <span>compress</span>
+        <input id="compress" type="number" min="0.5" step="0.5" />
+      </label>
+      <label class="field">
+        <span>compressed hold</span>
+        <input id="compress-hold" type="number" min="0" step="0.5" />
+      </label>
+    </div>
+    <div class="hint" id="summary"></div>
+    <div class="save-row">
+      <input id="preset-name" type="text" maxlength="40" placeholder="preset name" />
+      <button class="secondary" id="save">save preset</button>
+    </div>
+    <div class="actions">
+      <button class="secondary" id="cancel">close</button>
+      <button class="primary" id="apply">apply</button>
+    </div>
+    <script>
+      (() => {
+        const presetSelect = document.getElementById("preset");
+        const expandInput = document.getElementById("expand");
+        const expandHoldInput = document.getElementById("expand-hold");
+        const compressInput = document.getElementById("compress");
+        const compressHoldInput = document.getElementById("compress-hold");
+        const summary = document.getElementById("summary");
+        const presetNameInput = document.getElementById("preset-name");
+        const saveButton = document.getElementById("save");
+        const cancelButton = document.getElementById("cancel");
+        const applyButton = document.getElementById("apply");
+        const state = {
+          activePresetId: "custom",
+          pattern: {
+            expanding_seconds: 5.5,
+            expanded_hold_seconds: 0,
+            compressing_seconds: 5.5,
+            compressed_hold_seconds: 0,
+          },
+          presets: [],
+        };
+
+        function post(payload) {
+          if (window.ipc && typeof window.ipc.postMessage === "function") {
+            window.ipc.postMessage(JSON.stringify(payload));
+          }
+        }
+
+        function normalizePattern(pattern) {
+          const next = {
+            expanding_seconds: Number(pattern && pattern.expanding_seconds),
+            expanded_hold_seconds: Number(pattern && pattern.expanded_hold_seconds),
+            compressing_seconds: Number(pattern && pattern.compressing_seconds),
+            compressed_hold_seconds: Number(pattern && pattern.compressed_hold_seconds),
+          };
+          if (!Number.isFinite(next.expanding_seconds) || next.expanding_seconds <= 0) next.expanding_seconds = 5.5;
+          if (!Number.isFinite(next.expanded_hold_seconds) || next.expanded_hold_seconds < 0) next.expanded_hold_seconds = 0;
+          if (!Number.isFinite(next.compressing_seconds) || next.compressing_seconds <= 0) next.compressing_seconds = 5.5;
+          if (!Number.isFinite(next.compressed_hold_seconds) || next.compressed_hold_seconds < 0) next.compressed_hold_seconds = 0;
+          return next;
+        }
+
+        function patternsMatch(left, right) {
+          return Math.abs(left.expanding_seconds - right.expanding_seconds) < 0.001
+            && Math.abs(left.expanded_hold_seconds - right.expanded_hold_seconds) < 0.001
+            && Math.abs(left.compressing_seconds - right.compressing_seconds) < 0.001
+            && Math.abs(left.compressed_hold_seconds - right.compressed_hold_seconds) < 0.001;
+        }
+
+        function readInputs() {
+          return normalizePattern({
+            expanding_seconds: expandInput.value,
+            expanded_hold_seconds: expandHoldInput.value,
+            compressing_seconds: compressInput.value,
+            compressed_hold_seconds: compressHoldInput.value,
+          });
+        }
+
+        function writeInputs(pattern) {
+          expandInput.value = String(pattern.expanding_seconds);
+          expandHoldInput.value = String(pattern.expanded_hold_seconds);
+          compressInput.value = String(pattern.compressing_seconds);
+          compressHoldInput.value = String(pattern.compressed_hold_seconds);
+          const total = pattern.expanding_seconds + pattern.expanded_hold_seconds + pattern.compressing_seconds + pattern.compressed_hold_seconds;
+          summary.textContent = `cycle: ${pattern.expanding_seconds} / ${pattern.expanded_hold_seconds} / ${pattern.compressing_seconds} / ${pattern.compressed_hold_seconds} (${total}s total)`;
+        }
+
+        function renderPresets() {
+          presetSelect.textContent = "";
+          state.presets.forEach((preset) => {
+            const option = document.createElement("option");
+            option.value = preset.id;
+            option.textContent = preset.name;
+            presetSelect.appendChild(option);
+          });
+          if (!state.presets.some((preset) => preset.id === "custom")) {
+            const option = document.createElement("option");
+            option.value = "custom";
+            option.textContent = "custom";
+            presetSelect.appendChild(option);
+          }
+          presetSelect.value = state.activePresetId;
+        }
+
+        function updateCustomSelectionFromInputs() {
+          const current = readInputs();
+          state.pattern = current;
+          const selectedPreset = state.presets.find((preset) => preset.id === presetSelect.value);
+          if (selectedPreset && patternsMatch(current, normalizePattern(selectedPreset.pattern))) {
+            state.activePresetId = selectedPreset.id;
+          } else {
+            state.activePresetId = "custom";
+            presetSelect.value = "custom";
+          }
+          writeInputs(current);
+        }
+
+        window.breathingPatternApplyState = function(next) {
+          const payload = next || {};
+          state.presets = Array.isArray(payload.presets) ? payload.presets : state.presets;
+          state.activePresetId = String(payload.active_preset_id || state.activePresetId || "custom");
+          state.pattern = normalizePattern(payload.pattern || state.pattern);
+          renderPresets();
+          writeInputs(state.pattern);
+        };
+
+        presetSelect.addEventListener("change", () => {
+          const selectedPreset = state.presets.find((preset) => preset.id === presetSelect.value);
+          state.activePresetId = selectedPreset ? selectedPreset.id : "custom";
+          if (selectedPreset) {
+            state.pattern = normalizePattern(selectedPreset.pattern);
+            writeInputs(state.pattern);
+          }
+        });
+
+        [expandInput, expandHoldInput, compressInput, compressHoldInput].forEach((input) => {
+          input.addEventListener("input", updateCustomSelectionFromInputs);
+        });
+
+        applyButton.addEventListener("click", () => {
+          const pattern = readInputs();
+          state.pattern = pattern;
+          post({
+            cmd: "apply_breathing_pattern",
+            preset_id: presetSelect.value || state.activePresetId || "custom",
+            pattern,
+          });
+        });
+
+        saveButton.addEventListener("click", () => {
+          const name = String(presetNameInput.value || "").trim();
+          if (!name) {
+            presetNameInput.focus();
+            return;
+          }
+          const pattern = readInputs();
+          state.pattern = pattern;
+          post({ cmd: "save_breathing_preset", name, pattern });
+          presetNameInput.value = "";
+        });
+
+        cancelButton.addEventListener("click", () => {
+          post({ cmd: "close_breathing_pattern" });
+        });
+      })();
+    </script>
+  </body>
+</html>"#;
+
 #[derive(Debug, Clone)]
 enum AppEvent {
     ExitRequested,
@@ -1179,9 +1516,7 @@ fn resolve_external_contact_value(
     }
 
     if is_prod_env() {
-        return Err(format!(
-            "{env_name} is required when DOWNSHIFT_ENV=prod"
-        ));
+        return Err(format!("{env_name} is required when DOWNSHIFT_ENV=prod"));
     }
 
     Ok(fallback.to_string())
@@ -1306,6 +1641,74 @@ fn spawn_update_check(proxy: EventLoopProxy<AppEvent>, source: UpdateCheckSource
     });
 }
 
+fn breathing_pattern_total_seconds(pattern: &BreathingPattern) -> f64 {
+    pattern.expanding_seconds
+        + pattern.expanded_hold_seconds
+        + pattern.compressing_seconds
+        + pattern.compressed_hold_seconds
+}
+
+fn format_breathing_seconds(value: f64) -> String {
+    if (value.fract()).abs() <= 0.001 {
+        format!("{}", value.round() as i64)
+    } else {
+        format!("{value:.1}")
+    }
+}
+
+fn breathing_pattern_summary(pattern: &BreathingPattern) -> String {
+    format!(
+        "{} / {} / {} / {}",
+        format_breathing_seconds(pattern.expanding_seconds),
+        format_breathing_seconds(pattern.expanded_hold_seconds),
+        format_breathing_seconds(pattern.compressing_seconds),
+        format_breathing_seconds(pattern.compressed_hold_seconds),
+    )
+}
+
+fn active_breathing_preset_name(settings: &Settings) -> String {
+    if let Some(preset) = built_in_breathing_preset(&settings.active_breathing_preset_id) {
+        return preset.name.to_string();
+    }
+    if let Some(preset) = settings
+        .saved_breathing_presets
+        .iter()
+        .find(|preset| preset.id == settings.active_breathing_preset_id)
+    {
+        return preset.name.clone();
+    }
+    "custom".to_string()
+}
+
+fn breathing_pattern_menu_label(settings: &Settings) -> String {
+    format!(
+        "breathing pattern… ({}: {})",
+        active_breathing_preset_name(settings),
+        breathing_pattern_summary(&settings.breathing_pattern)
+    )
+}
+
+fn slugify_preset_name(name: &str) -> String {
+    let mut id = String::new();
+    let mut last_was_separator = false;
+    for ch in name.chars() {
+        let normalized = ch.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() {
+            id.push(normalized);
+            last_was_separator = false;
+        } else if !last_was_separator {
+            id.push('_');
+            last_was_separator = true;
+        }
+    }
+    let id = id.trim_matches('_').to_string();
+    if id.is_empty() {
+        "preset".to_string()
+    } else {
+        id
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[derive(Clone)]
 struct NativeContextMenu {
@@ -1325,6 +1728,7 @@ struct NativeContextMenu {
     size_l: MenuItem,
     size_xl: MenuItem,
     size_scroll_hint: MenuItem,
+    breathing_pattern: MenuItem,
     reset: MenuItem,
     quit: MenuItem,
     update_primary: MenuItem,
@@ -1361,8 +1765,14 @@ impl NativeContextMenu {
         let size_m = MenuItem::with_id(MENU_ID_SIZE_M, "M (96px)", true, None);
         let size_l = MenuItem::with_id(MENU_ID_SIZE_L, "L (128px)", true, None);
         let size_xl = MenuItem::with_id(MENU_ID_SIZE_XL, "XL (160px)", true, None);
-        let size_scroll_hint =
-            MenuItem::with_id("size_scroll_hint", "tip: scroll the ball to resize", false, None);
+        let size_scroll_hint = MenuItem::with_id(
+            "size_scroll_hint",
+            "tip: scroll the ball to resize",
+            false,
+            None,
+        );
+        let breathing_pattern =
+            MenuItem::with_id(MENU_ID_BREATHING_PATTERN, "breathing pattern…", true, None);
         let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
         let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
         let update_primary = MenuItem::with_id(
@@ -1494,6 +1904,7 @@ impl NativeContextMenu {
         let separator_five = PredefinedMenuItem::separator();
         let separator_six = PredefinedMenuItem::separator();
         let separator_seven = PredefinedMenuItem::separator();
+        let separator_pattern = PredefinedMenuItem::separator();
         let root = match Submenu::with_items(
             "menu",
             true,
@@ -1504,6 +1915,8 @@ impl NativeContextMenu {
                 &separator_two,
                 &size_submenu,
                 &separator_three,
+                &breathing_pattern,
+                &separator_pattern,
                 &reset,
                 &launch_at_login,
                 &separator_four,
@@ -1539,6 +1952,7 @@ impl NativeContextMenu {
             size_l,
             size_xl,
             size_scroll_hint,
+            breathing_pattern,
             reset,
             quit,
             update_primary,
@@ -1555,7 +1969,13 @@ impl NativeContextMenu {
         })
     }
 
-    fn sync_from_settings(&self, settings: &Settings, size_presets: [f64; 4], update_label: &str) {
+    fn sync_from_settings(
+        &self,
+        settings: &Settings,
+        size_presets: [f64; 4],
+        update_label: &str,
+        breathing_label: &str,
+    ) {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
@@ -1579,6 +1999,8 @@ impl NativeContextMenu {
         self.size_xl
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.size_scroll_hint.set_enabled(false);
+        self.breathing_pattern.set_text(breathing_label);
+        self.breathing_pattern.set_enabled(true);
         self.reset.set_enabled(true);
         self.quit.set_enabled(true);
         self.update_primary.set_text(update_label);
@@ -1606,6 +2028,9 @@ struct App {
     custom_snooze_window: Option<Window>,
     custom_snooze_window_id: Option<WindowId>,
     custom_snooze_webview: Option<WebView>,
+    breathing_pattern_window: Option<Window>,
+    breathing_pattern_window_id: Option<WindowId>,
+    breathing_pattern_webview: Option<WebView>,
     telemetry_info_window: Option<Window>,
     telemetry_info_window_id: Option<WindowId>,
     telemetry_info_webview: Option<WebView>,
@@ -1642,6 +2067,9 @@ impl Default for App {
             custom_snooze_window: None,
             custom_snooze_window_id: None,
             custom_snooze_webview: None,
+            breathing_pattern_window: None,
+            breathing_pattern_window_id: None,
+            breathing_pattern_webview: None,
             telemetry_info_window: None,
             telemetry_info_window_id: None,
             telemetry_info_webview: None,
@@ -1759,6 +2187,33 @@ impl App {
     fn telemetry_update_flow(&self, action: &str, mut properties: serde_json::Value) {
         properties["action"] = serde_json::json!(action);
         self.telemetry.track(EventName::UpdateFlow, properties);
+    }
+
+    fn telemetry_breathing_pattern_change(
+        &self,
+        action: &str,
+        preset_id: &str,
+        preset_name: Option<&str>,
+        pattern: &BreathingPattern,
+    ) {
+        self.telemetry.track(
+            EventName::BreathingPatternChanged,
+            serde_json::json!({
+                "action": action,
+                "preset_id": preset_id,
+                "preset_name": preset_name,
+                "is_custom": preset_id == BREATHING_PRESET_ID_CUSTOM,
+                "is_saved_preset": preset_name.is_some() && preset_id != BREATHING_PRESET_ID_CUSTOM
+                    && built_in_breathing_preset(preset_id).is_none(),
+                "pattern": {
+                    "expanding_seconds": pattern.expanding_seconds,
+                    "expanded_hold_seconds": pattern.expanded_hold_seconds,
+                    "compressing_seconds": pattern.compressing_seconds,
+                    "compressed_hold_seconds": pattern.compressed_hold_seconds,
+                    "total_seconds": breathing_pattern_total_seconds(pattern),
+                }
+            }),
+        );
     }
 
     fn apply_usage_data_sharing(&mut self, enabled: bool) {
@@ -1978,7 +2433,8 @@ impl App {
             state: self.current_activity_label().to_string(),
             paused: self.activity_mode == ActivityMode::Paused,
             snoozed: self.activity_mode == ActivityMode::Snoozed,
-            half_cycle_seconds: self.settings.half_cycle_seconds,
+            active_breathing_preset_id: self.settings.active_breathing_preset_id.clone(),
+            breathing_pattern: self.settings.breathing_pattern.clone(),
             width_px,
             height_px,
             usage_enabled: self.settings.usage_data_sharing,
@@ -1993,6 +2449,7 @@ impl App {
                 &self.settings,
                 self.current_size_presets(),
                 &self.updates.menu_label(),
+                &breathing_pattern_menu_label(&self.settings),
             );
         }
     }
@@ -2232,6 +2689,117 @@ impl App {
         self.sync_custom_snooze_webview_bounds();
     }
 
+    fn breathing_pattern_editor_payload(&self) -> serde_json::Value {
+        let mut presets = built_in_breathing_presets()
+            .into_iter()
+            .map(|preset| {
+                serde_json::json!({
+                    "id": preset.id,
+                    "name": preset.name,
+                    "pattern": preset.pattern,
+                })
+            })
+            .collect::<Vec<_>>();
+        presets.push(serde_json::json!({
+            "id": BREATHING_PRESET_ID_CUSTOM,
+            "name": "custom",
+            "pattern": self.settings.breathing_pattern,
+        }));
+        presets.extend(self.settings.saved_breathing_presets.iter().map(|preset| {
+            serde_json::json!({
+                "id": preset.id,
+                "name": preset.name,
+                "pattern": preset.pattern,
+            })
+        }));
+        serde_json::json!({
+            "active_preset_id": self.settings.active_breathing_preset_id,
+            "pattern": self.settings.breathing_pattern,
+            "presets": presets,
+        })
+    }
+
+    fn sync_breathing_pattern_webview_bounds(&self) {
+        let (Some(window), Some(webview)) = (
+            self.breathing_pattern_window.as_ref(),
+            self.breathing_pattern_webview.as_ref(),
+        ) else {
+            return;
+        };
+        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
+        let bounds = Rect {
+            position: LogicalPosition::new(0, 0).into(),
+            size: LogicalSize::new(size.width, size.height).into(),
+        };
+        if let Err(error) = webview.set_bounds(bounds) {
+            log_stderr!("warning: failed to sync breathing pattern webview bounds: {error}");
+        }
+    }
+
+    fn sync_breathing_pattern_editor_state(&self) {
+        let Some(webview) = self.breathing_pattern_webview.as_ref() else {
+            return;
+        };
+        let js = format!(
+            "window.breathingPatternApplyState({});",
+            self.breathing_pattern_editor_payload()
+        );
+        let _ = webview.evaluate_script(&js);
+    }
+
+    fn open_breathing_pattern_window(&mut self, event_loop: &ActiveEventLoop) {
+        if self.breathing_pattern_window.is_some() {
+            if let Some(window) = self.breathing_pattern_window.as_ref() {
+                window.focus_window();
+            }
+            self.sync_breathing_pattern_editor_state();
+            return;
+        }
+        let attrs = Window::default_attributes()
+            .with_title("breathing pattern")
+            .with_resizable(false)
+            .with_inner_size(LogicalSize::new(420.0, 340.0))
+            .with_min_inner_size(LogicalSize::new(420.0, 340.0))
+            .with_max_inner_size(LogicalSize::new(420.0, 340.0));
+        let window = match event_loop.create_window(attrs) {
+            Ok(window) => window,
+            Err(error) => {
+                log_stderr!("warning: failed to create breathing pattern window: {error}");
+                return;
+            }
+        };
+        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
+            log_stderr!("warning: missing event loop proxy for breathing pattern window");
+            return;
+        };
+        let window_id = window.id();
+        let webview = match WebViewBuilder::new()
+            .with_html(BREATHING_PATTERN_HTML)
+            .with_ipc_handler(move |request: wry::http::Request<String>| {
+                let payload = request.into_body();
+                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
+            })
+            .build_as_child(&window)
+        {
+            Ok(webview) => webview,
+            Err(error) => {
+                log_stderr!("warning: failed to create breathing pattern webview: {error}");
+                return;
+            }
+        };
+        self.breathing_pattern_window = Some(window);
+        self.breathing_pattern_window_id = Some(window_id);
+        self.breathing_pattern_webview = Some(webview);
+        self.sync_breathing_pattern_webview_bounds();
+        self.sync_breathing_pattern_editor_state();
+    }
+
+    fn close_breathing_pattern_window(&mut self) {
+        self.breathing_pattern_webview = None;
+        self.breathing_pattern_window = None;
+        self.breathing_pattern_window_id = None;
+    }
+
     fn sync_custom_snooze_webview_bounds(&self) {
         let (Some(window), Some(webview)) = (
             self.custom_snooze_window.as_ref(),
@@ -2334,6 +2902,14 @@ impl App {
         }
     }
 
+    fn handle_breathing_pattern_window_event(&mut self, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => self.close_breathing_pattern_window(),
+            WindowEvent::Resized(_) => self.sync_breathing_pattern_webview_bounds(),
+            _ => {}
+        }
+    }
+
     fn handle_update_dialog_window_event(&mut self, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => self.close_update_dialog_window(),
@@ -2392,7 +2968,7 @@ impl App {
     fn build_init_script(&self, size_presets: [f64; 4]) -> String {
         let payload = serde_json::json!({
           "paused": self.activity_mode == ActivityMode::Paused,
-          "half_cycle_seconds": self.settings.half_cycle_seconds,
+          "breathing_pattern": self.settings.breathing_pattern,
           "usage_data_sharing": self.settings.usage_data_sharing,
           "crash_reports_sharing": self.settings.crash_reports_sharing,
           "update_menu_label": self.updates.menu_label(),
@@ -2434,15 +3010,82 @@ impl App {
         }
     }
 
-    fn apply_half_cycle(&mut self, half_cycle_seconds: f64) {
-        self.settings.half_cycle_seconds = normalize_half_cycle(half_cycle_seconds);
+    fn sync_breathing_pattern_to_webview(&self) {
         if let Some(webview) = self.webview.as_ref() {
             let js = format!(
-                "window.breathBallApplyState({{ half_cycle_seconds: {} }});",
-                self.settings.half_cycle_seconds
+                "window.breathBallApplyState({{ breathing_pattern: {} }});",
+                serde_json::json!(self.settings.breathing_pattern)
             );
             let _ = webview.evaluate_script(&js);
         }
+    }
+
+    fn next_saved_breathing_preset_id(&self, name: &str) -> String {
+        let base = slugify_preset_name(name);
+        let mut candidate = base.clone();
+        let mut suffix = 2usize;
+        while candidate == BREATHING_PRESET_ID_CUSTOM
+            || built_in_breathing_preset(&candidate).is_some()
+            || self
+                .settings
+                .saved_breathing_presets
+                .iter()
+                .any(|preset| preset.id == candidate)
+        {
+            candidate = format!("{base}_{suffix}");
+            suffix += 1;
+        }
+        candidate
+    }
+
+    fn apply_breathing_pattern(&mut self, preset_id: String, mut pattern: BreathingPattern) {
+        pattern.sanitize();
+        if preset_id == BREATHING_PRESET_ID_CUSTOM {
+            self.settings.active_breathing_preset_id = BREATHING_PRESET_ID_CUSTOM.to_string();
+            self.settings.breathing_pattern = pattern;
+        } else if let Some(preset) = built_in_breathing_preset(&preset_id) {
+            self.settings.active_breathing_preset_id = preset.id.to_string();
+            self.settings.breathing_pattern = preset.pattern;
+        } else if let Some(preset) = self
+            .settings
+            .saved_breathing_presets
+            .iter()
+            .find(|preset| preset.id == preset_id)
+        {
+            self.settings.active_breathing_preset_id = preset.id.clone();
+            self.settings.breathing_pattern = preset.pattern.clone();
+        } else {
+            self.settings.active_breathing_preset_id = BREATHING_PRESET_ID_CUSTOM.to_string();
+            self.settings.breathing_pattern = pattern;
+        }
+        self.sync_breathing_pattern_to_webview();
+        self.sync_update_menu_state();
+        self.sync_breathing_pattern_editor_state();
+    }
+
+    fn save_breathing_preset(
+        &mut self,
+        name: String,
+        mut pattern: BreathingPattern,
+    ) -> Option<String> {
+        let trimmed_name = name.trim();
+        if trimmed_name.is_empty() {
+            return None;
+        }
+        pattern.sanitize();
+        let id = self.next_saved_breathing_preset_id(trimmed_name);
+        let preset = SavedBreathingPreset {
+            id: id.clone(),
+            name: trimmed_name.to_string(),
+            pattern,
+        };
+        self.settings.saved_breathing_presets.push(preset.clone());
+        self.settings.active_breathing_preset_id = preset.id.clone();
+        self.settings.breathing_pattern = preset.pattern;
+        self.sync_breathing_pattern_to_webview();
+        self.sync_update_menu_state();
+        self.sync_breathing_pattern_editor_state();
+        Some(id)
     }
 
     fn sync_window_visibility(&self) {
@@ -2561,8 +3204,12 @@ impl App {
             .map(default_size_for_monitor)
             .unwrap_or(DEFAULT_SIZE);
         self.apply_size(reset_size);
-        self.apply_half_cycle(DEFAULT_HALF_CYCLE_SECONDS);
+        self.apply_breathing_pattern(
+            BREATHING_PRESET_ID_COHERENT.to_string(),
+            BreathingPattern::coherent(),
+        );
         self.close_custom_snooze_window();
+        self.close_breathing_pattern_window();
         self.apply_paused(false);
         self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
         if let Some(window) = self.window.as_ref() {
@@ -2620,9 +3267,39 @@ impl App {
                     self.save_settings();
                 }
             }
-            IpcCommand::SetSpeed { half_cycle_seconds } => {
-                self.apply_half_cycle(half_cycle_seconds);
+            IpcCommand::ShowBreathingPattern => {
+                self.open_breathing_pattern_window(event_loop);
+            }
+            IpcCommand::CloseBreathingPattern => self.close_breathing_pattern_window(),
+            IpcCommand::ApplyBreathingPattern { preset_id, pattern } => {
+                let preset_name = built_in_breathing_preset(&preset_id)
+                    .map(|preset| preset.name.to_string())
+                    .or_else(|| {
+                        self.settings
+                            .saved_breathing_presets
+                            .iter()
+                            .find(|preset| preset.id == preset_id)
+                            .map(|preset| preset.name.clone())
+                    });
+                self.apply_breathing_pattern(preset_id.clone(), pattern);
+                self.telemetry_breathing_pattern_change(
+                    "applied",
+                    &self.settings.active_breathing_preset_id,
+                    preset_name.as_deref(),
+                    &self.settings.breathing_pattern,
+                );
                 self.save_settings();
+            }
+            IpcCommand::SaveBreathingPreset { name, pattern } => {
+                if let Some(id) = self.save_breathing_preset(name.clone(), pattern) {
+                    self.telemetry_breathing_pattern_change(
+                        "saved",
+                        &id,
+                        Some(&name),
+                        &self.settings.breathing_pattern,
+                    );
+                    self.save_settings();
+                }
             }
             IpcCommand::SetUsageDataSharing { enabled } => {
                 self.apply_usage_data_sharing(enabled);
@@ -2742,6 +3419,7 @@ impl App {
             &self.settings,
             self.current_size_presets(),
             &self.updates.menu_label(),
+            &breathing_pattern_menu_label(&self.settings),
         );
         menu.sync_consent(
             self.settings.usage_data_sharing,
@@ -2816,6 +3494,7 @@ impl App {
                 self.apply_size(size);
                 self.save_settings();
             }
+            MENU_ID_BREATHING_PATTERN => self.open_breathing_pattern_window(event_loop),
             MENU_ID_RESET => {
                 self.telemetry_menu_action(MenuAction::Reset, None);
                 self.reset_widget(event_loop);
@@ -3031,6 +3710,10 @@ impl ApplicationHandler<AppEvent> for App {
     ) {
         if Some(window_id) == self.custom_snooze_window_id {
             self.handle_custom_snooze_window_event(event);
+            return;
+        }
+        if Some(window_id) == self.breathing_pattern_window_id {
+            self.handle_breathing_pattern_window_event(event);
             return;
         }
         if Some(window_id) == self.telemetry_info_window_id {
@@ -3509,7 +4192,8 @@ mod tests {
                 state: "active".to_string(),
                 paused: false,
                 snoozed: false,
-                half_cycle_seconds: 5.5,
+                active_breathing_preset_id: BREATHING_PRESET_ID_COHERENT.to_string(),
+                breathing_pattern: BreathingPattern::coherent(),
                 width_px: 240,
                 height_px: 240,
                 usage_enabled: true,

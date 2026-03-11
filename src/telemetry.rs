@@ -29,6 +29,7 @@ pub enum EventName {
     SessionEnd,
     ActivityStateChanged,
     MenuAction,
+    BreathingPatternChanged,
     UpdateFlow,
     PrivacyPreferenceChanged,
     AppError,
