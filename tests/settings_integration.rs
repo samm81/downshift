@@ -58,7 +58,7 @@ fn load_settings_falls_back_to_default_when_toml_is_invalid() {
     assert_eq!(settings.size, DEFAULT_SIZE);
     assert_eq!(settings.half_cycle_seconds, DEFAULT_HALF_CYCLE_SECONDS);
     assert!(!settings.paused);
-    assert!(!settings.launch_at_login);
+    assert!(settings.launch_at_login);
     assert_eq!(settings.x, None);
     assert_eq!(settings.y, None);
 }

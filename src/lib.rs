@@ -48,7 +48,7 @@ impl Default for Settings {
             size: DEFAULT_SIZE,
             half_cycle_seconds: DEFAULT_HALF_CYCLE_SECONDS,
             paused: false,
-            launch_at_login: false,
+            launch_at_login: true,
             usage_data_sharing: true,
             crash_reports_sharing: true,
             dismissed_update_version: None,

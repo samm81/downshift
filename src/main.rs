@@ -1292,7 +1292,7 @@ impl NativeContextMenu {
     fn new() -> Option<Self> {
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
         let launch_at_login =
-            CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, false, None);
+            CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, true, None);
         let snooze_5 = MenuItem::with_id(MENU_ID_SNOOZE_5, "snooze for 5 minutes", true, None);
         let snooze_10 = MenuItem::with_id(MENU_ID_SNOOZE_10, "snooze for 10 minutes", true, None);
         let snooze_15 = MenuItem::with_id(MENU_ID_SNOOZE_15, "snooze for 15 minutes", true, None);
