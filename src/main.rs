@@ -2402,6 +2402,22 @@ impl App {
         );
     }
 
+    fn telemetry_breathing_pattern_window(&self, action: &str) {
+        self.telemetry.track(
+            EventName::BreathingPatternChanged,
+            serde_json::json!({
+                "action": action,
+                "pattern": {
+                    "expanding_seconds": self.settings.breathing_pattern.expanding_seconds,
+                    "expanded_hold_seconds": self.settings.breathing_pattern.expanded_hold_seconds,
+                    "compressing_seconds": self.settings.breathing_pattern.compressing_seconds,
+                    "compressed_hold_seconds": self.settings.breathing_pattern.compressed_hold_seconds,
+                    "total_seconds": breathing_pattern_total_seconds(&self.settings.breathing_pattern),
+                }
+            }),
+        );
+    }
+
     fn apply_usage_data_sharing(&mut self, enabled: bool) {
         self.settings.usage_data_sharing = enabled;
         if enabled {
@@ -2979,12 +2995,21 @@ impl App {
         self.breathing_pattern_webview = Some(webview);
         self.sync_breathing_pattern_webview_bounds();
         self.sync_breathing_pattern_editor_state();
+        self.telemetry_breathing_pattern_window("add_new_opened");
     }
 
     fn close_breathing_pattern_window(&mut self) {
         self.breathing_pattern_webview = None;
         self.breathing_pattern_window = None;
         self.breathing_pattern_window_id = None;
+    }
+
+    fn cancel_breathing_pattern_window(&mut self) {
+        if self.breathing_pattern_window.is_none() {
+            return;
+        }
+        self.telemetry_breathing_pattern_window("add_new_canceled");
+        self.close_breathing_pattern_window();
     }
 
     fn sync_custom_snooze_webview_bounds(&self) {
@@ -3091,7 +3116,7 @@ impl App {
 
     fn handle_breathing_pattern_window_event(&mut self, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => self.close_breathing_pattern_window(),
+            WindowEvent::CloseRequested => self.cancel_breathing_pattern_window(),
             WindowEvent::Resized(_) => self.sync_breathing_pattern_webview_bounds(),
             _ => {}
         }
@@ -3510,7 +3535,7 @@ impl App {
             IpcCommand::ShowBreathingPattern => {
                 self.open_breathing_pattern_window(event_loop);
             }
-            IpcCommand::CloseBreathingPattern => self.close_breathing_pattern_window(),
+            IpcCommand::CloseBreathingPattern => self.cancel_breathing_pattern_window(),
             IpcCommand::ApplyBreathingPattern { preset_id, pattern } => {
                 if preset_id == BREATHING_PRESET_ID_CUSTOM {
                     return;
@@ -4542,6 +4567,47 @@ mod tests {
                 EventName::SessionHeartbeat,
             ]
         );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    #[serial]
+    fn breathing_pattern_window_telemetry_emits_open_and_cancel_actions() {
+        let root = telemetry_test_dir("breathing-pattern-window");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+
+        let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let telemetry = RuntimeTelemetryClient::new_with_sinks(
+            telemetry_test_state(),
+            Box::new(CollectingSink {
+                events: captured_events.clone(),
+            }),
+            Box::new(NoopSink),
+        );
+
+        let mut app = App::default();
+        app.telemetry = telemetry;
+        app.telemetry_breathing_pattern_window("add_new_opened");
+        app.telemetry_breathing_pattern_window("add_new_canceled");
+        app.telemetry.flush(Duration::from_millis(200));
+        app.telemetry.shutdown(Duration::from_millis(200));
+
+        let actions = captured_events
+            .lock()
+            .expect("captured events lock")
+            .iter()
+            .filter(|event| event.event_name == EventName::BreathingPatternChanged)
+            .map(|event| {
+                event.properties["action"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(actions.contains(&"add_new_opened".to_string()));
+        assert!(actions.contains(&"add_new_canceled".to_string()));
 
         std::fs::remove_dir_all(root).ok();
     }
