@@ -13,7 +13,9 @@ use downshift::{launch_agent_path_from_home, launch_agent_plist};
 #[cfg(target_os = "macos")]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 #[cfg(target_os = "macos")]
-use muda::{CheckMenuItem, ContextMenu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{
+    CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+};
 use semver::Version;
 use std::io::{Read, Write};
 #[cfg(unix)]
@@ -78,6 +80,18 @@ const MENU_ID_SIZE_L: &str = "size_l";
 const MENU_ID_SIZE_XL: &str = "size_xl";
 #[cfg(target_os = "macos")]
 const MENU_ID_BREATHING_PATTERN: &str = "breathing_pattern";
+#[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_COHERENT: &str = "breathing_coherent";
+#[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_BOX: &str = "breathing_box";
+#[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_479: &str = "breathing_479";
+#[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_CUSTOM: &str = "breathing_custom";
+#[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_EDIT: &str = "breathing_edit";
+#[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_SAVED_PREFIX: &str = "breathing_saved:";
 #[cfg(target_os = "macos")]
 const MENU_ID_RESET: &str = "reset";
 #[cfg(target_os = "macos")]
@@ -337,7 +351,12 @@ const BREATH_HTML: &str = r#"<!doctype html>
         <button data-size-slot="3">XL</button>
       </div>
       <div class="divider"></div>
-      <button id="menu-breathing-pattern">breathing pattern…</button>
+      <button id="menu-breathing-pattern">breathing pattern</button>
+      <div class="group" id="breathing-submenu" hidden>
+        <div id="breathing-preset-list"></div>
+        <div class="divider"></div>
+        <button id="menu-breathing-edit">edit current pattern…</button>
+      </div>
       <div class="divider"></div>
       <button id="menu-reset">reset</button>
       <button id="menu-quit">quit</button>
@@ -367,6 +386,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const customSnoozeButton = document.getElementById("menu-snooze-custom");
         const analyticsToggleButton = document.getElementById("menu-analytics-toggle");
         const analyticsSubmenu = document.getElementById("analytics-submenu");
+        const breathingPatternButton = document.getElementById("menu-breathing-pattern");
+        const breathingSubmenu = document.getElementById("breathing-submenu");
+        const breathingPresetList = document.getElementById("breathing-preset-list");
+        const breathingEditButton = document.getElementById("menu-breathing-edit");
         const usageOnButton = document.getElementById("menu-usage-on");
         const usageOffButton = document.getElementById("menu-usage-off");
         const crashOnButton = document.getElementById("menu-crash-on");
@@ -374,7 +397,6 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const whatWeCollectButton = document.getElementById("menu-what-we-collect");
         const sizeButtons = Array.from(document.querySelectorAll("[data-size-slot]"));
         const snoozeButtons = Array.from(document.querySelectorAll("[data-snooze-minutes]"));
-        const breathingPatternButton = document.getElementById("menu-breathing-pattern");
         const init = window.__BB_INIT__ || { paused: false, use_native_menu: false };
         const useNativeMenu = Boolean(init.use_native_menu);
         let breathAnimation = null;
@@ -432,9 +454,12 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const state = {
           paused: Boolean(init.paused),
           breathingPattern: normalizePattern(init.breathing_pattern),
+          activeBreathingPresetId: String(init.active_breathing_preset_id || "coherent_breathing"),
+          breathingPresets: Array.isArray(init.breathing_presets) ? init.breathing_presets : [],
           usageDataSharing: Object.prototype.hasOwnProperty.call(init, "usage_data_sharing") ? Boolean(init.usage_data_sharing) : true,
           crashReportsSharing: Object.prototype.hasOwnProperty.call(init, "crash_reports_sharing") ? Boolean(init.crash_reports_sharing) : true,
           analyticsOpen: false,
+          breathingOpen: false,
           updateLabel: String(init.update_menu_label || "check for updates"),
           updateHasNewVersion: Boolean(init.update_has_new_version),
           updateShowBadge: Boolean(init.update_show_badge),
@@ -456,7 +481,9 @@ const BREATH_HTML: &str = r#"<!doctype html>
         function hideMenu() {
           menu.hidden = true;
           analyticsSubmenu.hidden = true;
+          breathingSubmenu.hidden = true;
           state.analyticsOpen = false;
+          state.breathingOpen = false;
         }
 
         function showMenu(x, y) {
@@ -501,6 +528,34 @@ const BREATH_HTML: &str = r#"<!doctype html>
           crashOnButton.textContent = `share anonymous crash reports ${state.crashReportsSharing ? "✓" : ""}`.trim();
           crashOffButton.textContent = `don't share crash reports ${!state.crashReportsSharing ? "✓" : ""}`.trim();
           analyticsToggleButton.textContent = "help improve downshift";
+        }
+
+        function breathingSummary(pattern) {
+          return `${pattern.expanding_seconds} / ${pattern.expanded_hold_seconds} / ${pattern.compressing_seconds} / ${pattern.compressed_hold_seconds}`;
+        }
+
+        function applyBreathingButtons() {
+          const activeId = state.activeBreathingPresetId;
+          const activePreset = state.breathingPresets.find((preset) => preset.id === activeId);
+          const activeLabel = activeId === "custom"
+            ? `custom (${breathingSummary(state.breathingPattern)})`
+            : (activePreset ? activePreset.name : "custom");
+          breathingPatternButton.textContent = `breathing pattern (${activeLabel})`;
+          breathingPresetList.textContent = "";
+          state.breathingPresets.forEach((preset) => {
+            const button = document.createElement("button");
+            button.dataset.breathingPreset = preset.id;
+            const isActive = preset.id === activeId;
+            const label = preset.id === "custom"
+              ? `custom (${breathingSummary(state.breathingPattern)})`
+              : preset.name;
+            button.textContent = `${label}${isActive ? " ✓" : ""}`;
+            button.addEventListener("click", () => {
+              post({ cmd: "apply_breathing_pattern", preset_id: preset.id, pattern: state.breathingPattern });
+              hideMenu();
+            });
+            breathingPresetList.appendChild(button);
+          });
         }
 
         function applySizePresetButtons() {
@@ -568,6 +623,12 @@ const BREATH_HTML: &str = r#"<!doctype html>
             state.breathingPattern = normalizePattern(next.breathing_pattern);
             restartBreathingAnimation();
           }
+          if (Object.prototype.hasOwnProperty.call(next, "active_breathing_preset_id")) {
+            state.activeBreathingPresetId = String(next.active_breathing_preset_id || "custom");
+          }
+          if (Object.prototype.hasOwnProperty.call(next, "breathing_presets")) {
+            state.breathingPresets = Array.isArray(next.breathing_presets) ? next.breathing_presets : [];
+          }
           if (Object.prototype.hasOwnProperty.call(next, "size_presets")) {
             const values = Array.isArray(next.size_presets)
               ? next.size_presets.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
@@ -600,6 +661,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
           }
           applyBallState();
           applyAnalyticsButtons();
+          applyBreathingButtons();
           applyUpdateBadge(animateBadge);
         };
 
@@ -659,6 +721,11 @@ const BREATH_HTML: &str = r#"<!doctype html>
         });
 
         breathingPatternButton.addEventListener("click", () => {
+          state.breathingOpen = !state.breathingOpen;
+          breathingSubmenu.hidden = !state.breathingOpen;
+        });
+
+        breathingEditButton.addEventListener("click", () => {
           post({ cmd: "show_breathing_pattern" });
           hideMenu();
         });
@@ -780,6 +847,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
         restartBreathingAnimation();
         applyBallState();
         applyAnalyticsButtons();
+        applyBreathingButtons();
         applySizePresetButtons();
         applyUpdateBadge(false);
       })();
@@ -1116,8 +1184,7 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
         grid-template-columns: 1fr 1fr;
         gap: 12px;
       }
-      input,
-      select {
+      input {
         border: 1px solid #c8d3ea;
         border-radius: 8px;
         padding: 8px 10px;
@@ -1159,25 +1226,21 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
     </style>
   </head>
   <body>
-    <label class="field">
-      <span>pattern preset</span>
-      <select id="preset"></select>
-    </label>
     <div class="grid">
       <label class="field">
-        <span>expand</span>
+        <span>breath in</span>
         <input id="expand" type="number" min="0.5" step="0.5" />
       </label>
       <label class="field">
-        <span>expanded hold</span>
+        <span>hold at top</span>
         <input id="expand-hold" type="number" min="0" step="0.5" />
       </label>
       <label class="field">
-        <span>compress</span>
+        <span>breath out</span>
         <input id="compress" type="number" min="0.5" step="0.5" />
       </label>
       <label class="field">
-        <span>compressed hold</span>
+        <span>hold at bottom</span>
         <input id="compress-hold" type="number" min="0" step="0.5" />
       </label>
     </div>
@@ -1192,7 +1255,6 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
     </div>
     <script>
       (() => {
-        const presetSelect = document.getElementById("preset");
         const expandInput = document.getElementById("expand");
         const expandHoldInput = document.getElementById("expand-hold");
         const compressInput = document.getElementById("compress");
@@ -1203,14 +1265,12 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
         const cancelButton = document.getElementById("cancel");
         const applyButton = document.getElementById("apply");
         const state = {
-          activePresetId: "custom",
           pattern: {
             expanding_seconds: 5.5,
             expanded_hold_seconds: 0,
             compressing_seconds: 5.5,
             compressed_hold_seconds: 0,
           },
-          presets: [],
         };
 
         function post(payload) {
@@ -1233,13 +1293,6 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
           return next;
         }
 
-        function patternsMatch(left, right) {
-          return Math.abs(left.expanding_seconds - right.expanding_seconds) < 0.001
-            && Math.abs(left.expanded_hold_seconds - right.expanded_hold_seconds) < 0.001
-            && Math.abs(left.compressing_seconds - right.compressing_seconds) < 0.001
-            && Math.abs(left.compressed_hold_seconds - right.compressed_hold_seconds) < 0.001;
-        }
-
         function readInputs() {
           return normalizePattern({
             expanding_seconds: expandInput.value,
@@ -1258,64 +1311,18 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
           summary.textContent = `cycle: ${pattern.expanding_seconds} / ${pattern.expanded_hold_seconds} / ${pattern.compressing_seconds} / ${pattern.compressed_hold_seconds} (${total}s total)`;
         }
 
-        function renderPresets() {
-          presetSelect.textContent = "";
-          state.presets.forEach((preset) => {
-            const option = document.createElement("option");
-            option.value = preset.id;
-            option.textContent = preset.name;
-            presetSelect.appendChild(option);
-          });
-          if (!state.presets.some((preset) => preset.id === "custom")) {
-            const option = document.createElement("option");
-            option.value = "custom";
-            option.textContent = "custom";
-            presetSelect.appendChild(option);
-          }
-          presetSelect.value = state.activePresetId;
-        }
-
-        function updateCustomSelectionFromInputs() {
-          const current = readInputs();
-          state.pattern = current;
-          const selectedPreset = state.presets.find((preset) => preset.id === presetSelect.value);
-          if (selectedPreset && patternsMatch(current, normalizePattern(selectedPreset.pattern))) {
-            state.activePresetId = selectedPreset.id;
-          } else {
-            state.activePresetId = "custom";
-            presetSelect.value = "custom";
-          }
-          writeInputs(current);
-        }
-
         window.breathingPatternApplyState = function(next) {
           const payload = next || {};
-          state.presets = Array.isArray(payload.presets) ? payload.presets : state.presets;
-          state.activePresetId = String(payload.active_preset_id || state.activePresetId || "custom");
           state.pattern = normalizePattern(payload.pattern || state.pattern);
-          renderPresets();
           writeInputs(state.pattern);
         };
-
-        presetSelect.addEventListener("change", () => {
-          const selectedPreset = state.presets.find((preset) => preset.id === presetSelect.value);
-          state.activePresetId = selectedPreset ? selectedPreset.id : "custom";
-          if (selectedPreset) {
-            state.pattern = normalizePattern(selectedPreset.pattern);
-            writeInputs(state.pattern);
-          }
-        });
-
-        [expandInput, expandHoldInput, compressInput, compressHoldInput].forEach((input) => {
-          input.addEventListener("input", updateCustomSelectionFromInputs);
-        });
 
         applyButton.addEventListener("click", () => {
           const pattern = readInputs();
           state.pattern = pattern;
           post({
             cmd: "apply_breathing_pattern",
-            preset_id: presetSelect.value || state.activePresetId || "custom",
+            preset_id: "custom",
             pattern,
           });
         });
@@ -1680,12 +1687,42 @@ fn active_breathing_preset_name(settings: &Settings) -> String {
     "custom".to_string()
 }
 
+fn active_breathing_preset_menu_name(settings: &Settings) -> String {
+    if settings.active_breathing_preset_id == BREATHING_PRESET_ID_CUSTOM {
+        return format!(
+            "custom ({})",
+            breathing_pattern_summary(&settings.breathing_pattern)
+        );
+    }
+    active_breathing_preset_name(settings)
+}
+
 fn breathing_pattern_menu_label(settings: &Settings) -> String {
     format!(
-        "breathing pattern… ({}: {})",
-        active_breathing_preset_name(settings),
-        breathing_pattern_summary(&settings.breathing_pattern)
+        "breathing pattern ({})",
+        active_breathing_preset_menu_name(settings)
     )
+}
+
+fn custom_breathing_pattern_option_label(settings: &Settings) -> String {
+    if settings.active_breathing_preset_id == BREATHING_PRESET_ID_CUSTOM {
+        format!(
+            "custom ({})",
+            breathing_pattern_summary(&settings.breathing_pattern)
+        )
+    } else {
+        "custom".to_string()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn breathing_saved_menu_id(id: &str) -> String {
+    format!("{MENU_ID_BREATHING_SAVED_PREFIX}{id}")
+}
+
+#[cfg(target_os = "macos")]
+fn saved_breathing_preset_id_from_menu_id(id: &str) -> Option<&str> {
+    id.strip_prefix(MENU_ID_BREATHING_SAVED_PREFIX)
 }
 
 fn slugify_preset_name(name: &str) -> String {
@@ -1728,7 +1765,12 @@ struct NativeContextMenu {
     size_l: MenuItem,
     size_xl: MenuItem,
     size_scroll_hint: MenuItem,
-    breathing_pattern: MenuItem,
+    breathing_menu: Submenu,
+    breathing_coherent: CheckMenuItem,
+    breathing_box: CheckMenuItem,
+    breathing_479: CheckMenuItem,
+    breathing_custom: CheckMenuItem,
+    breathing_saved: Vec<(String, CheckMenuItem)>,
     reset: MenuItem,
     quit: MenuItem,
     update_primary: MenuItem,
@@ -1746,7 +1788,7 @@ struct NativeContextMenu {
 
 #[cfg(target_os = "macos")]
 impl NativeContextMenu {
-    fn new() -> Option<Self> {
+    fn new(settings: &Settings) -> Option<Self> {
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
         let launch_at_login =
             CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, true, None);
@@ -1771,8 +1813,42 @@ impl NativeContextMenu {
             false,
             None,
         );
-        let breathing_pattern =
-            MenuItem::with_id(MENU_ID_BREATHING_PATTERN, "breathing pattern…", true, None);
+        let breathing_coherent = CheckMenuItem::with_id(
+            MENU_ID_BREATHING_COHERENT,
+            "coherent breathing",
+            true,
+            false,
+            None,
+        );
+        let breathing_box =
+            CheckMenuItem::with_id(MENU_ID_BREATHING_BOX, "box breathing", true, false, None);
+        let breathing_479 =
+            CheckMenuItem::with_id(MENU_ID_BREATHING_479, "4-7-9", true, false, None);
+        let breathing_custom = CheckMenuItem::with_id(
+            MENU_ID_BREATHING_CUSTOM,
+            &custom_breathing_pattern_option_label(settings),
+            true,
+            false,
+            None,
+        );
+        let breathing_edit =
+            MenuItem::with_id(MENU_ID_BREATHING_EDIT, "edit current pattern…", true, None);
+        let breathing_saved = settings
+            .saved_breathing_presets
+            .iter()
+            .map(|preset| {
+                (
+                    preset.id.clone(),
+                    CheckMenuItem::with_id(
+                        &breathing_saved_menu_id(&preset.id),
+                        &preset.name,
+                        true,
+                        false,
+                        None,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
         let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
         let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
         let update_primary = MenuItem::with_id(
@@ -1897,6 +1973,29 @@ impl NativeContextMenu {
                 return None;
             }
         };
+        let breathing_separator = PredefinedMenuItem::separator();
+        let mut breathing_items: Vec<&dyn IsMenuItem> =
+            vec![&breathing_coherent, &breathing_box, &breathing_479];
+        if !breathing_saved.is_empty() {
+            for (_, item) in &breathing_saved {
+                breathing_items.push(item);
+            }
+        }
+        breathing_items.push(&breathing_custom);
+        breathing_items.push(&breathing_separator);
+        breathing_items.push(&breathing_edit);
+        let breathing_menu = match Submenu::with_id_and_items(
+            MENU_ID_BREATHING_PATTERN,
+            &breathing_pattern_menu_label(settings),
+            true,
+            &breathing_items,
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                log_stderr!("warning: failed to build breathing submenu: {error}");
+                return None;
+            }
+        };
         let separator_one = PredefinedMenuItem::separator();
         let separator_two = PredefinedMenuItem::separator();
         let separator_three = PredefinedMenuItem::separator();
@@ -1915,7 +2014,7 @@ impl NativeContextMenu {
                 &separator_two,
                 &size_submenu,
                 &separator_three,
-                &breathing_pattern,
+                &breathing_menu,
                 &separator_pattern,
                 &reset,
                 &launch_at_login,
@@ -1952,7 +2051,12 @@ impl NativeContextMenu {
             size_l,
             size_xl,
             size_scroll_hint,
-            breathing_pattern,
+            breathing_menu,
+            breathing_coherent,
+            breathing_box,
+            breathing_479,
+            breathing_custom,
+            breathing_saved,
             reset,
             quit,
             update_primary,
@@ -1969,13 +2073,7 @@ impl NativeContextMenu {
         })
     }
 
-    fn sync_from_settings(
-        &self,
-        settings: &Settings,
-        size_presets: [f64; 4],
-        update_label: &str,
-        breathing_label: &str,
-    ) {
+    fn sync_from_settings(&self, settings: &Settings, size_presets: [f64; 4], update_label: &str) {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
@@ -1999,8 +2097,21 @@ impl NativeContextMenu {
         self.size_xl
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.size_scroll_hint.set_enabled(false);
-        self.breathing_pattern.set_text(breathing_label);
-        self.breathing_pattern.set_enabled(true);
+        self.breathing_menu
+            .set_text(&breathing_pattern_menu_label(settings));
+        self.breathing_coherent
+            .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_COHERENT);
+        self.breathing_box
+            .set_checked(settings.active_breathing_preset_id == "box_breathing");
+        self.breathing_479
+            .set_checked(settings.active_breathing_preset_id == "4_7_9");
+        self.breathing_custom
+            .set_text(&custom_breathing_pattern_option_label(settings));
+        self.breathing_custom
+            .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_CUSTOM);
+        for (id, item) in &self.breathing_saved {
+            item.set_checked(settings.active_breathing_preset_id == *id);
+        }
         self.reset.set_enabled(true);
         self.quit.set_enabled(true);
         self.update_primary.set_text(update_label);
@@ -2449,7 +2560,6 @@ impl App {
                 &self.settings,
                 self.current_size_presets(),
                 &self.updates.menu_label(),
-                &breathing_pattern_menu_label(&self.settings),
             );
         }
     }
@@ -2690,7 +2800,7 @@ impl App {
     }
 
     fn breathing_pattern_editor_payload(&self) -> serde_json::Value {
-        let mut presets = built_in_breathing_presets()
+        let presets = built_in_breathing_presets()
             .into_iter()
             .map(|preset| {
                 serde_json::json!({
@@ -2699,24 +2809,42 @@ impl App {
                     "pattern": preset.pattern,
                 })
             })
+            .chain(self.settings.saved_breathing_presets.iter().map(|preset| {
+                serde_json::json!({
+                    "id": preset.id,
+                    "name": preset.name,
+                    "pattern": preset.pattern,
+                })
+            }))
             .collect::<Vec<_>>();
-        presets.push(serde_json::json!({
-            "id": BREATHING_PRESET_ID_CUSTOM,
-            "name": "custom",
-            "pattern": self.settings.breathing_pattern,
-        }));
-        presets.extend(self.settings.saved_breathing_presets.iter().map(|preset| {
-            serde_json::json!({
-                "id": preset.id,
-                "name": preset.name,
-                "pattern": preset.pattern,
-            })
-        }));
         serde_json::json!({
             "active_preset_id": self.settings.active_breathing_preset_id,
             "pattern": self.settings.breathing_pattern,
             "presets": presets,
         })
+    }
+
+    fn breathing_pattern_menu_presets_payload(&self) -> serde_json::Value {
+        let mut presets = built_in_breathing_presets()
+            .into_iter()
+            .map(|preset| {
+                serde_json::json!({
+                    "id": preset.id,
+                    "name": preset.name,
+                })
+            })
+            .collect::<Vec<_>>();
+        presets.extend(self.settings.saved_breathing_presets.iter().map(|preset| {
+            serde_json::json!({
+                "id": preset.id,
+                "name": preset.name,
+            })
+        }));
+        presets.push(serde_json::json!({
+            "id": BREATHING_PRESET_ID_CUSTOM,
+            "name": custom_breathing_pattern_option_label(&self.settings),
+        }));
+        serde_json::json!(presets)
     }
 
     fn sync_breathing_pattern_webview_bounds(&self) {
@@ -2969,6 +3097,8 @@ impl App {
         let payload = serde_json::json!({
           "paused": self.activity_mode == ActivityMode::Paused,
           "breathing_pattern": self.settings.breathing_pattern,
+          "active_breathing_preset_id": self.settings.active_breathing_preset_id,
+          "breathing_presets": self.breathing_pattern_menu_presets_payload(),
           "usage_data_sharing": self.settings.usage_data_sharing,
           "crash_reports_sharing": self.settings.crash_reports_sharing,
           "update_menu_label": self.updates.menu_label(),
@@ -3013,8 +3143,10 @@ impl App {
     fn sync_breathing_pattern_to_webview(&self) {
         if let Some(webview) = self.webview.as_ref() {
             let js = format!(
-                "window.breathBallApplyState({{ breathing_pattern: {} }});",
-                serde_json::json!(self.settings.breathing_pattern)
+                "window.breathBallApplyState({{ breathing_pattern: {}, active_breathing_preset_id: {}, breathing_presets: {} }});",
+                serde_json::json!(self.settings.breathing_pattern),
+                serde_json::json!(self.settings.active_breathing_preset_id),
+                self.breathing_pattern_menu_presets_payload()
             );
             let _ = webview.evaluate_script(&js);
         }
@@ -3067,7 +3199,7 @@ impl App {
         &mut self,
         name: String,
         mut pattern: BreathingPattern,
-    ) -> Option<String> {
+    ) -> Option<SavedBreathingPreset> {
         let trimmed_name = name.trim();
         if trimmed_name.is_empty() {
             return None;
@@ -3081,11 +3213,11 @@ impl App {
         };
         self.settings.saved_breathing_presets.push(preset.clone());
         self.settings.active_breathing_preset_id = preset.id.clone();
-        self.settings.breathing_pattern = preset.pattern;
+        self.settings.breathing_pattern = preset.pattern.clone();
         self.sync_breathing_pattern_to_webview();
         self.sync_update_menu_state();
         self.sync_breathing_pattern_editor_state();
-        Some(id)
+        Some(preset)
     }
 
     fn sync_window_visibility(&self) {
@@ -3291,11 +3423,11 @@ impl App {
                 self.save_settings();
             }
             IpcCommand::SaveBreathingPreset { name, pattern } => {
-                if let Some(id) = self.save_breathing_preset(name.clone(), pattern) {
+                if let Some(preset) = self.save_breathing_preset(name, pattern) {
                     self.telemetry_breathing_pattern_change(
                         "saved",
-                        &id,
-                        Some(&name),
+                        &preset.id,
+                        Some(&preset.name),
                         &self.settings.breathing_pattern,
                     );
                     self.save_settings();
@@ -3399,6 +3531,7 @@ impl App {
 
     #[cfg(target_os = "macos")]
     fn show_native_context_menu(&mut self, x: i32, y: i32) {
+        self.native_context_menu = NativeContextMenu::new(&self.settings);
         let Some(menu) = self.native_context_menu.as_ref() else {
             return;
         };
@@ -3419,7 +3552,6 @@ impl App {
             &self.settings,
             self.current_size_presets(),
             &self.updates.menu_label(),
-            &breathing_pattern_menu_label(&self.settings),
         );
         menu.sync_consent(
             self.settings.usage_data_sharing,
@@ -3494,7 +3626,57 @@ impl App {
                 self.apply_size(size);
                 self.save_settings();
             }
-            MENU_ID_BREATHING_PATTERN => self.open_breathing_pattern_window(event_loop),
+            MENU_ID_BREATHING_COHERENT => {
+                self.apply_breathing_pattern(
+                    BREATHING_PRESET_ID_COHERENT.to_string(),
+                    BreathingPattern::coherent(),
+                );
+                self.telemetry_breathing_pattern_change(
+                    "applied",
+                    BREATHING_PRESET_ID_COHERENT,
+                    Some("coherent breathing"),
+                    &self.settings.breathing_pattern,
+                );
+                self.save_settings();
+            }
+            MENU_ID_BREATHING_BOX => {
+                self.apply_breathing_pattern(
+                    "box_breathing".to_string(),
+                    BreathingPattern::box_breathing(),
+                );
+                self.telemetry_breathing_pattern_change(
+                    "applied",
+                    "box_breathing",
+                    Some("box breathing"),
+                    &self.settings.breathing_pattern,
+                );
+                self.save_settings();
+            }
+            MENU_ID_BREATHING_479 => {
+                self.apply_breathing_pattern(
+                    "4_7_9".to_string(),
+                    BreathingPattern::four_seven_nine(),
+                );
+                self.telemetry_breathing_pattern_change(
+                    "applied",
+                    "4_7_9",
+                    Some("4-7-9"),
+                    &self.settings.breathing_pattern,
+                );
+                self.save_settings();
+            }
+            MENU_ID_BREATHING_CUSTOM => {
+                let pattern = self.settings.breathing_pattern.clone();
+                self.apply_breathing_pattern(BREATHING_PRESET_ID_CUSTOM.to_string(), pattern);
+                self.telemetry_breathing_pattern_change(
+                    "applied",
+                    BREATHING_PRESET_ID_CUSTOM,
+                    None,
+                    &self.settings.breathing_pattern,
+                );
+                self.save_settings();
+            }
+            MENU_ID_BREATHING_EDIT => self.open_breathing_pattern_window(event_loop),
             MENU_ID_RESET => {
                 self.telemetry_menu_action(MenuAction::Reset, None);
                 self.reset_widget(event_loop);
@@ -3534,7 +3716,25 @@ impl App {
                 Ok(url) => open_external_url(&url),
                 Err(error) => log_stderr!("error: {error}"),
             },
-            _ => {}
+            _ => {
+                if let Some(preset_id) = saved_breathing_preset_id_from_menu_id(id) {
+                    let preset_name = self
+                        .settings
+                        .saved_breathing_presets
+                        .iter()
+                        .find(|preset| preset.id == preset_id)
+                        .map(|preset| preset.name.clone());
+                    let pattern = self.settings.breathing_pattern.clone();
+                    self.apply_breathing_pattern(preset_id.to_string(), pattern);
+                    self.telemetry_breathing_pattern_change(
+                        "applied",
+                        &self.settings.active_breathing_preset_id,
+                        preset_name.as_deref(),
+                        &self.settings.breathing_pattern,
+                    );
+                    self.save_settings();
+                }
+            }
         }
     }
 }
@@ -3664,7 +3864,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.webview = Some(webview);
         #[cfg(target_os = "macos")]
         {
-            self.native_context_menu = NativeContextMenu::new();
+            self.native_context_menu = NativeContextMenu::new(&self.settings);
         }
         self.sync_analytics_menu_state();
         self.sync_update_surfaces();
