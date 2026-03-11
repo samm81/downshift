@@ -149,6 +149,8 @@ pub struct Settings {
     pub active_breathing_preset_id: String,
     #[serde(default)]
     pub saved_breathing_presets: Vec<SavedBreathingPreset>,
+    #[serde(default)]
+    pub hidden_breathing_preset_ids: Vec<String>,
     #[serde(rename = "half_cycle_seconds", default, skip_serializing)]
     legacy_half_cycle_seconds: Option<f64>,
     pub paused: bool,
@@ -174,6 +176,7 @@ impl Default for Settings {
             breathing_pattern: BreathingPattern::default(),
             active_breathing_preset_id: default_active_breathing_preset_id(),
             saved_breathing_presets: Vec::new(),
+            hidden_breathing_preset_ids: Vec::new(),
             legacy_half_cycle_seconds: None,
             paused: false,
             launch_at_login: true,
@@ -212,6 +215,14 @@ impl Settings {
         self.saved_breathing_presets
             .retain_mut(SavedBreathingPreset::sanitize);
         dedupe_saved_preset_ids(&mut self.saved_breathing_presets);
+        self.hidden_breathing_preset_ids = self
+            .hidden_breathing_preset_ids
+            .iter()
+            .map(|id| id.trim().to_string())
+            .filter(|id| built_in_breathing_preset(id).is_some())
+            .collect();
+        self.hidden_breathing_preset_ids.sort();
+        self.hidden_breathing_preset_ids.dedup();
 
         let active_id = self.active_breathing_preset_id.trim().to_string();
         let should_preserve_custom_pattern = active_id == BREATHING_PRESET_ID_CUSTOM
@@ -225,7 +236,8 @@ impl Settings {
                 BREATHING_PRESET_ID_CUSTOM.to_string()
             }
         } else if active_id == BREATHING_PRESET_ID_CUSTOM
-            || built_in_breathing_preset(&active_id).is_some()
+            || (built_in_breathing_preset(&active_id).is_some()
+                && !self.hidden_breathing_preset_ids.contains(&active_id))
             || self
                 .saved_breathing_presets
                 .iter()
@@ -244,6 +256,12 @@ impl Settings {
 
     pub fn active_pattern_from_presets(&self) -> Option<BreathingPattern> {
         if let Some(preset) = built_in_breathing_preset(&self.active_breathing_preset_id) {
+            if self
+                .hidden_breathing_preset_ids
+                .contains(&self.active_breathing_preset_id)
+            {
+                return None;
+            }
             return Some(preset.pattern);
         }
         self.saved_breathing_presets
@@ -255,6 +273,12 @@ impl Settings {
     fn matching_preset_id_for_pattern(&self) -> Option<String> {
         if let Some(preset) = built_in_breathing_presets()
             .into_iter()
+            .filter(|preset| {
+                !self
+                    .hidden_breathing_preset_ids
+                    .iter()
+                    .any(|id| id == preset.id)
+            })
             .find(|preset| patterns_match(&self.breathing_pattern, &preset.pattern))
         {
             return Some(preset.id.to_string());
@@ -525,6 +549,11 @@ mod tests {
                     pattern: BreathingPattern::box_breathing(),
                 },
             ],
+            hidden_breathing_preset_ids: vec![
+                " box_breathing ".to_string(),
+                "box_breathing".to_string(),
+                "missing".to_string(),
+            ],
             legacy_half_cycle_seconds: None,
             paused: true,
             launch_at_login: true,
@@ -556,6 +585,10 @@ mod tests {
         assert_eq!(settings.saved_breathing_presets.len(), 1);
         assert_eq!(settings.saved_breathing_presets[0].id, "focus");
         assert_eq!(settings.saved_breathing_presets[0].name, "focus");
+        assert_eq!(
+            settings.hidden_breathing_preset_ids,
+            vec!["box_breathing".to_string()]
+        );
         assert!(settings.paused);
         assert!(settings.launch_at_login);
         assert!(!settings.usage_data_sharing);

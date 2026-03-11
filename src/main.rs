@@ -89,6 +89,10 @@ const MENU_ID_BREATHING_479: &str = "breathing_479";
 #[cfg(target_os = "macos")]
 const MENU_ID_BREATHING_EDIT: &str = "breathing_edit";
 #[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_DELETE_ROOT: &str = "breathing_delete_root";
+#[cfg(target_os = "macos")]
+const MENU_ID_BREATHING_DELETE_PREFIX: &str = "breathing_delete:";
+#[cfg(target_os = "macos")]
 const MENU_ID_BREATHING_SAVED_PREFIX: &str = "breathing_saved:";
 #[cfg(target_os = "macos")]
 const MENU_ID_RESET: &str = "reset";
@@ -354,6 +358,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
         <div id="breathing-preset-list"></div>
         <div class="divider"></div>
         <button id="menu-breathing-edit">add new…</button>
+        <button id="menu-breathing-delete">delete</button>
+        <div class="group" id="breathing-delete-submenu" hidden>
+          <div id="breathing-delete-list"></div>
+        </div>
       </div>
       <div class="divider"></div>
       <button id="menu-reset">reset</button>
@@ -388,6 +396,9 @@ const BREATH_HTML: &str = r#"<!doctype html>
         const breathingSubmenu = document.getElementById("breathing-submenu");
         const breathingPresetList = document.getElementById("breathing-preset-list");
         const breathingEditButton = document.getElementById("menu-breathing-edit");
+        const breathingDeleteButton = document.getElementById("menu-breathing-delete");
+        const breathingDeleteSubmenu = document.getElementById("breathing-delete-submenu");
+        const breathingDeleteList = document.getElementById("breathing-delete-list");
         const usageOnButton = document.getElementById("menu-usage-on");
         const usageOffButton = document.getElementById("menu-usage-off");
         const crashOnButton = document.getElementById("menu-crash-on");
@@ -480,6 +491,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
           menu.hidden = true;
           analyticsSubmenu.hidden = true;
           breathingSubmenu.hidden = true;
+          breathingDeleteSubmenu.hidden = true;
           state.analyticsOpen = false;
           state.breathingOpen = false;
         }
@@ -536,6 +548,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
           const activeId = state.activeBreathingPresetId;
           breathingPatternButton.textContent = "breathing pattern";
           breathingPresetList.textContent = "";
+          breathingDeleteList.textContent = "";
           state.breathingPresets.forEach((preset) => {
             const button = document.createElement("button");
             button.dataset.breathingPreset = preset.id;
@@ -546,7 +559,16 @@ const BREATH_HTML: &str = r#"<!doctype html>
               hideMenu();
             });
             breathingPresetList.appendChild(button);
+
+            const deleteButton = document.createElement("button");
+            deleteButton.textContent = preset.name;
+            deleteButton.addEventListener("click", () => {
+              post({ cmd: "delete_breathing_preset", preset_id: preset.id });
+              hideMenu();
+            });
+            breathingDeleteList.appendChild(deleteButton);
           });
+          breathingDeleteButton.disabled = state.breathingPresets.length === 0;
         }
 
         function applySizePresetButtons() {
@@ -719,6 +741,10 @@ const BREATH_HTML: &str = r#"<!doctype html>
         breathingEditButton.addEventListener("click", () => {
           post({ cmd: "show_breathing_pattern" });
           hideMenu();
+        });
+
+        breathingDeleteButton.addEventListener("click", () => {
+          breathingDeleteSubmenu.hidden = !breathingDeleteSubmenu.hidden;
         });
 
         quitButton.addEventListener("click", () => {
@@ -1188,16 +1214,12 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
         font-size: 12px;
       }
       .save-row,
-      .delete-row,
       .actions {
         display: flex;
         gap: 8px;
         align-items: center;
       }
       .save-row input {
-        flex: 1;
-      }
-      .delete-row select {
         flex: 1;
       }
       .actions {
@@ -1243,11 +1265,6 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
     <div class="save-row">
       <input id="preset-name" type="text" maxlength="40" placeholder="name required" />
     </div>
-    <div class="delete-row">
-      <select id="delete-preset">
-        <option value="">delete preset…</option>
-      </select>
-    </div>
     <div class="actions">
       <button class="secondary" id="cancel">close</button>
       <button class="primary" id="apply">add new</button>
@@ -1260,7 +1277,6 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
         const compressHoldInput = document.getElementById("compress-hold");
         const summary = document.getElementById("summary");
         const presetNameInput = document.getElementById("preset-name");
-        const deletePresetSelect = document.getElementById("delete-preset");
         const cancelButton = document.getElementById("cancel");
         const applyButton = document.getElementById("apply");
         const state = {
@@ -1270,7 +1286,6 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
             compressing_seconds: 5.5,
             compressed_hold_seconds: 0,
           },
-          deletablePresets: [],
         };
 
         function post(payload) {
@@ -1314,29 +1329,11 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
           summary.textContent = `cycle: ${pattern.expanding_seconds} / ${pattern.expanded_hold_seconds} / ${pattern.compressing_seconds} / ${pattern.compressed_hold_seconds} (${total}s total)`;
         }
 
-        function renderDeleteOptions() {
-          deletePresetSelect.textContent = "";
-          const placeholder = document.createElement("option");
-          placeholder.value = "";
-          placeholder.textContent = "delete preset…";
-          deletePresetSelect.appendChild(placeholder);
-          state.deletablePresets.forEach((preset) => {
-            const option = document.createElement("option");
-            option.value = preset.id;
-            option.textContent = preset.name;
-            deletePresetSelect.appendChild(option);
-          });
-          deletePresetSelect.disabled = state.deletablePresets.length === 0;
-          deletePresetSelect.value = "";
-        }
-
         window.breathingPatternApplyState = function(next) {
           const payload = next || {};
           state.pattern = normalizePattern(payload.pattern || state.pattern);
-          state.deletablePresets = Array.isArray(payload.deletable_presets) ? payload.deletable_presets : [];
           writeInputs(state.pattern);
           updateSummary(state.pattern);
-          renderDeleteOptions();
         };
 
         [expandInput, expandHoldInput, compressInput, compressHoldInput].forEach((input) => {
@@ -1361,11 +1358,6 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
 
         cancelButton.addEventListener("click", () => {
           post({ cmd: "close_breathing_pattern" });
-        });
-        deletePresetSelect.addEventListener("change", () => {
-          const presetId = String(deletePresetSelect.value || "");
-          if (!presetId) return;
-          post({ cmd: "delete_breathing_preset", preset_id: presetId });
         });
         presetNameInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
@@ -1710,6 +1702,16 @@ fn breathing_pattern_menu_label(settings: &Settings) -> String {
 }
 
 #[cfg(target_os = "macos")]
+fn breathing_delete_menu_id(id: &str) -> String {
+    format!("{MENU_ID_BREATHING_DELETE_PREFIX}{id}")
+}
+
+#[cfg(target_os = "macos")]
+fn deleted_breathing_preset_id_from_menu_id(id: &str) -> Option<&str> {
+    id.strip_prefix(MENU_ID_BREATHING_DELETE_PREFIX)
+}
+
+#[cfg(target_os = "macos")]
 fn breathing_saved_menu_id(id: &str) -> String {
     format!("{MENU_ID_BREATHING_SAVED_PREFIX}{id}")
 }
@@ -1764,6 +1766,8 @@ struct NativeContextMenu {
     breathing_box: CheckMenuItem,
     breathing_479: CheckMenuItem,
     breathing_saved: Vec<(String, CheckMenuItem)>,
+    breathing_delete_menu: Submenu,
+    breathing_delete_items: Vec<(String, MenuItem)>,
     reset: MenuItem,
     quit: MenuItem,
     update_primary: MenuItem,
@@ -1782,6 +1786,15 @@ struct NativeContextMenu {
 #[cfg(target_os = "macos")]
 impl NativeContextMenu {
     fn new(settings: &Settings) -> Option<Self> {
+        let visible_built_in_presets = built_in_breathing_presets()
+            .into_iter()
+            .filter(|preset| {
+                !settings
+                    .hidden_breathing_preset_ids
+                    .iter()
+                    .any(|id| id == preset.id)
+            })
+            .collect::<Vec<_>>();
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
         let launch_at_login =
             CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, true, None);
@@ -1812,7 +1825,9 @@ impl NativeContextMenu {
                 "coherent breathing ({})",
                 breathing_pattern_summary(&BreathingPattern::coherent())
             ),
-            true,
+            visible_built_in_presets
+                .iter()
+                .any(|preset| preset.id == BREATHING_PRESET_ID_COHERENT),
             false,
             None,
         );
@@ -1822,7 +1837,9 @@ impl NativeContextMenu {
                 "box breathing ({})",
                 breathing_pattern_summary(&BreathingPattern::box_breathing())
             ),
-            true,
+            visible_built_in_presets
+                .iter()
+                .any(|preset| preset.id == "box_breathing"),
             false,
             None,
         );
@@ -1832,7 +1849,9 @@ impl NativeContextMenu {
                 "4-7-9 ({})",
                 breathing_pattern_summary(&BreathingPattern::four_seven_nine())
             ),
-            true,
+            visible_built_in_presets
+                .iter()
+                .any(|preset| preset.id == "4_7_9"),
             false,
             None,
         );
@@ -1856,6 +1875,39 @@ impl NativeContextMenu {
                     ),
                 )
             })
+            .collect::<Vec<_>>();
+        let breathing_delete_items = visible_built_in_presets
+            .iter()
+            .map(|preset| {
+                (
+                    preset.id.to_string(),
+                    MenuItem::with_id(
+                        &breathing_delete_menu_id(preset.id),
+                        &format!(
+                            "{} ({})",
+                            preset.name,
+                            breathing_pattern_summary(&preset.pattern)
+                        ),
+                        true,
+                        None,
+                    ),
+                )
+            })
+            .chain(settings.saved_breathing_presets.iter().map(|preset| {
+                (
+                    preset.id.clone(),
+                    MenuItem::with_id(
+                        &breathing_delete_menu_id(&preset.id),
+                        &format!(
+                            "{} ({})",
+                            preset.name,
+                            breathing_pattern_summary(&preset.pattern)
+                        ),
+                        true,
+                        None,
+                    ),
+                )
+            }))
             .collect::<Vec<_>>();
         let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
         let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
@@ -1991,6 +2043,23 @@ impl NativeContextMenu {
         }
         breathing_items.push(&breathing_separator);
         breathing_items.push(&breathing_edit);
+        let delete_items = breathing_delete_items
+            .iter()
+            .map(|(_, item)| item as &dyn IsMenuItem)
+            .collect::<Vec<_>>();
+        let breathing_delete_menu = match Submenu::with_id_and_items(
+            MENU_ID_BREATHING_DELETE_ROOT,
+            "delete",
+            !delete_items.is_empty(),
+            &delete_items,
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                log_stderr!("warning: failed to build breathing delete submenu: {error}");
+                return None;
+            }
+        };
+        breathing_items.push(&breathing_delete_menu);
         let breathing_menu = match Submenu::with_id_and_items(
             MENU_ID_BREATHING_PATTERN,
             &breathing_pattern_menu_label(settings),
@@ -2063,6 +2132,8 @@ impl NativeContextMenu {
             breathing_box,
             breathing_479,
             breathing_saved,
+            breathing_delete_menu,
+            breathing_delete_items,
             reset,
             quit,
             update_primary,
@@ -2114,6 +2185,8 @@ impl NativeContextMenu {
         for (id, item) in &self.breathing_saved {
             item.set_checked(settings.active_breathing_preset_id == *id);
         }
+        self.breathing_delete_menu
+            .set_enabled(!self.breathing_delete_items.is_empty());
         self.reset.set_enabled(true);
         self.quit.set_enabled(true);
         self.update_primary.set_text(update_label);
@@ -2804,18 +2877,19 @@ impl App {
     fn breathing_pattern_editor_payload(&self) -> serde_json::Value {
         serde_json::json!({
             "pattern": self.settings.breathing_pattern,
-            "deletable_presets": self.settings.saved_breathing_presets.iter().map(|preset| {
-                serde_json::json!({
-                    "id": preset.id,
-                    "name": format!("{} ({})", preset.name, breathing_pattern_summary(&preset.pattern)),
-                })
-            }).collect::<Vec<_>>(),
         })
     }
 
     fn breathing_pattern_menu_presets_payload(&self) -> serde_json::Value {
         let mut presets = built_in_breathing_presets()
             .into_iter()
+            .filter(|preset| {
+                !self
+                    .settings
+                    .hidden_breathing_preset_ids
+                    .iter()
+                    .any(|id| id == preset.id)
+            })
             .map(|preset| {
                 serde_json::json!({
                     "id": preset.id,
@@ -3206,15 +3280,47 @@ impl App {
     }
 
     fn delete_breathing_preset(&mut self, preset_id: &str) -> Option<SavedBreathingPreset> {
-        let index = self
+        let removed = if let Some(index) = self
             .settings
             .saved_breathing_presets
             .iter()
-            .position(|preset| preset.id == preset_id)?;
-        let removed = self.settings.saved_breathing_presets.remove(index);
+            .position(|preset| preset.id == preset_id)
+        {
+            self.settings.saved_breathing_presets.remove(index)
+        } else {
+            let preset = built_in_breathing_preset(preset_id)?;
+            if !self
+                .settings
+                .hidden_breathing_preset_ids
+                .iter()
+                .any(|id| id == preset_id)
+            {
+                self.settings
+                    .hidden_breathing_preset_ids
+                    .push(preset_id.to_string());
+            }
+            SavedBreathingPreset {
+                id: preset.id.to_string(),
+                name: preset.name.to_string(),
+                pattern: preset.pattern,
+            }
+        };
         if self.settings.active_breathing_preset_id == removed.id {
-            self.settings.active_breathing_preset_id = BREATHING_PRESET_ID_COHERENT.to_string();
-            self.settings.breathing_pattern = BreathingPattern::coherent();
+            if let Some(next_builtin) = built_in_breathing_presets().into_iter().find(|preset| {
+                !self
+                    .settings
+                    .hidden_breathing_preset_ids
+                    .iter()
+                    .any(|id| id == preset.id)
+            }) {
+                self.settings.active_breathing_preset_id = next_builtin.id.to_string();
+                self.settings.breathing_pattern = next_builtin.pattern;
+            } else if let Some(next_saved) = self.settings.saved_breathing_presets.first() {
+                self.settings.active_breathing_preset_id = next_saved.id.clone();
+                self.settings.breathing_pattern = next_saved.pattern.clone();
+            } else {
+                self.settings.active_breathing_preset_id = BREATHING_PRESET_ID_CUSTOM.to_string();
+            }
         }
         self.sync_breathing_pattern_to_webview();
         self.sync_update_menu_state();
@@ -3723,6 +3829,18 @@ impl App {
                 Err(error) => log_stderr!("error: {error}"),
             },
             _ => {
+                if let Some(preset_id) = deleted_breathing_preset_id_from_menu_id(id) {
+                    if let Some(preset) = self.delete_breathing_preset(preset_id) {
+                        self.telemetry_breathing_pattern_change(
+                            "deleted",
+                            &preset.id,
+                            Some(&preset.name),
+                            &preset.pattern,
+                        );
+                        self.save_settings();
+                    }
+                    return;
+                }
                 if let Some(preset_id) = saved_breathing_preset_id_from_menu_id(id) {
                     let preset_name = self
                         .settings
