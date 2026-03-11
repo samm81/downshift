@@ -9,10 +9,10 @@ execute each step in order and stop immediately on any failed precondition.
 
 ## workflow
 
-1. verify branch and clean state.
+1. verify branch and tracked-file clean state.
 2. run `git branch --show-current` and require `mac`.
-3. run `git status --porcelain` and require empty output.
-4. if branch is not `mac` or status is dirty, stop and report to user.
+3. run `git status --porcelain --untracked-files=no` and require empty output.
+4. if branch is not `mac` or tracked changes are present, stop and report to user. untracked files do not block the release flow.
 5. bump project version using the repo's normal version location and format.
 6. commit the version bump.
 7. update local `main` from `origin`.
