@@ -16,6 +16,11 @@ DMG_BACKGROUND_SOURCE := $(DIST_DIR)/$(DMG_BACKGROUND_NAME)
 DMG_BACKGROUND_DIR := .background
 DMG_WINDOW_SCRIPT := dev/mac/configure_dmg_finder.applescript
 DMG_BACKGROUND_SCRIPT := dev/mac/render_dmg_background.swift
+APP_ICON_NAME := Downshift.icns
+APP_ICONSET_DIR := $(DIST_DIR)/downshift.iconset
+APP_ICON_SOURCE := $(DIST_DIR)/$(APP_ICON_NAME)
+APP_ICON_SCRIPT := dev/mac/render_app_icon.swift
+APP_ICON_BASE_SOURCE := docs/assets/icon.png
 DMG_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).dmg
 ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-unsigned$(RELEASE_SUFFIX).zip
 CHECKSUMS_PATH := $(DIST_DIR)/SHA256SUMS.txt
@@ -29,6 +34,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	run run-no-telemetry \
 	app app-no-telemetry \
 	sign-app \
+	generate-app-icon \
 	generate-dmg-background \
 	stage-dmg-contents \
 	dmg dmg-no-telemetry \
@@ -125,12 +131,13 @@ ifneq ($(RUN_RESET),)
 endif
 	./target/debug/$(BIN_NAME)
 
-package-app:
+package-app: generate-app-icon
 	rm -rf "$(APP_BUNDLE)"
 	mkdir -p "$(APP_BUNDLE)/Contents/MacOS"
 	mkdir -p "$(APP_BUNDLE)/Contents/Resources"
 	cp "target/release/$(BIN_NAME)" "$(APP_BUNDLE)/Contents/MacOS/$(BIN_NAME)"
 	chmod +x "$(APP_BUNDLE)/Contents/MacOS/$(BIN_NAME)"
+	cp "$(APP_ICON_SOURCE)" "$(APP_BUNDLE)/Contents/Resources/$(APP_ICON_NAME)"
 	printf '%s\n' \
 		'<?xml version="1.0" encoding="UTF-8"?>' \
 		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
@@ -142,6 +149,7 @@ package-app:
 		'    <key>CFBundleVersion</key><string>$(VERSION)</string>' \
 		'    <key>CFBundleShortVersionString</key><string>$(VERSION)</string>' \
 		'    <key>CFBundleExecutable</key><string>$(BIN_NAME)</string>' \
+		'    <key>CFBundleIconFile</key><string>$(APP_ICON_NAME)</string>' \
 		'    <key>CFBundlePackageType</key><string>APPL</string>' \
 		'    <key>LSMinimumSystemVersion</key><string>$(MIN_MACOS)</string>' \
 		'  </dict>' \
@@ -150,6 +158,12 @@ package-app:
 
 sign-app:
 	codesign --force --deep --sign - "$(APP_BUNDLE)"
+
+generate-app-icon:
+	rm -rf "$(APP_ICONSET_DIR)"
+	swift "$(APP_ICON_SCRIPT)" "$(APP_ICON_BASE_SOURCE)" "$(APP_ICONSET_DIR)"
+	rm -f "$(APP_ICON_SOURCE)"
+	iconutil -c icns "$(APP_ICONSET_DIR)" -o "$(APP_ICON_SOURCE)"
 
 generate-dmg-background:
 	swift "$(DMG_BACKGROUND_SCRIPT)" "$(DMG_BACKGROUND_SOURCE)"
@@ -340,6 +354,8 @@ clean:
 	rm -rf "$(APP_BUNDLE)"
 	rm -rf "$(DMG_STAGING_DIR)"
 	rm -rf "$(DMG_MOUNT_DIR)"
+	rm -rf "$(APP_ICONSET_DIR)"
+	rm -f "$(APP_ICON_SOURCE)"
 	rm -f "$(TEMP_DMG_PATH)"
 	rm -f "$(DMG_PATH)" "$(ZIP_PATH)" "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" "$(CHECKSUMS_PATH)"
 	rm -f "$(DIST_DIR)/developer-id.p12"

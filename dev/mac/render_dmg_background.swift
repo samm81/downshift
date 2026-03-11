@@ -43,17 +43,8 @@ context.setLineWidth(2)
 panel.lineWidth = 2
 panel.stroke()
 
-func fillCircle(centerX: CGFloat, centerY: CGFloat, radius: CGFloat, color: NSColor) {
-  color.setFill()
-  let circleRect = NSRect(x: centerX - radius, y: centerY - radius, width: radius * 2, height: radius * 2)
-  NSBezierPath(ovalIn: circleRect).fill()
-}
-
 let orbCenterX: CGFloat = 170
 let orbCenterY: CGFloat = 244
-fillCircle(centerX: orbCenterX, centerY: orbCenterY, radius: 78, color: NSColor(calibratedRed: 0.60, green: 0.77, blue: 0.95, alpha: 0.24))
-fillCircle(centerX: orbCenterX, centerY: orbCenterY, radius: 54, color: NSColor(calibratedRed: 0.49, green: 0.69, blue: 0.92, alpha: 0.36))
-fillCircle(centerX: orbCenterX, centerY: orbCenterY, radius: 32, color: NSColor(calibratedRed: 0.34, green: 0.58, blue: 0.86, alpha: 0.68))
 
 let arrowColor = NSColor(calibratedRed: 0.38, green: 0.60, blue: 0.84, alpha: 0.48)
 arrowColor.setFill()
