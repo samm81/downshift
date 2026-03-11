@@ -3,7 +3,7 @@ use downshift::telemetry::{
     RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,
 };
 use downshift::{
-    apply_resize_step, clamp_size, load_settings, normalize_half_cycle, IpcCommand,
+    apply_resize_step, clamp_size, diagnostics, load_settings, normalize_half_cycle, IpcCommand,
     PersistedMonitor, Settings, DEFAULT_HALF_CYCLE_SECONDS, DEFAULT_SIZE,
 };
 #[cfg(target_os = "macos")]
@@ -45,6 +45,8 @@ const UPDATE_RELEASE_API_URL: &str =
 const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
 const UPDATE_TOOLTIP: &str = "new version available";
 const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
+const COMPILED_GITHUB_ISSUES_URL: &str = env!("DOWNSHIFT_GITHUB_ISSUES_URL");
+const COMPILED_SUPPORT_EMAIL: &str = env!("DOWNSHIFT_SUPPORT_EMAIL");
 #[cfg(target_os = "macos")]
 const MENU_ID_PAUSE: &str = "pause";
 #[cfg(target_os = "macos")]
@@ -89,6 +91,21 @@ const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
 const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
 #[cfg(target_os = "macos")]
 const MENU_ID_LAUNCH_AT_LOGIN: &str = "launch_at_login";
+#[cfg(target_os = "macos")]
+const MENU_ID_BUGS_ROOT: &str = "bugs_root";
+#[cfg(target_os = "macos")]
+const MENU_ID_COPY_DIAGNOSTICS: &str = "copy_diagnostics";
+#[cfg(target_os = "macos")]
+const MENU_ID_FILE_BUG_GITHUB: &str = "file_bug_github";
+#[cfg(target_os = "macos")]
+const MENU_ID_FILE_BUG_EMAIL: &str = "file_bug_email";
+
+macro_rules! log_stderr {
+    ($($arg:tt)*) => {{
+        let message = format!($($arg)*);
+        eprintln!("{message}");
+    }};
+}
 
 struct HeartbeatSnapshot {
     state: String,
@@ -1128,8 +1145,75 @@ fn open_external_url(url: &str) {
 
     let (program, args) = command;
     if let Err(error) = std::process::Command::new(program).args(args).spawn() {
-        eprintln!("warning: failed to open external url: {error}");
+        log_stderr!("warning: failed to open external url: {error}");
     }
+}
+
+fn github_issues_url() -> String {
+    COMPILED_GITHUB_ISSUES_URL.to_string()
+}
+
+fn support_email_address() -> String {
+    COMPILED_SUPPORT_EMAIL.to_string()
+}
+
+fn support_email_mailto() -> String {
+    format!(
+        "mailto:{}?subject=downshift%20bug%20report&body=please%20describe%20what%20happened%20and%20paste%20diagnostics%20if%20helpful.",
+        support_email_address()
+    )
+}
+
+fn current_os_version() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output();
+        if let Ok(output) = output {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !version.is_empty() {
+                return format!("macOS {version}");
+            }
+        }
+    }
+    std::env::consts::OS.to_string()
+}
+
+fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut process = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        let Some(stdin) = process.stdin.as_mut() else {
+            return Err("clipboard stdin unavailable".to_string());
+        };
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|error| error.to_string())?;
+        let status = process.wait().map_err(|error| error.to_string())?;
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(format!("pbcopy exited with status {status}"))
+        };
+    }
+    #[allow(unreachable_code)]
+    Err("clipboard copy is unsupported on this platform".to_string())
+}
+
+fn export_diagnostics_to_temp_file(text: &str) -> Result<PathBuf, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    let path = std::env::temp_dir().join(format!("downshift-diagnostics-{timestamp}.txt"));
+    std::fs::write(&path, text).map_err(|error| error.to_string())?;
+    Ok(path)
 }
 
 fn check_latest_release() -> UpdateCheckResult {
@@ -1191,6 +1275,10 @@ struct NativeContextMenu {
     reset: MenuItem,
     quit: MenuItem,
     update_primary: MenuItem,
+    bugs_menu: Submenu,
+    copy_diagnostics: MenuItem,
+    file_bug_github: MenuItem,
+    file_bug_email: MenuItem,
     analytics_menu: Submenu,
     usage_on: CheckMenuItem,
     usage_off: CheckMenuItem,
@@ -1225,6 +1313,20 @@ impl NativeContextMenu {
         let update_primary = MenuItem::with_id(
             MENU_ID_UPDATE_PRIMARY,
             format!("check for updates (version {})", env!("CARGO_PKG_VERSION")),
+            true,
+            None,
+        );
+        let copy_diagnostics =
+            MenuItem::with_id(MENU_ID_COPY_DIAGNOSTICS, "copy diagnostics", true, None);
+        let file_bug_github = MenuItem::with_id(
+            MENU_ID_FILE_BUG_GITHUB,
+            "file a bug report on github",
+            true,
+            None,
+        );
+        let file_bug_email = MenuItem::with_id(
+            MENU_ID_FILE_BUG_EMAIL,
+            "file a bug report by email",
             true,
             None,
         );
@@ -1275,7 +1377,7 @@ impl NativeContextMenu {
         ) {
             Ok(menu) => menu,
             Err(error) => {
-                eprintln!("warning: failed to build snooze submenu: {error}");
+                log_stderr!("warning: failed to build snooze submenu: {error}");
                 return None;
             }
         };
@@ -1295,7 +1397,19 @@ impl NativeContextMenu {
         ) {
             Ok(menu) => menu,
             Err(error) => {
-                eprintln!("warning: failed to build analytics submenu: {error}");
+                log_stderr!("warning: failed to build analytics submenu: {error}");
+                return None;
+            }
+        };
+        let bugs_menu = match Submenu::with_id_and_items(
+            MENU_ID_BUGS_ROOT,
+            "bugs",
+            true,
+            &[&copy_diagnostics, &file_bug_github, &file_bug_email],
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                log_stderr!("warning: failed to build bugs submenu: {error}");
                 return None;
             }
         };
@@ -1303,7 +1417,7 @@ impl NativeContextMenu {
             match Submenu::with_items("size", true, &[&size_s, &size_m, &size_l, &size_xl]) {
                 Ok(menu) => menu,
                 Err(error) => {
-                    eprintln!("warning: failed to build size submenu: {error}");
+                    log_stderr!("warning: failed to build size submenu: {error}");
                     return None;
                 }
             };
@@ -1313,6 +1427,7 @@ impl NativeContextMenu {
         let separator_four = PredefinedMenuItem::separator();
         let separator_five = PredefinedMenuItem::separator();
         let separator_six = PredefinedMenuItem::separator();
+        let separator_seven = PredefinedMenuItem::separator();
         let root = match Submenu::with_items(
             "menu",
             true,
@@ -1330,12 +1445,14 @@ impl NativeContextMenu {
                 &separator_five,
                 &update_primary,
                 &separator_six,
+                &bugs_menu,
+                &separator_seven,
                 &analytics_menu,
             ],
         ) {
             Ok(menu) => menu,
             Err(error) => {
-                eprintln!("warning: failed to build native context menu: {error}");
+                log_stderr!("warning: failed to build native context menu: {error}");
                 return None;
             }
         };
@@ -1358,6 +1475,10 @@ impl NativeContextMenu {
             reset,
             quit,
             update_primary,
+            bugs_menu,
+            copy_diagnostics,
+            file_bug_github,
+            file_bug_email,
             analytics_menu,
             usage_on,
             usage_off,
@@ -1394,6 +1515,10 @@ impl NativeContextMenu {
         self.quit.set_enabled(true);
         self.update_primary.set_text(update_label);
         self.update_primary.set_enabled(true);
+        self.bugs_menu.set_enabled(true);
+        self.copy_diagnostics.set_enabled(true);
+        self.file_bug_github.set_enabled(true);
+        self.file_bug_email.set_enabled(true);
         self.analytics_menu.set_enabled(true);
     }
 
@@ -1492,6 +1617,37 @@ impl App {
         }
     }
 
+    fn diagnostics_snapshot(&self) -> diagnostics::DiagnosticsSnapshot {
+        diagnostics::DiagnosticsSnapshot {
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            os_version: current_os_version(),
+            arch: std::env::consts::ARCH.to_string(),
+            runtime_state: self.current_activity_label().to_string(),
+            settings_toml: toml::to_string_pretty(&self.settings)
+                .unwrap_or_else(|error| format!("serialization_error = {:?}", error.to_string())),
+        }
+    }
+
+    fn diagnostics_summary(&self) -> String {
+        diagnostics::build_summary(&self.diagnostics_snapshot())
+    }
+
+    fn copy_diagnostics_summary(&self) {
+        let summary = self.diagnostics_summary();
+        if let Err(error) = copy_text_to_clipboard(&summary) {
+            log_stderr!("warning: failed to copy diagnostics to clipboard: {error}");
+            match export_diagnostics_to_temp_file(&summary) {
+                Ok(path) => log_stderr!(
+                    "warning: exported diagnostics summary instead: {}",
+                    path.display()
+                ),
+                Err(export_error) => {
+                    log_stderr!("error: failed to export diagnostics summary: {export_error}")
+                }
+            }
+        }
+    }
+
     fn telemetry_activity_state(
         &self,
         state: ActivityState,
@@ -1570,7 +1726,7 @@ impl App {
     #[cfg(target_os = "macos")]
     fn sync_launch_at_login_setting(&mut self, enabled: bool) {
         let Some(path) = launch_agent_path() else {
-            eprintln!("warning: failed to resolve launch agent path");
+            log_stderr!("warning: failed to resolve launch agent path");
             return;
         };
 
@@ -1588,7 +1744,7 @@ impl App {
                 self.settings.launch_at_login = enabled;
             }
             Err(error) => {
-                eprintln!("warning: failed to update launch-at-login setting: {error}");
+                log_stderr!("warning: failed to update launch-at-login setting: {error}");
             }
         }
     }
@@ -1688,7 +1844,7 @@ impl App {
             size: LogicalSize::new(size.width, size.height).into(),
         };
         if let Err(error) = webview.set_bounds(bounds) {
-            eprintln!("warning: failed to sync webview bounds: {error}");
+            log_stderr!("warning: failed to sync webview bounds: {error}");
         }
     }
 
@@ -1705,7 +1861,7 @@ impl App {
             size: LogicalSize::new(size.width, size.height).into(),
         };
         if let Err(error) = webview.set_bounds(bounds) {
-            eprintln!("warning: failed to sync telemetry info webview bounds: {error}");
+            log_stderr!("warning: failed to sync telemetry info webview bounds: {error}");
         }
     }
 
@@ -1722,19 +1878,19 @@ impl App {
         };
         if let Some(parent) = path.parent() {
             if let Err(error) = std::fs::create_dir_all(parent) {
-                eprintln!("warning: failed to create config directory: {error}");
+                log_stderr!("warning: failed to create config directory: {error}");
                 return;
             }
         }
         let content = match toml::to_string_pretty(&self.settings) {
             Ok(content) => content,
             Err(error) => {
-                eprintln!("warning: failed to serialize settings: {error}");
+                log_stderr!("warning: failed to serialize settings: {error}");
                 return;
             }
         };
         if let Err(error) = std::fs::write(path, content) {
-            eprintln!("warning: failed to write settings: {error}");
+            log_stderr!("warning: failed to write settings: {error}");
         }
     }
 
@@ -1863,12 +2019,12 @@ impl App {
         let window = match event_loop.create_window(attrs) {
             Ok(window) => window,
             Err(error) => {
-                eprintln!("warning: failed to create update dialog window: {error}");
+                log_stderr!("warning: failed to create update dialog window: {error}");
                 return;
             }
         };
         let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            eprintln!("warning: missing event loop proxy for update dialog window");
+            log_stderr!("warning: missing event loop proxy for update dialog window");
             return;
         };
         let window_id = window.id();
@@ -1882,7 +2038,7 @@ impl App {
         {
             Ok(webview) => webview,
             Err(error) => {
-                eprintln!("warning: failed to create update dialog webview: {error}");
+                log_stderr!("warning: failed to create update dialog webview: {error}");
                 return;
             }
         };
@@ -1906,7 +2062,7 @@ impl App {
             size: LogicalSize::new(size.width, size.height).into(),
         };
         if let Err(error) = webview.set_bounds(bounds) {
-            eprintln!("warning: failed to sync update dialog webview bounds: {error}");
+            log_stderr!("warning: failed to sync update dialog webview bounds: {error}");
         }
     }
 
@@ -1979,12 +2135,12 @@ impl App {
         let window = match event_loop.create_window(attrs) {
             Ok(window) => window,
             Err(error) => {
-                eprintln!("warning: failed to create custom snooze window: {error}");
+                log_stderr!("warning: failed to create custom snooze window: {error}");
                 return;
             }
         };
         let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            eprintln!("warning: missing event loop proxy for custom snooze window");
+            log_stderr!("warning: missing event loop proxy for custom snooze window");
             return;
         };
         let window_id = window.id();
@@ -1998,7 +2154,7 @@ impl App {
         {
             Ok(webview) => webview,
             Err(error) => {
-                eprintln!("warning: failed to create custom snooze webview: {error}");
+                log_stderr!("warning: failed to create custom snooze webview: {error}");
                 return;
             }
         };
@@ -2021,7 +2177,7 @@ impl App {
             size: LogicalSize::new(size.width, size.height).into(),
         };
         if let Err(error) = webview.set_bounds(bounds) {
-            eprintln!("warning: failed to sync custom snooze webview bounds: {error}");
+            log_stderr!("warning: failed to sync custom snooze webview bounds: {error}");
         }
     }
 
@@ -2047,7 +2203,7 @@ impl App {
         let window = match event_loop.create_window(attrs) {
             Ok(window) => window,
             Err(error) => {
-                eprintln!("warning: failed to create telemetry info window: {error}");
+                log_stderr!("warning: failed to create telemetry info window: {error}");
                 self.telemetry.track_error(
                     EventName::AppError,
                     serde_json::json!({
@@ -2060,7 +2216,7 @@ impl App {
             }
         };
         let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            eprintln!("warning: missing event loop proxy for telemetry info window");
+            log_stderr!("warning: missing event loop proxy for telemetry info window");
             return;
         };
         let window_id = window.id();
@@ -2074,7 +2230,7 @@ impl App {
         {
             Ok(webview) => webview,
             Err(error) => {
-                eprintln!("warning: failed to create telemetry info webview: {error}");
+                log_stderr!("warning: failed to create telemetry info webview: {error}");
                 return;
             }
         };
@@ -2508,7 +2664,7 @@ impl App {
                 _ => return,
             },
             Err(error) => {
-                eprintln!("warning: failed to access window handle for native menu: {error}");
+                log_stderr!("warning: failed to access window handle for native menu: {error}");
                 return;
             }
         };
@@ -2620,6 +2776,9 @@ impl App {
             }
             MENU_ID_ANALYTICS_INFO => self.show_analytics_modal(event_loop),
             MENU_ID_UPDATE_PRIMARY => self.handle_update_primary_action(event_loop),
+            MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
+            MENU_ID_FILE_BUG_GITHUB => open_external_url(&github_issues_url()),
+            MENU_ID_FILE_BUG_EMAIL => open_external_url(&support_email_mailto()),
             _ => {}
         }
     }
@@ -2856,7 +3015,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 "recoverable": true,
                             }),
                         );
-                        eprintln!("warning: ignored malformed ipc command: {error}");
+                        log_stderr!("warning: ignored malformed ipc command: {error}");
                         return;
                     }
                 };
@@ -3052,7 +3211,7 @@ fn main() -> std::process::ExitCode {
     let event_loop = match event_loop_builder.build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
-            eprintln!("error: failed to create event loop: {error}");
+            log_stderr!("error: failed to create event loop: {error}");
             return std::process::ExitCode::from(1);
         }
     };
@@ -3067,7 +3226,7 @@ fn main() -> std::process::ExitCode {
             if error.kind() == std::io::ErrorKind::AddrInUse {
                 return std::process::ExitCode::SUCCESS;
             }
-            eprintln!("warning: failed to start instance server: {error}");
+            log_stderr!("warning: failed to start instance server: {error}");
         }
     }
 
@@ -3075,7 +3234,7 @@ fn main() -> std::process::ExitCode {
     if let Err(error) = ctrlc::set_handler(move || {
         let _ = ctrlc_proxy.send_event(AppEvent::ExitRequested);
     }) {
-        eprintln!("warning: failed to install ctrl-c handler: {error}");
+        log_stderr!("warning: failed to install ctrl-c handler: {error}");
     }
     #[cfg(target_os = "macos")]
     {
@@ -3109,11 +3268,11 @@ fn main() -> std::process::ExitCode {
                 "recoverable": false,
             }),
         );
-        eprintln!("error: app event loop failed: {error}");
+        log_stderr!("error: app event loop failed: {error}");
         return std::process::ExitCode::from(1);
     }
     if let Some(error) = app.startup_error {
-        eprintln!("error: {error}");
+        log_stderr!("error: {error}");
         return std::process::ExitCode::from(1);
     }
     app.finish_session(SessionEndReason::Unknown);

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+pub mod diagnostics;
 pub mod telemetry;
 
 pub const DEFAULT_SIZE: f64 = 96.0;

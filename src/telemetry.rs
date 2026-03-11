@@ -544,12 +544,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
     }
 
     fn end_session(&self, reason: SessionEndReason) {
-        let (
-            duration,
-            active_duration_sec,
-            paused_duration_sec,
-            snoozed_duration_sec,
-        ) = self
+        let (duration, active_duration_sec, paused_duration_sec, snoozed_duration_sec) = self
             .shared
             .session
             .lock()
@@ -1023,11 +1018,7 @@ mod tests {
         );
         client.start_session(ActivityState::Active);
         thread::sleep(Duration::from_secs(1));
-        client.track_activity_state(
-            ActivityState::Paused,
-            ActivityTrigger::Manual,
-            None,
-        );
+        client.track_activity_state(ActivityState::Paused, ActivityTrigger::Manual, None);
         thread::sleep(Duration::from_secs(1));
         client.track_activity_state(
             ActivityState::Snoozed,

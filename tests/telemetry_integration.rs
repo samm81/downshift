@@ -1,6 +1,6 @@
 use downshift::telemetry::{
-    ActivityState, BetterStackLogsSink, EventName, RuntimeTelemetryClient, TelemetryClient, TelemetrySink,
-    TelemetryState,
+    ActivityState, BetterStackLogsSink, EventName, RuntimeTelemetryClient, TelemetryClient,
+    TelemetrySink, TelemetryState,
 };
 use serial_test::serial;
 use std::sync::atomic::{AtomicUsize, Ordering};
