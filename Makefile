@@ -23,6 +23,9 @@ RUN_RESET := $(filter 1,$(RESET))
 	sign-app \
 	dmg dmg-no-telemetry \
 	zip zip-no-telemetry \
+	release-pre-notarize \
+	staple-notarized-dmg \
+	write-release-checksums \
 	checksums checksums-no-telemetry \
 	verify-notarized-dmg \
 	check-tag-sync require-telemetry-env package-app \
@@ -182,26 +185,7 @@ release: check-tag-sync checksums
 
 release-no-telemetry: check-tag-sync checksums-no-telemetry
 
-verify-notarized-dmg:
-	@set -euo pipefail; \
-	MOUNT_POINT=""; \
-	cleanup() { \
-		if [ -n "$$MOUNT_POINT" ]; then \
-			hdiutil detach "$$MOUNT_POINT" >/dev/null 2>&1 || true; \
-		fi; \
-	}; \
-	trap cleanup EXIT; \
-	if [ ! -f "$(NOTARIZED_DMG_PATH)" ]; then \
-		echo "error: notarized dmg not found at $(NOTARIZED_DMG_PATH)"; \
-		exit 1; \
-	fi; \
-	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"; \
-	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"; \
-	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"; \
-	hdiutil detach "$$MOUNT_POINT"; \
-	MOUNT_POINT=""
-
-release-notarized: check-tag-sync require-telemetry-env require-notarization-env build package-app
+release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-env build package-app
 	@set -euo pipefail; \
 	KEYCHAIN_PATH="$(PWD)/$(DIST_DIR)/downshift-signing.keychain-db"; \
 	CERT_PATH="$(PWD)/$(DIST_DIR)/developer-id.p12"; \
@@ -251,11 +235,39 @@ release-notarized: check-tag-sync require-telemetry-env require-notarization-env
 	rm -f "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" "$(CHECKSUMS_PATH)"; \
 	ditto -c -k --sequesterRsrc --keepParent "$(APP_BUNDLE)" "$(SIGNED_ZIP_PATH)"; \
 	hdiutil create -volname "$(APP_NAME)" -srcfolder "$(APP_BUNDLE)" -ov -format UDZO "$(NOTARIZED_DMG_PATH)"; \
-	codesign --force --timestamp --sign "$$MACOS_SIGNING_IDENTITY" --keychain "$$KEYCHAIN_PATH" "$(NOTARIZED_DMG_PATH)"; \
-	xcrun notarytool submit "$(NOTARIZED_DMG_PATH)" --apple-id "$$MACOS_NOTARY_APPLE_ID" --password "$$MACOS_NOTARY_APP_PASSWORD" --team-id "$$MACOS_NOTARY_TEAM_ID" --wait; \
-	xcrun stapler staple -v "$(NOTARIZED_DMG_PATH)"; \
-	$(MAKE) verify-notarized-dmg TAG="$(TAG)"; \
+	codesign --force --timestamp --sign "$$MACOS_SIGNING_IDENTITY" --keychain "$$KEYCHAIN_PATH" "$(NOTARIZED_DMG_PATH)"
+
+staple-notarized-dmg:
+	xcrun stapler staple -v "$(NOTARIZED_DMG_PATH)"
+
+write-release-checksums:
 	shasum -a 256 "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" > "$(CHECKSUMS_PATH)"
+
+verify-notarized-dmg:
+	@set -euo pipefail; \
+	MOUNT_POINT=""; \
+	cleanup() { \
+		if [ -n "$$MOUNT_POINT" ]; then \
+			hdiutil detach "$$MOUNT_POINT" >/dev/null 2>&1 || true; \
+		fi; \
+	}; \
+	trap cleanup EXIT; \
+	if [ ! -f "$(NOTARIZED_DMG_PATH)" ]; then \
+		echo "error: notarized dmg not found at $(NOTARIZED_DMG_PATH)"; \
+		exit 1; \
+	fi; \
+	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"; \
+	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"; \
+	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"; \
+	hdiutil detach "$$MOUNT_POINT"; \
+	MOUNT_POINT=""
+
+release-notarized: release-pre-notarize
+	@set -euo pipefail; \
+	xcrun notarytool submit "$(NOTARIZED_DMG_PATH)" --apple-id "$$MACOS_NOTARY_APPLE_ID" --password "$$MACOS_NOTARY_APP_PASSWORD" --team-id "$$MACOS_NOTARY_TEAM_ID" --wait; \
+	$(MAKE) staple-notarized-dmg TAG="$(TAG)"; \
+	$(MAKE) verify-notarized-dmg TAG="$(TAG)"; \
+	$(MAKE) write-release-checksums TAG="$(TAG)"
 
 clean:
 	rm -rf "$(APP_BUNDLE)"

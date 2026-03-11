@@ -2,17 +2,27 @@ name: release-macos
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: tag to release (for example v0.1.0)
+        required: true
+        type: string
   push:
     tags:
       - "v*"
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
   build-macos:
     runs-on: macos-latest
     environment: release
+    outputs:
+      notarization_finished: ${{ steps.wait.outputs.finished }}
+      release_tag: ${{ steps.release.outputs.tag }}
+      submission_id: ${{ steps.submit.outputs.submission_id }}
     env:
       APP_NAME: Downshift
       DOWNSHIFT_TELEMETRY_ENABLED: "true"
@@ -27,9 +37,31 @@ jobs:
       MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
       MACOS_NOTARY_APP_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
       MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
+
+      - name: resolve release tag
+        id: release
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            RELEASE_TAG="${{ inputs.tag }}"
+          fi
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "error: release tag is required"
+            exit 1
+          fi
+          case "$RELEASE_TAG" in
+            v*) ;;
+            *)
+              echo "error: release tag must start with v"
+              exit 1
+              ;;
+          esac
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: default telemetry env
         run: echo "DOWNSHIFT_ENV=${DOWNSHIFT_ENV:-prod}" >> "$GITHUB_ENV"
@@ -40,16 +72,74 @@ jobs:
       - name: cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: build signed + notarized release
+      - name: build signed release assets
         run: |
-          make release-notarized TAG="${GITHUB_REF_NAME}"
+          make release-pre-notarize TAG="${{ steps.release.outputs.tag }}"
 
-      - name: collect artifacts
+      - name: submit notarization
+        id: submit
         run: |
+          set -euo pipefail
+          RELEASE_TAG="${{ steps.release.outputs.tag }}"
+          DMG_PATH="dist/${APP_NAME}-notarized-${RELEASE_TAG}.dmg"
+          SUBMIT_JSON="$RUNNER_TEMP/notary-submit.json"
+          SUBMISSION_FILE="dist/${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt"
+
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" \
+            --password "$MACOS_NOTARY_APP_PASSWORD" \
+            --team-id "$MACOS_NOTARY_TEAM_ID" \
+            --output-format json > "$SUBMIT_JSON"
+
+          SUBMISSION_ID="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["id"])' "$SUBMIT_JSON")"
+          if [ -z "$SUBMISSION_ID" ]; then
+            echo "error: failed to read notarization submission id"
+            exit 1
+          fi
+
+          printf '%s\n' "$SUBMISSION_ID" > "$SUBMISSION_FILE"
+          echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
+
+      - name: create or update draft release
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${{ steps.release.outputs.tag }}"
+          SIGNED_ZIP_PATH="dist/${APP_NAME}-signed-${RELEASE_TAG}.zip"
+          DMG_PATH="dist/${APP_NAME}-notarized-${RELEASE_TAG}.dmg"
+          SUBMISSION_FILE="dist/${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt"
+
+          gh api "/repos/${{ github.repository }}/git/ref/tags/${RELEASE_TAG}" >/dev/null
+
+          if RELEASE_ID="$(gh api "/repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}" --jq .id 2>/dev/null)"; then
+            gh api \
+              -X PATCH \
+              "/repos/${{ github.repository }}/releases/${RELEASE_ID}" \
+              -F draft=true \
+              -f name="$RELEASE_TAG" >/dev/null
+          else
+            gh api \
+              -X POST \
+              "/repos/${{ github.repository }}/releases" \
+              -f tag_name="$RELEASE_TAG" \
+              -f name="$RELEASE_TAG" \
+              -F draft=true \
+              -f generate_release_notes=false >/dev/null
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            "$SIGNED_ZIP_PATH" \
+            "$DMG_PATH" \
+            "$SUBMISSION_FILE" \
+            --clobber
+
+      - name: collect workflow artifacts
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${{ steps.release.outputs.tag }}"
           mkdir -p release-artifacts
-          cp dist/${APP_NAME}-signed*.zip release-artifacts/
-          cp dist/${APP_NAME}-notarized*.dmg release-artifacts/
-          cp "dist/SHA256SUMS.txt" release-artifacts/
+          cp "dist/${APP_NAME}-signed-${RELEASE_TAG}.zip" release-artifacts/
+          cp "dist/${APP_NAME}-notarized-${RELEASE_TAG}.dmg" release-artifacts/
+          cp "dist/${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt" release-artifacts/
 
       - name: upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -57,11 +147,63 @@ jobs:
           name: breath-ball-macos
           path: release-artifacts/*
 
-      - name: upload github release assets
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release-artifacts/${{ env.APP_NAME }}-signed*.zip
-            release-artifacts/${{ env.APP_NAME }}-notarized*.dmg
-            release-artifacts/SHA256SUMS.txt
+      - name: wait for notarization up to 15 minutes
+        id: wait
+        run: |
+          set -euo pipefail
+          SUBMISSION_ID="${{ steps.submit.outputs.submission_id }}"
+          STATUS_JSON="$RUNNER_TEMP/notary-status.json"
+          FINISHED="false"
+
+          set +e
+          xcrun notarytool wait "$SUBMISSION_ID" \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" \
+            --password "$MACOS_NOTARY_APP_PASSWORD" \
+            --team-id "$MACOS_NOTARY_TEAM_ID" \
+            --timeout 15m \
+            --output-format json > "$STATUS_JSON"
+          WAIT_EXIT=$?
+          set -e
+
+          if [ "$WAIT_EXIT" -ne 0 ]; then
+            xcrun notarytool info "$SUBMISSION_ID" \
+              --apple-id "$MACOS_NOTARY_APPLE_ID" \
+              --password "$MACOS_NOTARY_APP_PASSWORD" \
+              --team-id "$MACOS_NOTARY_TEAM_ID" \
+              --output-format json > "$STATUS_JSON"
+          fi
+
+          STATUS="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["status"])' "$STATUS_JSON")"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+          case "$STATUS" in
+            Accepted)
+              FINISHED="true"
+              echo "notarization completed within the 15 minute wait window"
+              ;;
+            "In Progress"|Submitted)
+              echo "notarization is still in progress after the 15 minute wait window; leaving the release as draft"
+              ;;
+            Invalid|Rejected)
+              echo "error: notarization finished with status '$STATUS'"
+              exit 1
+              ;;
+            *)
+              echo "error: unexpected notarization status '$STATUS'"
+              exit 1
+              ;;
+          esac
+
+          echo "finished=$FINISHED" >> "$GITHUB_OUTPUT"
+
+      - name: trigger release finalize
+        if: steps.wait.outputs.finished == 'true'
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${{ steps.release.outputs.tag }}"
+          gh api \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/actions/workflows/release-macos-finalize.yml/dispatches" \
+            -f ref="$RELEASE_TAG" \
+            -f inputs[tag]="$RELEASE_TAG"
