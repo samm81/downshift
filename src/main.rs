@@ -534,7 +534,7 @@ const BREATH_HTML: &str = r#"<!doctype html>
 
         function applyBreathingButtons() {
           const activeId = state.activeBreathingPresetId;
-          breathingPatternButton.textContent = `breathing pattern (${breathingSummary(state.breathingPattern)})`;
+          breathingPatternButton.textContent = "breathing pattern";
           breathingPresetList.textContent = "";
           state.breathingPresets.forEach((preset) => {
             const button = document.createElement("button");
@@ -1296,6 +1296,9 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
           expandHoldInput.value = String(pattern.expanded_hold_seconds);
           compressInput.value = String(pattern.compressing_seconds);
           compressHoldInput.value = String(pattern.compressed_hold_seconds);
+        }
+
+        function updateSummary(pattern) {
           const total = pattern.expanding_seconds + pattern.expanded_hold_seconds + pattern.compressing_seconds + pattern.compressed_hold_seconds;
           summary.textContent = `cycle: ${pattern.expanding_seconds} / ${pattern.expanded_hold_seconds} / ${pattern.compressing_seconds} / ${pattern.compressed_hold_seconds} (${total}s total)`;
         }
@@ -1304,12 +1307,14 @@ const BREATHING_PATTERN_HTML: &str = r#"<!doctype html>
           const payload = next || {};
           state.pattern = normalizePattern(payload.pattern || state.pattern);
           writeInputs(state.pattern);
+          updateSummary(state.pattern);
         };
 
         [expandInput, expandHoldInput, compressInput, compressHoldInput].forEach((input) => {
           input.addEventListener("input", () => {
-            state.pattern = readInputs();
-            writeInputs(state.pattern);
+            const pattern = readInputs();
+            state.pattern = pattern;
+            updateSummary(pattern);
           });
         });
 
@@ -1665,40 +1670,9 @@ fn breathing_pattern_summary(pattern: &BreathingPattern) -> String {
     )
 }
 
-fn active_breathing_preset_name(settings: &Settings) -> String {
-    if let Some(preset) = built_in_breathing_preset(&settings.active_breathing_preset_id) {
-        return format!(
-            "{} ({})",
-            preset.name,
-            breathing_pattern_summary(&preset.pattern)
-        );
-    }
-    if let Some(preset) = settings
-        .saved_breathing_presets
-        .iter()
-        .find(|preset| preset.id == settings.active_breathing_preset_id)
-    {
-        return format!(
-            "{} ({})",
-            preset.name,
-            breathing_pattern_summary(&preset.pattern)
-        );
-    }
-    format!(
-        "custom ({})",
-        breathing_pattern_summary(&settings.breathing_pattern)
-    )
-}
-
-fn active_breathing_preset_menu_name(settings: &Settings) -> String {
-    active_breathing_preset_name(settings)
-}
-
 fn breathing_pattern_menu_label(settings: &Settings) -> String {
-    format!(
-        "breathing pattern ({})",
-        active_breathing_preset_menu_name(settings)
-    )
+    let _ = settings;
+    "breathing pattern".to_string()
 }
 
 #[cfg(target_os = "macos")]
