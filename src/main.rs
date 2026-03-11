@@ -1324,6 +1324,7 @@ struct NativeContextMenu {
     size_m: MenuItem,
     size_l: MenuItem,
     size_xl: MenuItem,
+    size_scroll_hint: MenuItem,
     reset: MenuItem,
     quit: MenuItem,
     update_primary: MenuItem,
@@ -1360,6 +1361,8 @@ impl NativeContextMenu {
         let size_m = MenuItem::with_id(MENU_ID_SIZE_M, "M (96px)", true, None);
         let size_l = MenuItem::with_id(MENU_ID_SIZE_L, "L (128px)", true, None);
         let size_xl = MenuItem::with_id(MENU_ID_SIZE_XL, "XL (160px)", true, None);
+        let size_scroll_hint =
+            MenuItem::with_id("size_scroll_hint", "tip: scroll the ball to resize", false, None);
         let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
         let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
         let update_primary = MenuItem::with_id(
@@ -1465,14 +1468,25 @@ impl NativeContextMenu {
                 return None;
             }
         };
-        let size_submenu =
-            match Submenu::with_items("size", true, &[&size_s, &size_m, &size_l, &size_xl]) {
-                Ok(menu) => menu,
-                Err(error) => {
-                    log_stderr!("warning: failed to build size submenu: {error}");
-                    return None;
-                }
-            };
+        let size_separator = PredefinedMenuItem::separator();
+        let size_submenu = match Submenu::with_items(
+            "size",
+            true,
+            &[
+                &size_s,
+                &size_m,
+                &size_l,
+                &size_xl,
+                &size_separator,
+                &size_scroll_hint,
+            ],
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                log_stderr!("warning: failed to build size submenu: {error}");
+                return None;
+            }
+        };
         let separator_one = PredefinedMenuItem::separator();
         let separator_two = PredefinedMenuItem::separator();
         let separator_three = PredefinedMenuItem::separator();
@@ -1524,6 +1538,7 @@ impl NativeContextMenu {
             size_m,
             size_l,
             size_xl,
+            size_scroll_hint,
             reset,
             quit,
             update_primary,
@@ -1563,6 +1578,7 @@ impl NativeContextMenu {
             .set_text(format!("L ({}px)", size_presets[2].round() as i32));
         self.size_xl
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
+        self.size_scroll_hint.set_enabled(false);
         self.reset.set_enabled(true);
         self.quit.set_enabled(true);
         self.update_primary.set_text(update_label);
