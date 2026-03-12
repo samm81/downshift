@@ -128,7 +128,7 @@ jobs:
               -f tag_name="$RELEASE_TAG" \
               -f name="$RELEASE_TAG" \
               -F draft=true \
-              -F generate_release_notes=false >/dev/null
+              -F generate_release_notes=true >/dev/null
           fi
 
           gh release upload "$RELEASE_TAG" \

@@ -187,3 +187,5 @@ git tag -a v0.1.0 -m "release v0.1.0"
 git push origin <branch>
 git push origin v0.1.0
 ```
+
+when the tag-triggered github actions release workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published after notarization finalize succeeds.
