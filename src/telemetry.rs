@@ -407,11 +407,6 @@ impl RuntimeTelemetryClient {
 
         Self { sender, shared }
     }
-
-    pub fn telemetry_state() -> TelemetryState {
-        telemetry_state()
-    }
-
     fn build_envelope(&self, event_name: EventName, properties: serde_json::Value) -> Envelope {
         let utc_now = chrono::Utc::now();
         let local_now = chrono::Local::now();

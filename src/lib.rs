@@ -156,9 +156,9 @@ pub struct Settings {
     pub paused: bool,
     #[serde(default)]
     pub launch_at_login: bool,
-    #[serde(default = "default_usage_data_sharing")]
+    #[serde(default = "default_true")]
     pub usage_data_sharing: bool,
-    #[serde(default = "default_crash_reports_sharing")]
+    #[serde(default = "default_true")]
     pub crash_reports_sharing: bool,
     #[serde(default)]
     pub dismissed_update_version: Option<String>,
@@ -197,11 +197,7 @@ impl Default for Settings {
     }
 }
 
-fn default_usage_data_sharing() -> bool {
-    true
-}
-
-fn default_crash_reports_sharing() -> bool {
+fn default_true() -> bool {
     true
 }
 

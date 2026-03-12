@@ -1,5 +1,5 @@
 use downshift::telemetry::{
-    menu_action_size_target, ActivityState, ActivityTrigger, EventName, MenuAction,
+    menu_action_size_target, telemetry_state, ActivityState, ActivityTrigger, EventName, MenuAction,
     RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,
 };
 use downshift::{
@@ -2350,7 +2350,7 @@ struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let telemetry_state = RuntimeTelemetryClient::telemetry_state();
+        let telemetry_state = telemetry_state();
         let telemetry_install_first_run = telemetry_state.install_first_run;
         let telemetry = RuntimeTelemetryClient::from_state(telemetry_state);
         Self {
