@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #f7f9fc;
+        color: #18202a;
+        font:
+          13px/1.45 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      body {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        box-sizing: border-box;
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      input {
+        border: 1px solid #c8d3ea;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #fff;
+        color: inherit;
+        font: inherit;
+      }
+      .hint {
+        color: #58657d;
+        font-size: 12px;
+      }
+      .save-row,
+      .actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .save-row input {
+        flex: 1;
+      }
+      .actions {
+        justify-content: flex-end;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 14px;
+        font: inherit;
+        cursor: default;
+      }
+      button.secondary {
+        background: #dce5f7;
+        color: #24324d;
+      }
+      button.primary {
+        background: #2f6bdb;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid">
+      <label class="field">
+        <span>breath in</span>
+        <input id="expand" type="number" min="0.5" step="0.5" />
+      </label>
+      <label class="field">
+        <span>hold at top</span>
+        <input id="expand-hold" type="number" min="0" step="0.5" />
+      </label>
+      <label class="field">
+        <span>breath out</span>
+        <input id="compress" type="number" min="0.5" step="0.5" />
+      </label>
+      <label class="field">
+        <span>hold at bottom</span>
+        <input id="compress-hold" type="number" min="0" step="0.5" />
+      </label>
+    </div>
+    <div class="hint" id="summary"></div>
+    <div class="save-row">
+      <input
+        id="preset-name"
+        type="text"
+        maxlength="40"
+        placeholder="name required"
+      />
+    </div>
+    <div class="actions">
+      <button class="secondary" id="cancel">close</button>
+      <button class="primary" id="apply">add new</button>
+    </div>
+    <script>
+      (() => {
+        const expandInput = document.getElementById("expand");
+        const expandHoldInput = document.getElementById("expand-hold");
+        const compressInput = document.getElementById("compress");
+        const compressHoldInput = document.getElementById("compress-hold");
+        const summary = document.getElementById("summary");
+        const presetNameInput = document.getElementById("preset-name");
+        const cancelButton = document.getElementById("cancel");
+        const applyButton = document.getElementById("apply");
+        const state = {
+          pattern: {
+            expanding_seconds: 5.5,
+            expanded_hold_seconds: 0,
+            compressing_seconds: 5.5,
+            compressed_hold_seconds: 0,
+          },
+        };
+
+        function post(payload) {
+          if (window.ipc && typeof window.ipc.postMessage === "function") {
+            window.ipc.postMessage(JSON.stringify(payload));
+          }
+        }
+
+        function normalizePattern(pattern) {
+          const next = {
+            expanding_seconds: Number(pattern && pattern.expanding_seconds),
+            expanded_hold_seconds: Number(
+              pattern && pattern.expanded_hold_seconds,
+            ),
+            compressing_seconds: Number(pattern && pattern.compressing_seconds),
+            compressed_hold_seconds: Number(
+              pattern && pattern.compressed_hold_seconds,
+            ),
+          };
+          if (
+            !Number.isFinite(next.expanding_seconds) ||
+            next.expanding_seconds <= 0
+          ) {
+            next.expanding_seconds = 5.5;
+          }
+          if (
+            !Number.isFinite(next.expanded_hold_seconds) ||
+            next.expanded_hold_seconds < 0
+          ) {
+            next.expanded_hold_seconds = 0;
+          }
+          if (
+            !Number.isFinite(next.compressing_seconds) ||
+            next.compressing_seconds <= 0
+          ) {
+            next.compressing_seconds = 5.5;
+          }
+          if (
+            !Number.isFinite(next.compressed_hold_seconds) ||
+            next.compressed_hold_seconds < 0
+          ) {
+            next.compressed_hold_seconds = 0;
+          }
+          return next;
+        }
+
+        function readInputs() {
+          return normalizePattern({
+            expanding_seconds: expandInput.value,
+            expanded_hold_seconds: expandHoldInput.value,
+            compressing_seconds: compressInput.value,
+            compressed_hold_seconds: compressHoldInput.value,
+          });
+        }
+
+        function writeInputs(pattern) {
+          expandInput.value = String(pattern.expanding_seconds);
+          expandHoldInput.value = String(pattern.expanded_hold_seconds);
+          compressInput.value = String(pattern.compressing_seconds);
+          compressHoldInput.value = String(pattern.compressed_hold_seconds);
+        }
+
+        function updateSummary(pattern) {
+          const total =
+            pattern.expanding_seconds +
+            pattern.expanded_hold_seconds +
+            pattern.compressing_seconds +
+            pattern.compressed_hold_seconds;
+          summary.textContent = `cycle: ${pattern.expanding_seconds} / ${pattern.expanded_hold_seconds} / ${pattern.compressing_seconds} / ${pattern.compressed_hold_seconds} (${total}s total)`;
+        }
+
+        window.breathingPatternApplyState = function (next) {
+          const payload = next || {};
+          state.pattern = normalizePattern(payload.pattern || state.pattern);
+          writeInputs(state.pattern);
+          updateSummary(state.pattern);
+        };
+
+        [
+          expandInput,
+          expandHoldInput,
+          compressInput,
+          compressHoldInput,
+        ].forEach((input) => {
+          input.addEventListener("input", () => {
+            const pattern = readInputs();
+            state.pattern = pattern;
+            updateSummary(pattern);
+          });
+        });
+
+        applyButton.addEventListener("click", () => {
+          const pattern = readInputs();
+          state.pattern = pattern;
+          const name = String(presetNameInput.value || "").trim();
+          if (!name) {
+            presetNameInput.focus();
+            return;
+          }
+          post({ cmd: "save_breathing_preset", name, pattern });
+          presetNameInput.value = "";
+        });
+
+        cancelButton.addEventListener("click", () => {
+          post({ cmd: "close_breathing_pattern" });
+        });
+        presetNameInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            applyButton.click();
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

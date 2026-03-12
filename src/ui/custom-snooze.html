@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #f7f9fc;
+        color: #18202a;
+        font:
+          13px/1.45 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      body {
+        display: grid;
+        align-content: center;
+        gap: 14px;
+        padding: 18px;
+        box-sizing: border-box;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+      }
+      input {
+        border: 1px solid #c8d3ea;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 14px;
+        font: inherit;
+        cursor: default;
+      }
+      button.secondary {
+        background: #dce5f7;
+        color: #24324d;
+      }
+      button.primary {
+        background: #2f6bdb;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <label>
+      <span>snooze for how many minutes?</span>
+      <input id="minutes" type="number" min="1" step="1" value="20" autofocus />
+    </label>
+    <div class="actions">
+      <button class="secondary" id="cancel">cancel</button>
+      <button class="primary" id="confirm">snooze</button>
+    </div>
+    <script>
+      (() => {
+        const input = document.getElementById("minutes");
+        const cancelButton = document.getElementById("cancel");
+        const confirmButton = document.getElementById("confirm");
+
+        function post(payload) {
+          if (window.ipc && typeof window.ipc.postMessage === "function") {
+            window.ipc.postMessage(JSON.stringify(payload));
+          }
+        }
+
+        function submit() {
+          const minutes = Number(input.value);
+          if (!Number.isFinite(minutes) || minutes < 1) {
+            input.focus();
+            input.select();
+            return;
+          }
+          post({ cmd: "set_snooze", minutes: Math.round(minutes) });
+        }
+
+        cancelButton.addEventListener("click", () => {
+          post({ cmd: "close_custom_snooze" });
+        });
+        confirmButton.addEventListener("click", submit);
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            submit();
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
