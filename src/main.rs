@@ -2808,16 +2808,11 @@ impl App {
     }
 
     fn sync_update_state_to_webview(&self) {
-        let Some(webview) = self.webview.as_ref() else {
-            return;
-        };
-        let js = format!(
-            "window.breathBallApplyState({{ update_menu_label: {}, update_has_new_version: {}, update_show_badge: {} }});",
-            serde_json::json!(self.updates.menu_label()),
-            self.updates.has_update_available(),
-            self.updates.should_show_badge()
-        );
-        let _ = webview.evaluate_script(&js);
+        self.apply_main_webview_state(serde_json::json!({
+            "update_menu_label": self.updates.menu_label(),
+            "update_has_new_version": self.updates.has_update_available(),
+            "update_show_badge": self.updates.should_show_badge(),
+        }));
     }
 
     fn sync_update_surfaces(&self) {
@@ -3193,13 +3188,10 @@ impl App {
     }
 
     fn sync_privacy_state_to_webview(&self) {
-        if let Some(webview) = self.webview.as_ref() {
-            let js = format!(
-                "window.breathBallApplyState({{ usage_data_sharing: {}, crash_reports_sharing: {} }});",
-                self.settings.usage_data_sharing, self.settings.crash_reports_sharing
-            );
-            let _ = webview.evaluate_script(&js);
-        }
+        self.apply_main_webview_state(serde_json::json!({
+            "usage_data_sharing": self.settings.usage_data_sharing,
+            "crash_reports_sharing": self.settings.crash_reports_sharing,
+        }));
     }
 
     fn choose_initial_position(
@@ -3287,15 +3279,11 @@ impl App {
     }
 
     fn sync_breathing_pattern_to_webview(&self) {
-        if let Some(webview) = self.webview.as_ref() {
-            let js = format!(
-                "window.breathBallApplyState({{ breathing_pattern: {}, active_breathing_preset_id: {}, breathing_presets: {} }});",
-                serde_json::json!(self.settings.breathing_pattern),
-                serde_json::json!(self.settings.active_breathing_preset_id),
-                self.breathing_pattern_menu_presets_payload()
-            );
-            let _ = webview.evaluate_script(&js);
-        }
+        self.apply_main_webview_state(serde_json::json!({
+            "breathing_pattern": self.settings.breathing_pattern,
+            "active_breathing_preset_id": self.settings.active_breathing_preset_id,
+            "breathing_presets": self.breathing_pattern_menu_presets_payload(),
+        }));
     }
 
     fn sync_breathing_pattern_surfaces(&self) {
@@ -3447,10 +3435,9 @@ impl App {
     }
 
     fn sync_main_webview_paused_state(&self, paused: bool) {
-        if let Some(webview) = self.webview.as_ref() {
-            let js = format!("window.breathBallApplyState({{ paused: {} }});", paused);
-            let _ = webview.evaluate_script(&js);
-        }
+        self.apply_main_webview_state(serde_json::json!({
+            "paused": paused,
+        }));
     }
 
     fn apply_paused(&mut self, paused: bool) {
@@ -3728,19 +3715,7 @@ impl App {
                 self.save_settings();
             }
             IpcCommand::SetSize { size } => {
-                let size_target = self
-                    .window
-                    .as_ref()
-                    .and_then(|window| window.current_monitor())
-                    .map(|monitor| size_presets_for_monitor(&monitor))
-                    .and_then(|presets| {
-                        presets
-                            .iter()
-                            .enumerate()
-                            .find(|(_, preset)| (**preset - size).abs() <= 0.5)
-                            .map(|(index, _)| index)
-                    })
-                    .and_then(size_target_label);
+                let size_target = self.size_target_for_value(size);
                 self.telemetry_menu_action(MenuAction::SizeChange, size_target);
                 self.apply_size(size);
                 self.save_settings();
@@ -3759,15 +3734,33 @@ impl App {
     }
 
     fn apply_size_presets_for_monitor(&self, monitor: &MonitorHandle) {
+        let presets = size_presets_for_monitor(monitor);
+        self.apply_main_webview_state(serde_json::json!({
+            "size_presets": presets,
+        }));
+    }
+
+    fn apply_main_webview_state(&self, state: serde_json::Value) {
         let Some(webview) = self.webview.as_ref() else {
             return;
         };
-        let presets = size_presets_for_monitor(monitor);
-        let js = format!(
-            "window.breathBallApplyState({{ size_presets: {} }});",
-            serde_json::json!(presets)
-        );
+        let js = format!("window.breathBallApplyState({state});");
         let _ = webview.evaluate_script(&js);
+    }
+
+    fn size_target_for_value(&self, size: f64) -> Option<&'static str> {
+        self.window
+            .as_ref()
+            .and_then(|window| window.current_monitor())
+            .map(|monitor| size_presets_for_monitor(&monitor))
+            .and_then(|presets| {
+                presets
+                    .iter()
+                    .enumerate()
+                    .find(|(_, preset)| (**preset - size).abs() <= 0.5)
+                    .map(|(index, _)| index)
+            })
+            .and_then(size_target_label)
     }
 
     #[cfg(target_os = "macos")]
