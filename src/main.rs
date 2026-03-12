@@ -52,6 +52,15 @@ const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
 const UPDATE_TOOLTIP: &str = "new version available";
 const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
 const COMPILED_DOWNSHIFT_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
+const COMPILED_TELEMETRY_ENABLED: Option<&str> = option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
+const COMPILED_BETTERSTACK_LOGS_TOKEN: Option<&str> =
+    option_env!("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN");
+const COMPILED_BETTERSTACK_LOGS_HOST: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_HOST");
+const COMPILED_BETTERSTACK_ERRORS_DSN: Option<&str> =
+    option_env!("DOWNSHIFT_BETTERSTACK_ERRORS_DSN");
+const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
+const COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC: Option<&str> =
+    option_env!("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC");
 const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> =
     option_env!("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
 const COMPILED_GITHUB_ISSUES_URL: Option<&str> = option_env!("DOWNSHIFT_GITHUB_ISSUES_URL");
@@ -1535,20 +1544,25 @@ fn downshift_env() -> String {
         .unwrap_or_else(|| "unset".to_string())
 }
 
-fn resolve_build_metadata_value(
+fn resolve_compiled_setting(
     env_name: &str,
     compiled: Option<&str>,
     fallback: &str,
 ) -> Result<String, String> {
-    if let Some(value) = compiled
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-    {
-        return Ok(value);
+    resolve_compiled_setting_for_env(env_name, compiled, fallback, is_prod_env())
+}
+
+fn resolve_compiled_setting_for_env(
+    env_name: &str,
+    compiled: Option<&str>,
+    fallback: &str,
+    prod: bool,
+) -> Result<String, String> {
+    if let Some(value) = compiled.map(str::trim).filter(|value| !value.is_empty()) {
+        return Ok(value.to_string());
     }
 
-    if is_prod_env() {
+    if prod {
         return Err(format!("{env_name} is required when DOWNSHIFT_ENV=prod"));
     }
 
@@ -1556,7 +1570,7 @@ fn resolve_build_metadata_value(
 }
 
 fn download_release_url() -> Result<String, String> {
-    resolve_build_metadata_value(
+    resolve_compiled_setting(
         "DOWNSHIFT_DOWNLOAD_RELEASE_URL",
         COMPILED_DOWNLOAD_RELEASE_URL,
         UPDATE_DOWNLOAD_FALLBACK_URL,
@@ -1585,9 +1599,66 @@ fn resolve_external_contact_value(
 
 fn validate_build_metadata_config() -> Result<(), String> {
     download_release_url()?;
+    build_channel()?;
     github_issues_url()?;
     support_email_address()?;
+    if telemetry_enabled()? {
+        betterstack_logs_token()?;
+        betterstack_logs_host()?;
+        betterstack_errors_dsn()?;
+        telemetry_heartbeat_interval_seconds()?;
+    }
     Ok(())
+}
+
+fn build_channel() -> Result<String, String> {
+    resolve_compiled_setting("DOWNSHIFT_BUILD_CHANNEL", COMPILED_BUILD_CHANNEL, "dev")
+}
+
+fn telemetry_enabled() -> Result<bool, String> {
+    telemetry_enabled_for_env(COMPILED_TELEMETRY_ENABLED, is_prod_env())
+}
+
+fn telemetry_enabled_for_env(compiled: Option<&str>, prod: bool) -> Result<bool, String> {
+    Ok(!matches!(
+        resolve_compiled_setting_for_env("DOWNSHIFT_TELEMETRY_ENABLED", compiled, "true", prod)?
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "off"
+    ))
+}
+
+fn betterstack_logs_token() -> Result<String, String> {
+    resolve_compiled_setting(
+        "DOWNSHIFT_BETTERSTACK_LOGS_TOKEN",
+        COMPILED_BETTERSTACK_LOGS_TOKEN,
+        "",
+    )
+}
+
+fn betterstack_logs_host() -> Result<String, String> {
+    resolve_compiled_setting(
+        "DOWNSHIFT_BETTERSTACK_LOGS_HOST",
+        COMPILED_BETTERSTACK_LOGS_HOST,
+        "",
+    )
+}
+
+fn betterstack_errors_dsn() -> Result<String, String> {
+    resolve_compiled_setting(
+        "DOWNSHIFT_BETTERSTACK_ERRORS_DSN",
+        COMPILED_BETTERSTACK_ERRORS_DSN,
+        "",
+    )
+}
+
+fn telemetry_heartbeat_interval_seconds() -> Result<u64, String> {
+    let raw = resolve_compiled_setting(
+        "DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC",
+        COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC,
+        "60",
+    )?;
+    Ok(parse_heartbeat_interval_seconds(&raw))
 }
 
 fn github_issues_url() -> Result<String, String> {
@@ -4274,12 +4345,16 @@ fn default_size_for_monitor(monitor: &MonitorHandle) -> f64 {
 }
 
 fn heartbeat_interval() -> Duration {
-    let value = std::env::var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .map(|seconds| seconds.clamp(MIN_HEARTBEAT_INTERVAL_SEC, MAX_HEARTBEAT_INTERVAL_SEC))
-        .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SEC);
+    let value = telemetry_heartbeat_interval_seconds().unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SEC);
     Duration::from_secs(value)
+}
+
+fn parse_heartbeat_interval_seconds(raw: &str) -> u64 {
+    raw.trim()
+        .parse::<u64>()
+        .ok()
+        .map(|seconds| seconds.clamp(MIN_HEARTBEAT_INTERVAL_SEC, MAX_HEARTBEAT_INTERVAL_SEC))
+        .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SEC)
 }
 
 fn size_presets_for_monitor(monitor: &MonitorHandle) -> [f64; 4] {
@@ -4503,31 +4578,24 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn heartbeat_interval_defaults_to_sixty_seconds() {
-        std::env::remove_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC");
-        assert_eq!(heartbeat_interval(), Duration::from_secs(60));
+        assert_eq!(parse_heartbeat_interval_seconds(""), 60);
+        assert_eq!(parse_heartbeat_interval_seconds("abc"), 60);
     }
 
     #[test]
-    #[serial]
     fn heartbeat_interval_uses_env_var_within_bounds() {
-        std::env::set_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC", "75");
-        assert_eq!(heartbeat_interval(), Duration::from_secs(75));
+        assert_eq!(parse_heartbeat_interval_seconds("75"), 75);
     }
 
     #[test]
-    #[serial]
     fn heartbeat_interval_clamps_to_min_and_max() {
-        std::env::set_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC", "1");
         assert_eq!(
-            heartbeat_interval(),
+            Duration::from_secs(parse_heartbeat_interval_seconds("1")),
             Duration::from_secs(MIN_HEARTBEAT_INTERVAL_SEC)
         );
-
-        std::env::set_var("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC", "7200");
         assert_eq!(
-            heartbeat_interval(),
+            Duration::from_secs(parse_heartbeat_interval_seconds("7200")),
             Duration::from_secs(MAX_HEARTBEAT_INTERVAL_SEC)
         );
     }
@@ -4559,12 +4627,19 @@ mod tests {
 
         let download_error =
             download_release_url().expect_err("download release url should fail");
+        let build_channel_error = build_channel().expect_err("build channel should fail");
         let github_error = github_issues_url().expect_err("github issues url should fail");
         let email_error = support_email_address().expect_err("support email should fail");
+        let telemetry_enabled_error =
+            telemetry_enabled().expect_err("telemetry enabled should fail when prod");
 
         assert_eq!(
             download_error,
             "DOWNSHIFT_DOWNLOAD_RELEASE_URL is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            build_channel_error,
+            "DOWNSHIFT_BUILD_CHANNEL is required when DOWNSHIFT_ENV=prod"
         );
         assert_eq!(
             github_error,
@@ -4573,6 +4648,10 @@ mod tests {
         assert_eq!(
             email_error,
             "DOWNSHIFT_SUPPORT_EMAIL is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            telemetry_enabled_error,
+            "DOWNSHIFT_TELEMETRY_ENABLED is required when DOWNSHIFT_ENV=prod"
         );
     }
 
@@ -4586,9 +4665,20 @@ mod tests {
 
         let download_error =
             download_release_url().expect_err("download release url should stay compile-time only");
+        let build_channel_error = build_channel().expect_err("build channel should stay compile-time only");
+        let telemetry_enabled_error =
+            telemetry_enabled().expect_err("telemetry enabled should stay compile-time only");
         assert_eq!(
             download_error,
             "DOWNSHIFT_DOWNLOAD_RELEASE_URL is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            build_channel_error,
+            "DOWNSHIFT_BUILD_CHANNEL is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            telemetry_enabled_error,
+            "DOWNSHIFT_TELEMETRY_ENABLED is required when DOWNSHIFT_ENV=prod"
         );
         assert_eq!(
             github_issues_url().expect("github issues url"),
@@ -4597,6 +4687,63 @@ mod tests {
         assert_eq!(
             support_email_address().expect("support email"),
             "support@example.com"
+        );
+    }
+
+    #[test]
+    fn telemetry_enabled_parses_false_variants() {
+        assert!(!telemetry_enabled_for_env(Some("false"), false).expect("false"));
+        assert!(!telemetry_enabled_for_env(Some("0"), false).expect("zero"));
+        assert!(!telemetry_enabled_for_env(Some("off"), false).expect("off"));
+        assert!(telemetry_enabled_for_env(Some("true"), false).expect("true"));
+    }
+
+    #[test]
+    fn telemetry_dependencies_are_required_in_prod_when_enabled() {
+        let token_error = resolve_compiled_setting_for_env(
+            "DOWNSHIFT_BETTERSTACK_LOGS_TOKEN",
+            None,
+            "",
+            true,
+        )
+        .expect_err("logs token should fail");
+        let host_error = resolve_compiled_setting_for_env(
+            "DOWNSHIFT_BETTERSTACK_LOGS_HOST",
+            None,
+            "",
+            true,
+        )
+        .expect_err("logs host should fail");
+        let dsn_error = resolve_compiled_setting_for_env(
+            "DOWNSHIFT_BETTERSTACK_ERRORS_DSN",
+            None,
+            "",
+            true,
+        )
+        .expect_err("errors dsn should fail");
+        let heartbeat_error = resolve_compiled_setting_for_env(
+            "DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC",
+            None,
+            "60",
+            true,
+        )
+        .expect_err("heartbeat interval should fail");
+
+        assert_eq!(
+            token_error,
+            "DOWNSHIFT_BETTERSTACK_LOGS_TOKEN is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            host_error,
+            "DOWNSHIFT_BETTERSTACK_LOGS_HOST is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            dsn_error,
+            "DOWNSHIFT_BETTERSTACK_ERRORS_DSN is required when DOWNSHIFT_ENV=prod"
+        );
+        assert_eq!(
+            heartbeat_error,
+            "DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC is required when DOWNSHIFT_ENV=prod"
         );
     }
 

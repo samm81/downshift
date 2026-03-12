@@ -55,10 +55,12 @@ reset saved position/settings before launching:
 make run RESET=1
 ```
 
-telemetry env vars (alpha analytics):
+telemetry build vars (alpha analytics):
 
 ```bash
+export DOWNSHIFT_ENV='dev'
 export DOWNSHIFT_TELEMETRY_ENABLED=true
+export DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC='60'
 export DOWNSHIFT_BETTERSTACK_LOGS_TOKEN='...'
 export DOWNSHIFT_BETTERSTACK_LOGS_HOST='in.logs.betterstack.com'
 export DOWNSHIFT_BETTERSTACK_ERRORS_DSN='https://<token>@<host>/1'
@@ -74,7 +76,20 @@ export DOWNSHIFT_DOWNLOAD_RELEASE_URL='https://github.com/samm81/downshift/relea
 ```
 
 these values are compiled into the app binary via `option_env!`. changing them after the binary is built has no effect; rebuild the app to pick up new values.
-when `DOWNSHIFT_ENV=prod`, all three build-time app metadata variables are required.
+when `DOWNSHIFT_ENV=prod`, these build-time values are required:
+
+- `DOWNSHIFT_BUILD_CHANNEL`
+- `DOWNSHIFT_GITHUB_ISSUES_URL`
+- `DOWNSHIFT_SUPPORT_EMAIL`
+- `DOWNSHIFT_DOWNLOAD_RELEASE_URL`
+- `DOWNSHIFT_TELEMETRY_ENABLED`
+
+when telemetry is enabled for a prod build, these are also required:
+
+- `DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC`
+- `DOWNSHIFT_BETTERSTACK_LOGS_TOKEN`
+- `DOWNSHIFT_BETTERSTACK_LOGS_HOST`
+- `DOWNSHIFT_BETTERSTACK_ERRORS_DSN`
 
 breathing animation sync note:
 
