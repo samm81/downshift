@@ -52,6 +52,8 @@ const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
 const UPDATE_TOOLTIP: &str = "new version available";
 const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
 const COMPILED_DOWNSHIFT_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
+const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> =
+    option_env!("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
 const COMPILED_GITHUB_ISSUES_URL: Option<&str> = option_env!("DOWNSHIFT_GITHUB_ISSUES_URL");
 const COMPILED_SUPPORT_EMAIL: Option<&str> = option_env!("DOWNSHIFT_SUPPORT_EMAIL");
 #[cfg(target_os = "macos")]
@@ -1443,7 +1445,7 @@ impl Default for UpdateUiState {
     fn default() -> Self {
         Self {
             latest_version: None,
-            download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
+            download_url: download_release_url(),
             checking: false,
             checked_once: false,
             dismissed_badge_version: None,
@@ -1530,6 +1532,14 @@ fn optional_env_value(name: &str, compiled: Option<&str>) -> Option<String> {
 fn downshift_env() -> String {
     optional_env_value("DOWNSHIFT_ENV", COMPILED_DOWNSHIFT_ENV)
         .unwrap_or_else(|| "unset".to_string())
+}
+
+fn download_release_url() -> String {
+    optional_env_value(
+        "DOWNSHIFT_DOWNLOAD_RELEASE_URL",
+        COMPILED_DOWNLOAD_RELEASE_URL,
+    )
+    .unwrap_or_else(|| UPDATE_DOWNLOAD_FALLBACK_URL.to_string())
 }
 
 fn is_prod_env() -> bool {
@@ -1640,7 +1650,7 @@ fn check_latest_release() -> UpdateCheckResult {
     let Ok(response) = response else {
         return UpdateCheckResult {
             latest_version: None,
-            download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
+            download_url: download_release_url(),
         };
     };
     let body = response.into_string().unwrap_or_default();
@@ -1654,7 +1664,7 @@ fn check_latest_release() -> UpdateCheckResult {
         .get("html_url")
         .and_then(|value| value.as_str())
         .map(str::to_string)
-        .unwrap_or_else(|| UPDATE_DOWNLOAD_FALLBACK_URL.to_string());
+        .unwrap_or_else(download_release_url);
     UpdateCheckResult {
         latest_version,
         download_url,
@@ -2733,7 +2743,7 @@ impl App {
         let url = if self.updates.has_update_available() {
             self.updates.download_url.as_str()
         } else {
-            UPDATE_DOWNLOAD_FALLBACK_URL
+            &self.updates.download_url
         };
         open_external_url(url);
     }
@@ -4463,6 +4473,7 @@ mod tests {
 
     fn clear_external_contact_env() {
         std::env::remove_var("DOWNSHIFT_ENV");
+        std::env::remove_var("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
         std::env::remove_var("DOWNSHIFT_GITHUB_ISSUES_URL");
         std::env::remove_var("DOWNSHIFT_SUPPORT_EMAIL");
     }
@@ -4502,6 +4513,7 @@ mod tests {
     fn external_contact_values_use_dummy_defaults_outside_prod() {
         clear_external_contact_env();
 
+        assert_eq!(download_release_url(), UPDATE_DOWNLOAD_FALLBACK_URL);
         assert_eq!(
             github_issues_url().expect("github issues url"),
             DEFAULT_GITHUB_ISSUES_URL
@@ -4536,9 +4548,17 @@ mod tests {
     fn external_contact_values_use_runtime_env_when_set() {
         clear_external_contact_env();
         std::env::set_var("DOWNSHIFT_ENV", "prod");
+        std::env::set_var(
+            "DOWNSHIFT_DOWNLOAD_RELEASE_URL",
+            "https://example.com/releases/latest",
+        );
         std::env::set_var("DOWNSHIFT_GITHUB_ISSUES_URL", "https://example.com/issues");
         std::env::set_var("DOWNSHIFT_SUPPORT_EMAIL", "support@example.com");
 
+        assert_eq!(
+            download_release_url(),
+            "https://example.com/releases/latest"
+        );
         assert_eq!(
             github_issues_url().expect("github issues url"),
             "https://example.com/issues"
