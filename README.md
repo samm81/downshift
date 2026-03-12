@@ -65,6 +65,16 @@ export DOWNSHIFT_BETTERSTACK_ERRORS_DSN='https://<token>@<host>/1'
 export DOWNSHIFT_BUILD_CHANNEL='alpha'
 ```
 
+build-time app metadata:
+
+```bash
+export DOWNSHIFT_GITHUB_ISSUES_URL='https://github.com/samm81/downshift/issues'
+export DOWNSHIFT_SUPPORT_EMAIL='support@example.com'
+export DOWNSHIFT_DOWNLOAD_RELEASE_URL='https://github.com/samm81/downshift/releases/latest'
+```
+
+these values are compiled into the app binary via `option_env!`. changing them after the binary is built has no effect; rebuild the app to pick up new values.
+
 breathing animation sync note:
 
 - the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
