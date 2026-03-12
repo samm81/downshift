@@ -23,7 +23,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 #[cfg(target_os = "macos")]
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
@@ -2232,7 +2232,7 @@ struct App {
     drag_anchor_window_pos: Option<LogicalPosition<f64>>,
     drag_anchor_pointer_pos: Option<LogicalPosition<f64>>,
     activity_mode: ActivityMode,
-    snooze_deadline: Option<Instant>,
+    snooze_deadline: Option<SystemTime>,
     snooze_generation: u64,
     telemetry: RuntimeTelemetryClient,
     telemetry_install_first_run: bool,
@@ -2287,8 +2287,9 @@ impl App {
         self.telemetry.note_suspend();
     }
 
-    fn handle_app_resume(&self) {
+    fn handle_app_resume(&mut self) {
         self.telemetry.note_resume();
+        self.reconcile_snooze_after_resume();
     }
 
     fn current_activity_state(&self) -> ActivityState {
@@ -3372,6 +3373,22 @@ impl App {
         self.snooze_deadline = None;
     }
 
+    fn reconcile_snooze_after_resume(&mut self) {
+        let Some(deadline) = self.snooze_deadline else {
+            return;
+        };
+        if self.activity_mode != ActivityMode::Snoozed {
+            return;
+        }
+        if SystemTime::now() < deadline {
+            return;
+        }
+        if self.resume_from_snooze() {
+            self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::SnoozeExpired, None);
+            self.save_settings();
+        }
+    }
+
     fn apply_paused(&mut self, paused: bool) {
         self.cancel_snooze();
         self.settings.paused = paused;
@@ -3403,7 +3420,7 @@ impl App {
         self.close_custom_snooze_window();
         self.settings.paused = false;
         self.activity_mode = ActivityMode::Snoozed;
-        self.snooze_deadline = Some(Instant::now() + duration);
+        self.snooze_deadline = Some(SystemTime::now() + duration);
         self.snooze_generation = self.snooze_generation.wrapping_add(1);
         let generation = self.snooze_generation;
         self.sync_window_visibility();
@@ -4647,7 +4664,7 @@ mod tests {
         let mut app = App::default();
         app.activity_mode = ActivityMode::Snoozed;
         app.settings.paused = true;
-        app.snooze_deadline = Some(Instant::now() + Duration::from_secs(60));
+        app.snooze_deadline = Some(SystemTime::now() + Duration::from_secs(60));
 
         assert!(app.resume_from_snooze());
         assert_eq!(app.activity_mode, ActivityMode::Active);
@@ -4664,6 +4681,30 @@ mod tests {
         assert!(!app.resume_from_snooze());
         assert_eq!(app.activity_mode, ActivityMode::Paused);
         assert!(app.settings.paused);
+    }
+
+    #[test]
+    fn reconcile_snooze_after_resume_expires_elapsed_snooze() {
+        let mut app = App::default();
+        app.activity_mode = ActivityMode::Snoozed;
+        app.snooze_deadline = Some(SystemTime::now() - Duration::from_secs(1));
+
+        app.reconcile_snooze_after_resume();
+
+        assert_eq!(app.activity_mode, ActivityMode::Active);
+        assert!(app.snooze_deadline.is_none());
+    }
+
+    #[test]
+    fn reconcile_snooze_after_resume_keeps_pending_snooze() {
+        let mut app = App::default();
+        app.activity_mode = ActivityMode::Snoozed;
+        app.snooze_deadline = Some(SystemTime::now() + Duration::from_secs(60));
+
+        app.reconcile_snooze_after_resume();
+
+        assert_eq!(app.activity_mode, ActivityMode::Snoozed);
+        assert!(app.snooze_deadline.is_some());
     }
 
     #[test]
