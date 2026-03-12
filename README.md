@@ -74,6 +74,7 @@ export DOWNSHIFT_DOWNLOAD_RELEASE_URL='https://github.com/samm81/downshift/relea
 ```
 
 these values are compiled into the app binary via `option_env!`. changing them after the binary is built has no effect; rebuild the app to pick up new values.
+when `DOWNSHIFT_ENV=prod`, all three build-time app metadata variables are required.
 
 breathing animation sync note:
 

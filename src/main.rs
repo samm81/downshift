@@ -1445,7 +1445,8 @@ impl Default for UpdateUiState {
     fn default() -> Self {
         Self {
             latest_version: None,
-            download_url: download_release_url(),
+            download_url: download_release_url()
+                .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
             checking: false,
             checked_once: false,
             dismissed_badge_version: None,
@@ -1534,12 +1535,32 @@ fn downshift_env() -> String {
         .unwrap_or_else(|| "unset".to_string())
 }
 
-fn download_release_url() -> String {
-    COMPILED_DOWNLOAD_RELEASE_URL
+fn resolve_build_metadata_value(
+    env_name: &str,
+    compiled: Option<&str>,
+    fallback: &str,
+) -> Result<String, String> {
+    if let Some(value) = compiled
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| UPDATE_DOWNLOAD_FALLBACK_URL.to_string())
+    {
+        return Ok(value);
+    }
+
+    if is_prod_env() {
+        return Err(format!("{env_name} is required when DOWNSHIFT_ENV=prod"));
+    }
+
+    Ok(fallback.to_string())
+}
+
+fn download_release_url() -> Result<String, String> {
+    resolve_build_metadata_value(
+        "DOWNSHIFT_DOWNLOAD_RELEASE_URL",
+        COMPILED_DOWNLOAD_RELEASE_URL,
+        UPDATE_DOWNLOAD_FALLBACK_URL,
+    )
 }
 
 fn is_prod_env() -> bool {
@@ -1562,7 +1583,8 @@ fn resolve_external_contact_value(
     Ok(fallback.to_string())
 }
 
-fn validate_external_contact_config() -> Result<(), String> {
+fn validate_build_metadata_config() -> Result<(), String> {
+    download_release_url()?;
     github_issues_url()?;
     support_email_address()?;
     Ok(())
@@ -1650,7 +1672,8 @@ fn check_latest_release() -> UpdateCheckResult {
     let Ok(response) = response else {
         return UpdateCheckResult {
             latest_version: None,
-            download_url: download_release_url(),
+            download_url: download_release_url()
+                .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
         };
     };
     let body = response.into_string().unwrap_or_default();
@@ -1664,7 +1687,9 @@ fn check_latest_release() -> UpdateCheckResult {
         .get("html_url")
         .and_then(|value| value.as_str())
         .map(str::to_string)
-        .unwrap_or_else(download_release_url);
+        .unwrap_or_else(|| {
+            download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string())
+        });
     UpdateCheckResult {
         latest_version,
         download_url,
@@ -4336,7 +4361,7 @@ fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
 }
 
 fn main() -> std::process::ExitCode {
-    if let Err(error) = validate_external_contact_config() {
+    if let Err(error) = validate_build_metadata_config() {
         log_stderr!("error: {error}");
         return std::process::ExitCode::from(1);
     }
@@ -4512,7 +4537,10 @@ mod tests {
     fn external_contact_values_use_dummy_defaults_outside_prod() {
         clear_external_contact_env();
 
-        assert_eq!(download_release_url(), UPDATE_DOWNLOAD_FALLBACK_URL);
+        assert_eq!(
+            download_release_url().expect("download release url"),
+            UPDATE_DOWNLOAD_FALLBACK_URL
+        );
         assert_eq!(
             github_issues_url().expect("github issues url"),
             DEFAULT_GITHUB_ISSUES_URL
@@ -4529,9 +4557,15 @@ mod tests {
         clear_external_contact_env();
         std::env::set_var("DOWNSHIFT_ENV", "prod");
 
+        let download_error =
+            download_release_url().expect_err("download release url should fail");
         let github_error = github_issues_url().expect_err("github issues url should fail");
         let email_error = support_email_address().expect_err("support email should fail");
 
+        assert_eq!(
+            download_error,
+            "DOWNSHIFT_DOWNLOAD_RELEASE_URL is required when DOWNSHIFT_ENV=prod"
+        );
         assert_eq!(
             github_error,
             "DOWNSHIFT_GITHUB_ISSUES_URL is required when DOWNSHIFT_ENV=prod"
@@ -4550,6 +4584,12 @@ mod tests {
         std::env::set_var("DOWNSHIFT_GITHUB_ISSUES_URL", "https://example.com/issues");
         std::env::set_var("DOWNSHIFT_SUPPORT_EMAIL", "support@example.com");
 
+        let download_error =
+            download_release_url().expect_err("download release url should stay compile-time only");
+        assert_eq!(
+            download_error,
+            "DOWNSHIFT_DOWNLOAD_RELEASE_URL is required when DOWNSHIFT_ENV=prod"
+        );
         assert_eq!(
             github_issues_url().expect("github issues url"),
             "https://example.com/issues"
