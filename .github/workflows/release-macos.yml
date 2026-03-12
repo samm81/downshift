@@ -25,7 +25,8 @@ jobs:
       submission_id: ${{ steps.submit.outputs.submission_id }}
     env:
       APP_NAME: Downshift
-      DOWNSHIFT_TELEMETRY_ENABLED: "true"
+      DOWNSHIFT_ENV: ${{ secrets.DOWNSHIFT_ENV }}
+      DOWNSHIFT_TELEMETRY_ENABLED: ${{ secrets.DOWNSHIFT_TELEMETRY_ENABLED }}
       DOWNSHIFT_BETTERSTACK_LOGS_TOKEN: ${{ secrets.DOWNSHIFT_BETTERSTACK_LOGS_TOKEN }}
       DOWNSHIFT_BETTERSTACK_LOGS_HOST: ${{ secrets.DOWNSHIFT_BETTERSTACK_LOGS_HOST }}
       DOWNSHIFT_BETTERSTACK_ERRORS_DSN: ${{ secrets.DOWNSHIFT_BETTERSTACK_ERRORS_DSN }}
@@ -62,9 +63,6 @@ jobs:
               ;;
           esac
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: default telemetry env
-        run: echo "DOWNSHIFT_ENV=${DOWNSHIFT_ENV:-prod}" >> "$GITHUB_ENV"
 
       - name: setup rust
         uses: dtolnay/rust-toolchain@stable
