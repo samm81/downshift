@@ -464,8 +464,8 @@ impl RuntimeTelemetryClient {
         let mut snoozed_duration_sec = session.snoozed_duration_sec;
         let mut suspended_duration_sec = session.suspended_duration_sec;
         if let Some(suspended_at) = session.suspended_at {
-            suspended_duration_sec = suspended_duration_sec
-                .saturating_add(now.duration_since(suspended_at).as_secs());
+            suspended_duration_sec =
+                suspended_duration_sec.saturating_add(now.duration_since(suspended_at).as_secs());
         } else {
             let trailing = now.duration_since(session.state_started_at).as_secs();
             match session.activity_state {

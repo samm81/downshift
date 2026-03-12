@@ -469,13 +469,21 @@ pub fn load_settings_result(path: Option<&Path>) -> LoadSettingsResult {
                 Ok(settings) => (settings, None),
                 Err(error) => (
                     Settings::default(),
-                    Some(format!("failed to parse settings {}: {error}", path.display())),
+                    Some(format!(
+                        "failed to parse settings {}: {error}",
+                        path.display()
+                    )),
                 ),
             },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Settings::default(), None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                (Settings::default(), None)
+            }
             Err(error) => (
                 Settings::default(),
-                Some(format!("failed to read settings {}: {error}", path.display())),
+                Some(format!(
+                    "failed to read settings {}: {error}",
+                    path.display()
+                )),
             ),
         },
         None => (Settings::default(), None),
