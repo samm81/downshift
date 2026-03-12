@@ -288,6 +288,13 @@ struct PersistedTelemetryState {
     crash_enabled: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct PartialPersistedTelemetryState {
+    anon_user_id: Option<String>,
+    usage_enabled: Option<bool>,
+    crash_enabled: Option<bool>,
+}
+
 fn bool_true() -> bool {
     true
 }
@@ -761,36 +768,44 @@ fn env_or_compiled(key: &str, compiled_value: Option<&str>) -> Option<String> {
 
 pub fn telemetry_state() -> TelemetryState {
     let path = telemetry_state_path();
-    match fs::read_to_string(&path)
-        .ok()
-        .and_then(|raw| toml::from_str::<PersistedTelemetryState>(&raw).ok())
-    {
-        Some(state) if Uuid::parse_str(&state.anon_user_id).is_ok() => TelemetryState {
-            anon_user_id: state.anon_user_id,
-            usage_enabled: state.usage_enabled,
-            crash_enabled: state.crash_enabled,
+    let raw = fs::read_to_string(&path).ok();
+    let partial = raw
+        .as_deref()
+        .and_then(|content| toml::from_str::<PartialPersistedTelemetryState>(content).ok());
+
+    if let Some(state) = partial {
+        let anon_user_id = state
+            .anon_user_id
+            .filter(|value| Uuid::parse_str(value).is_ok())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let usage_enabled = state.usage_enabled.unwrap_or(true);
+        let crash_enabled = state.crash_enabled.unwrap_or(true);
+
+        return TelemetryState {
+            anon_user_id,
+            usage_enabled,
+            crash_enabled,
             install_first_run: false,
-        },
-        _ => {
-            let anon_user_id = Uuid::new_v4().to_string();
-            let state = PersistedTelemetryState {
-                anon_user_id: anon_user_id.clone(),
-                usage_enabled: true,
-                crash_enabled: true,
-            };
-            if let Some(parent) = path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            if let Ok(content) = toml::to_string_pretty(&state) {
-                let _ = fs::write(path, content);
-            }
-            TelemetryState {
-                anon_user_id,
-                usage_enabled: true,
-                crash_enabled: true,
-                install_first_run: true,
-            }
-        }
+        };
+    }
+
+    let anon_user_id = Uuid::new_v4().to_string();
+    let state = PersistedTelemetryState {
+        anon_user_id: anon_user_id.clone(),
+        usage_enabled: true,
+        crash_enabled: true,
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(content) = toml::to_string_pretty(&state) {
+        let _ = fs::write(path, content);
+    }
+    TelemetryState {
+        anon_user_id,
+        usage_enabled: true,
+        crash_enabled: true,
+        install_first_run: true,
     }
 }
 
@@ -904,19 +919,21 @@ mod tests {
 
     #[test]
     #[serial]
-    fn corrupt_anon_user_id_regenerates_and_marks_first_run() {
+    fn corrupt_anon_user_id_regenerates_without_resetting_toggles() {
         let root = temp_dir("corrupt");
         let path = root.join("telemetry.toml");
         std::fs::create_dir_all(&root).expect("create temp telemetry dir");
         std::fs::write(
             &path,
-            "anon_user_id = \"not-a-uuid\"\nusage_enabled = true\ncrash_enabled = true\n",
+            "anon_user_id = \"not-a-uuid\"\nusage_enabled = false\ncrash_enabled = false\n",
         )
         .expect("write corrupt telemetry state");
         std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
         let state = telemetry_state();
-        assert!(state.install_first_run);
+        assert!(!state.install_first_run);
         assert!(Uuid::parse_str(&state.anon_user_id).is_ok());
+        assert!(!state.usage_enabled);
+        assert!(!state.crash_enabled);
         std::fs::remove_dir_all(root).ok();
     }
 
