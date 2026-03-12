@@ -1801,9 +1801,27 @@ fn breathing_pattern_summary(pattern: &BreathingPattern) -> String {
     )
 }
 
-fn breathing_pattern_menu_label(settings: &Settings) -> String {
-    let _ = settings;
+fn breathing_pattern_payload(pattern: &BreathingPattern) -> serde_json::Value {
+    serde_json::json!({
+        "expanding_seconds": pattern.expanding_seconds,
+        "expanded_hold_seconds": pattern.expanded_hold_seconds,
+        "compressing_seconds": pattern.compressing_seconds,
+        "compressed_hold_seconds": pattern.compressed_hold_seconds,
+        "total_seconds": breathing_pattern_total_seconds(pattern),
+    })
+}
+
+fn breathing_pattern_menu_label() -> String {
     "breathing pattern".to_string()
+}
+
+fn size_target_label(size_slot: usize) -> Option<&'static str> {
+    menu_action_size_target(size_slot).map(|target| match target {
+        SizeTarget::S => "S",
+        SizeTarget::M => "M",
+        SizeTarget::L => "L",
+        SizeTarget::Xl => "XL",
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -2167,7 +2185,7 @@ impl NativeContextMenu {
         breathing_items.push(&breathing_delete_menu);
         let breathing_menu = match Submenu::with_id_and_items(
             MENU_ID_BREATHING_PATTERN,
-            &breathing_pattern_menu_label(settings),
+            &breathing_pattern_menu_label(),
             true,
             &breathing_items,
         ) {
@@ -2279,8 +2297,8 @@ impl NativeContextMenu {
         self.size_xl
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.size_scroll_hint.set_enabled(false);
-        self.breathing_menu
-            .set_text(&breathing_pattern_menu_label(settings));
+        let _ = settings;
+        self.breathing_menu.set_text(&breathing_pattern_menu_label());
         self.breathing_coherent
             .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_COHERENT);
         self.breathing_box
@@ -2509,13 +2527,7 @@ impl App {
                 "is_custom": preset_id == BREATHING_PRESET_ID_CUSTOM,
                 "is_saved_preset": preset_name.is_some() && preset_id != BREATHING_PRESET_ID_CUSTOM
                     && built_in_breathing_preset(preset_id).is_none(),
-                "pattern": {
-                    "expanding_seconds": pattern.expanding_seconds,
-                    "expanded_hold_seconds": pattern.expanded_hold_seconds,
-                    "compressing_seconds": pattern.compressing_seconds,
-                    "compressed_hold_seconds": pattern.compressed_hold_seconds,
-                    "total_seconds": breathing_pattern_total_seconds(pattern),
-                }
+                "pattern": breathing_pattern_payload(pattern),
             }),
         );
     }
@@ -2525,13 +2537,7 @@ impl App {
             EventName::BreathingPatternChanged,
             serde_json::json!({
                 "action": action,
-                "pattern": {
-                    "expanding_seconds": self.settings.breathing_pattern.expanding_seconds,
-                    "expanded_hold_seconds": self.settings.breathing_pattern.expanded_hold_seconds,
-                    "compressing_seconds": self.settings.breathing_pattern.compressing_seconds,
-                    "compressed_hold_seconds": self.settings.breathing_pattern.compressed_hold_seconds,
-                    "total_seconds": breathing_pattern_total_seconds(&self.settings.breathing_pattern),
-                }
+                "pattern": breathing_pattern_payload(&self.settings.breathing_pattern),
             }),
         );
     }
@@ -2678,34 +2684,19 @@ impl App {
     }
 
     fn sync_webview_bounds(&self) {
-        let (Some(window), Some(webview)) = (self.window.as_ref(), self.webview.as_ref()) else {
-            return;
-        };
-        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-        let bounds = Rect {
-            position: LogicalPosition::new(0, 0).into(),
-            size: LogicalSize::new(size.width, size.height).into(),
-        };
-        if let Err(error) = webview.set_bounds(bounds) {
-            log_stderr!("warning: failed to sync webview bounds: {error}");
-        }
+        sync_child_webview_bounds(
+            self.window.as_ref(),
+            self.webview.as_ref(),
+            "main webview",
+        );
     }
 
     fn sync_telemetry_info_webview_bounds(&self) {
-        let (Some(window), Some(webview)) = (
+        sync_child_webview_bounds(
             self.telemetry_info_window.as_ref(),
             self.telemetry_info_webview.as_ref(),
-        ) else {
-            return;
-        };
-        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-        let bounds = Rect {
-            position: LogicalPosition::new(0, 0).into(),
-            size: LogicalSize::new(size.width, size.height).into(),
-        };
-        if let Err(error) = webview.set_bounds(bounds) {
-            log_stderr!("warning: failed to sync telemetry info webview bounds: {error}");
-        }
+            "telemetry info webview",
+        );
     }
 
     fn config_path() -> Option<std::path::PathBuf> {
@@ -3076,20 +3067,11 @@ impl App {
     }
 
     fn sync_breathing_pattern_webview_bounds(&self) {
-        let (Some(window), Some(webview)) = (
+        sync_child_webview_bounds(
             self.breathing_pattern_window.as_ref(),
             self.breathing_pattern_webview.as_ref(),
-        ) else {
-            return;
-        };
-        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-        let bounds = Rect {
-            position: LogicalPosition::new(0, 0).into(),
-            size: LogicalSize::new(size.width, size.height).into(),
-        };
-        if let Err(error) = webview.set_bounds(bounds) {
-            log_stderr!("warning: failed to sync breathing pattern webview bounds: {error}");
-        }
+            "breathing pattern webview",
+        );
     }
 
     fn sync_breathing_pattern_editor_state(&self) {
@@ -3166,20 +3148,11 @@ impl App {
     }
 
     fn sync_custom_snooze_webview_bounds(&self) {
-        let (Some(window), Some(webview)) = (
+        sync_child_webview_bounds(
             self.custom_snooze_window.as_ref(),
             self.custom_snooze_webview.as_ref(),
-        ) else {
-            return;
-        };
-        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-        let bounds = Rect {
-            position: LogicalPosition::new(0, 0).into(),
-            size: LogicalSize::new(size.width, size.height).into(),
-        };
-        if let Err(error) = webview.set_bounds(bounds) {
-            log_stderr!("warning: failed to sync custom snooze webview bounds: {error}");
-        }
+            "custom snooze webview",
+        );
     }
 
     fn close_custom_snooze_window(&mut self) {
@@ -3651,12 +3624,7 @@ impl App {
         let Some(size) = presets.get(size_slot).copied() else {
             return;
         };
-        let size_target = menu_action_size_target(size_slot).map(|target| match target {
-            SizeTarget::S => "S",
-            SizeTarget::M => "M",
-            SizeTarget::L => "L",
-            SizeTarget::Xl => "XL",
-        });
+        let size_target = size_target_label(size_slot);
         self.telemetry_menu_action(MenuAction::SizeChange, size_target);
         self.apply_size(size);
         self.save_settings();
@@ -3839,13 +3807,7 @@ impl App {
                             .find(|(_, preset)| (**preset - size).abs() <= 0.5)
                             .map(|(index, _)| index)
                     })
-                    .and_then(menu_action_size_target)
-                    .map(|target| match target {
-                        SizeTarget::S => "S",
-                        SizeTarget::M => "M",
-                        SizeTarget::L => "L",
-                        SizeTarget::Xl => "XL",
-                    });
+                    .and_then(size_target_label);
                 self.telemetry_menu_action(MenuAction::SizeChange, size_target);
                 self.apply_size(size);
                 self.save_settings();
@@ -4382,6 +4344,20 @@ fn size_presets_for_monitor(monitor: &MonitorHandle) -> [f64; 4] {
     presets
 }
 
+fn sync_child_webview_bounds(window: Option<&Window>, webview: Option<&WebView>, label: &str) {
+    let (Some(window), Some(webview)) = (window, webview) else {
+        return;
+    };
+    let size = window.inner_size().to_logical::<u32>(window.scale_factor());
+    let bounds = Rect {
+        position: LogicalPosition::new(0, 0).into(),
+        size: LogicalSize::new(size.width, size.height).into(),
+    };
+    if let Err(error) = webview.set_bounds(bounds) {
+        log_stderr!("warning: failed to sync {label} bounds: {error}");
+    }
+}
+
 #[cfg(unix)]
 fn instance_socket_path() -> Option<PathBuf> {
     let mut path = dirs::config_dir()?;
@@ -4858,6 +4834,15 @@ mod tests {
         assert!(is_newer_version("v0.2.0", "0.1.5"));
         assert!(!is_newer_version("0.1.5", "0.1.5"));
         assert!(!is_newer_version("0.1.4", "0.1.5"));
+    }
+
+    #[test]
+    fn size_target_label_matches_menu_slots() {
+        assert_eq!(size_target_label(0), Some("S"));
+        assert_eq!(size_target_label(1), Some("M"));
+        assert_eq!(size_target_label(2), Some("L"));
+        assert_eq!(size_target_label(3), Some("XL"));
+        assert_eq!(size_target_label(4), None);
     }
 
     #[test]
