@@ -61,8 +61,7 @@ const COMPILED_BETTERSTACK_ERRORS_DSN: Option<&str> =
 const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
 const COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC: Option<&str> =
     option_env!("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC");
-const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> =
-    option_env!("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
+const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> = option_env!("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
 const COMPILED_GITHUB_ISSUES_URL: Option<&str> = option_env!("DOWNSHIFT_GITHUB_ISSUES_URL");
 const COMPILED_SUPPORT_EMAIL: Option<&str> = option_env!("DOWNSHIFT_SUPPORT_EMAIL");
 #[cfg(target_os = "macos")]
@@ -3390,6 +3389,12 @@ impl App {
         }
     }
 
+    fn sync_breathing_pattern_surfaces(&self) {
+        self.sync_breathing_pattern_to_webview();
+        self.sync_update_menu_state();
+        self.sync_breathing_pattern_editor_state();
+    }
+
     fn next_saved_breathing_preset_id(&self, name: &str) -> String {
         let base = slugify_preset_name(name);
         let mut candidate = base.clone();
@@ -3428,9 +3433,7 @@ impl App {
             self.settings.active_breathing_preset_id = BREATHING_PRESET_ID_CUSTOM.to_string();
             self.settings.breathing_pattern = pattern;
         }
-        self.sync_breathing_pattern_to_webview();
-        self.sync_update_menu_state();
-        self.sync_breathing_pattern_editor_state();
+        self.sync_breathing_pattern_surfaces();
     }
 
     fn save_breathing_preset(
@@ -3452,9 +3455,7 @@ impl App {
         self.settings.saved_breathing_presets.push(preset.clone());
         self.settings.active_breathing_preset_id = preset.id.clone();
         self.settings.breathing_pattern = preset.pattern.clone();
-        self.sync_breathing_pattern_to_webview();
-        self.sync_update_menu_state();
-        self.sync_breathing_pattern_editor_state();
+        self.sync_breathing_pattern_surfaces();
         Some(preset)
     }
 
@@ -3501,9 +3502,7 @@ impl App {
                 self.settings.active_breathing_preset_id = BREATHING_PRESET_ID_CUSTOM.to_string();
             }
         }
-        self.sync_breathing_pattern_to_webview();
-        self.sync_update_menu_state();
-        self.sync_breathing_pattern_editor_state();
+        self.sync_breathing_pattern_surfaces();
         Some(removed)
     }
 
@@ -3529,8 +3528,19 @@ impl App {
             return;
         }
         if self.resume_from_snooze() {
-            self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::SnoozeExpired, None);
+            self.telemetry_activity_state(
+                ActivityState::Active,
+                ActivityTrigger::SnoozeExpired,
+                None,
+            );
             self.save_settings();
+        }
+    }
+
+    fn sync_main_webview_paused_state(&self, paused: bool) {
+        if let Some(webview) = self.webview.as_ref() {
+            let js = format!("window.breathBallApplyState({{ paused: {} }});", paused);
+            let _ = webview.evaluate_script(&js);
         }
     }
 
@@ -3543,10 +3553,7 @@ impl App {
             ActivityMode::Active
         };
         self.sync_window_visibility();
-        if let Some(webview) = self.webview.as_ref() {
-            let js = format!("window.breathBallApplyState({{ paused: {} }});", paused);
-            let _ = webview.evaluate_script(&js);
-        }
+        self.sync_main_webview_paused_state(paused);
     }
 
     fn schedule_snooze_expiry(&self, generation: u64, duration: Duration) {
@@ -3569,9 +3576,7 @@ impl App {
         self.snooze_generation = self.snooze_generation.wrapping_add(1);
         let generation = self.snooze_generation;
         self.sync_window_visibility();
-        if let Some(webview) = self.webview.as_ref() {
-            let _ = webview.evaluate_script("window.breathBallApplyState({ paused: false });");
-        }
+        self.sync_main_webview_paused_state(false);
         self.schedule_snooze_expiry(generation, duration);
         Some(duration.as_secs())
     }
@@ -3590,9 +3595,7 @@ impl App {
         self.settings.paused = false;
         self.activity_mode = ActivityMode::Active;
         self.sync_window_visibility();
-        if let Some(webview) = self.webview.as_ref() {
-            let _ = webview.evaluate_script("window.breathBallApplyState({ paused: false });");
-        }
+        self.sync_main_webview_paused_state(false);
         self.show_main_window_without_focus();
         true
     }
@@ -3612,6 +3615,92 @@ impl App {
             self.save_settings();
         }
         self.show_main_window_without_focus();
+    }
+
+    fn set_paused_from_user_action(&mut self, paused: bool) {
+        let action = if paused {
+            MenuAction::Pause
+        } else {
+            MenuAction::Resume
+        };
+        self.telemetry_menu_action(action, None);
+        self.apply_paused(paused);
+        let next_state = if paused {
+            ActivityState::Paused
+        } else {
+            ActivityState::Active
+        };
+        self.telemetry_activity_state(next_state, ActivityTrigger::Manual, None);
+        self.save_settings();
+    }
+
+    fn set_snooze_from_user_action(&mut self, minutes: u64) {
+        self.telemetry_menu_action(MenuAction::Snooze, None);
+        if let Some(requested_duration_sec) = self.apply_snooze(minutes) {
+            self.telemetry_activity_state(
+                ActivityState::Snoozed,
+                ActivityTrigger::SnoozeTimed,
+                Some(requested_duration_sec),
+            );
+            self.save_settings();
+        }
+    }
+
+    fn apply_size_slot_from_user_action(&mut self, size_slot: usize) {
+        let presets = self.current_size_presets();
+        let Some(size) = presets.get(size_slot).copied() else {
+            return;
+        };
+        let size_target = menu_action_size_target(size_slot).map(|target| match target {
+            SizeTarget::S => "S",
+            SizeTarget::M => "M",
+            SizeTarget::L => "L",
+            SizeTarget::Xl => "XL",
+        });
+        self.telemetry_menu_action(MenuAction::SizeChange, size_target);
+        self.apply_size(size);
+        self.save_settings();
+    }
+
+    fn apply_breathing_pattern_from_user_action(
+        &mut self,
+        preset_id: String,
+        pattern: BreathingPattern,
+        preset_name: Option<String>,
+    ) {
+        self.apply_breathing_pattern(preset_id, pattern);
+        self.telemetry_breathing_pattern_change(
+            "applied",
+            &self.settings.active_breathing_preset_id,
+            preset_name.as_deref(),
+            &self.settings.breathing_pattern,
+        );
+        self.save_settings();
+    }
+
+    fn save_breathing_preset_from_user_action(&mut self, name: String, pattern: BreathingPattern) {
+        if let Some(preset) = self.save_breathing_preset(name, pattern) {
+            self.telemetry_breathing_pattern_change(
+                "saved",
+                &preset.id,
+                Some(&preset.name),
+                &self.settings.breathing_pattern,
+            );
+            self.close_breathing_pattern_window();
+            self.save_settings();
+        }
+    }
+
+    fn delete_breathing_preset_from_user_action(&mut self, preset_id: &str) {
+        if let Some(preset) = self.delete_breathing_preset(preset_id) {
+            self.telemetry_breathing_pattern_change(
+                "deleted",
+                &preset.id,
+                Some(&preset.name),
+                &preset.pattern,
+            );
+            self.save_settings();
+        }
     }
 
     fn update_position_from_physical(&mut self, physical: PhysicalPosition<i32>) {
@@ -3669,38 +3758,10 @@ impl App {
                 event_loop.exit();
             }
             IpcCommand::SetPaused { paused } => {
-                let action = if paused {
-                    MenuAction::Pause
-                } else {
-                    MenuAction::Resume
-                };
-                self.telemetry_menu_action(action, None);
-                self.apply_paused(paused);
-                if paused {
-                    self.telemetry_activity_state(
-                        ActivityState::Paused,
-                        ActivityTrigger::Manual,
-                        None,
-                    );
-                } else {
-                    self.telemetry_activity_state(
-                        ActivityState::Active,
-                        ActivityTrigger::Manual,
-                        None,
-                    );
-                }
-                self.save_settings();
+                self.set_paused_from_user_action(paused);
             }
             IpcCommand::SetSnooze { minutes } => {
-                self.telemetry_menu_action(MenuAction::Snooze, None);
-                if let Some(requested_duration_sec) = self.apply_snooze(minutes) {
-                    self.telemetry_activity_state(
-                        ActivityState::Snoozed,
-                        ActivityTrigger::SnoozeTimed,
-                        Some(requested_duration_sec),
-                    );
-                    self.save_settings();
-                }
+                self.set_snooze_from_user_action(minutes);
             }
             IpcCommand::ShowBreathingPattern => {
                 self.open_breathing_pattern_window(event_loop);
@@ -3719,37 +3780,13 @@ impl App {
                             .find(|preset| preset.id == preset_id)
                             .map(|preset| preset.name.clone())
                     });
-                self.apply_breathing_pattern(preset_id.clone(), pattern);
-                self.telemetry_breathing_pattern_change(
-                    "applied",
-                    &self.settings.active_breathing_preset_id,
-                    preset_name.as_deref(),
-                    &self.settings.breathing_pattern,
-                );
-                self.save_settings();
+                self.apply_breathing_pattern_from_user_action(preset_id, pattern, preset_name);
             }
             IpcCommand::SaveBreathingPreset { name, pattern } => {
-                if let Some(preset) = self.save_breathing_preset(name, pattern) {
-                    self.telemetry_breathing_pattern_change(
-                        "saved",
-                        &preset.id,
-                        Some(&preset.name),
-                        &self.settings.breathing_pattern,
-                    );
-                    self.close_breathing_pattern_window();
-                    self.save_settings();
-                }
+                self.save_breathing_preset_from_user_action(name, pattern);
             }
             IpcCommand::DeleteBreathingPreset { preset_id } => {
-                if let Some(preset) = self.delete_breathing_preset(&preset_id) {
-                    self.telemetry_breathing_pattern_change(
-                        "deleted",
-                        &preset.id,
-                        Some(&preset.name),
-                        &preset.pattern,
-                    );
-                    self.save_settings();
-                }
+                self.delete_breathing_preset_from_user_action(&preset_id);
             }
             IpcCommand::SetUsageDataSharing { enabled } => {
                 self.apply_usage_data_sharing(enabled);
@@ -3887,101 +3924,42 @@ impl App {
     fn handle_native_menu_activation(&mut self, event_loop: &ActiveEventLoop, id: &str) {
         match id {
             MENU_ID_PAUSE => {
-                let action = if !self.settings.paused {
-                    MenuAction::Pause
-                } else {
-                    MenuAction::Resume
-                };
-                self.telemetry_menu_action(action, None);
-                let next_paused = !self.settings.paused;
-                self.apply_paused(next_paused);
-                if next_paused {
-                    self.telemetry_activity_state(
-                        ActivityState::Paused,
-                        ActivityTrigger::Manual,
-                        None,
-                    );
-                } else {
-                    self.telemetry_activity_state(
-                        ActivityState::Active,
-                        ActivityTrigger::Manual,
-                        None,
-                    );
-                }
-                self.save_settings();
+                self.set_paused_from_user_action(!self.settings.paused);
             }
             MENU_ID_SNOOZE_5 | MENU_ID_SNOOZE_10 | MENU_ID_SNOOZE_15 | MENU_ID_SNOOZE_30
             | MENU_ID_SNOOZE_60 => {
                 let Some(minutes) = snooze_minutes_for_menu_id(id) else {
                     return;
                 };
-                self.telemetry_menu_action(MenuAction::Snooze, None);
-                if let Some(requested_duration_sec) = self.apply_snooze(minutes) {
-                    self.telemetry_activity_state(
-                        ActivityState::Snoozed,
-                        ActivityTrigger::SnoozeTimed,
-                        Some(requested_duration_sec),
-                    );
-                    self.save_settings();
-                }
+                self.set_snooze_from_user_action(minutes);
             }
             MENU_ID_SNOOZE_CUSTOM => self.open_custom_snooze_window(event_loop),
             MENU_ID_SIZE_S | MENU_ID_SIZE_M | MENU_ID_SIZE_L | MENU_ID_SIZE_XL => {
-                let presets = self.current_size_presets();
-                let size = match id {
-                    MENU_ID_SIZE_S => presets[0],
-                    MENU_ID_SIZE_M => presets[1],
-                    MENU_ID_SIZE_L => presets[2],
-                    _ => presets[3],
+                let Some(size_slot) = size_slot_for_menu_id(id) else {
+                    return;
                 };
-                let size_target = match id {
-                    MENU_ID_SIZE_S => "S",
-                    MENU_ID_SIZE_M => "M",
-                    MENU_ID_SIZE_L => "L",
-                    _ => "XL",
-                };
-                self.telemetry_menu_action(MenuAction::SizeChange, Some(size_target));
-                self.apply_size(size);
-                self.save_settings();
+                self.apply_size_slot_from_user_action(size_slot);
             }
             MENU_ID_BREATHING_COHERENT => {
-                self.apply_breathing_pattern(
+                self.apply_breathing_pattern_from_user_action(
                     BREATHING_PRESET_ID_COHERENT.to_string(),
                     BreathingPattern::coherent(),
+                    Some("coherent breathing".to_string()),
                 );
-                self.telemetry_breathing_pattern_change(
-                    "applied",
-                    BREATHING_PRESET_ID_COHERENT,
-                    Some("coherent breathing"),
-                    &self.settings.breathing_pattern,
-                );
-                self.save_settings();
             }
             MENU_ID_BREATHING_BOX => {
-                self.apply_breathing_pattern(
+                self.apply_breathing_pattern_from_user_action(
                     "box_breathing".to_string(),
                     BreathingPattern::box_breathing(),
+                    Some("box breathing".to_string()),
                 );
-                self.telemetry_breathing_pattern_change(
-                    "applied",
-                    "box_breathing",
-                    Some("box breathing"),
-                    &self.settings.breathing_pattern,
-                );
-                self.save_settings();
             }
             MENU_ID_BREATHING_479 => {
-                self.apply_breathing_pattern(
+                self.apply_breathing_pattern_from_user_action(
                     "4_7_9".to_string(),
                     BreathingPattern::four_seven_nine(),
+                    Some("4-7-9".to_string()),
                 );
-                self.telemetry_breathing_pattern_change(
-                    "applied",
-                    "4_7_9",
-                    Some("4-7-9"),
-                    &self.settings.breathing_pattern,
-                );
-                self.save_settings();
             }
             MENU_ID_BREATHING_EDIT => self.open_breathing_pattern_window(event_loop),
             MENU_ID_RESET => {
@@ -4025,15 +4003,7 @@ impl App {
             },
             _ => {
                 if let Some(preset_id) = deleted_breathing_preset_id_from_menu_id(id) {
-                    if let Some(preset) = self.delete_breathing_preset(preset_id) {
-                        self.telemetry_breathing_pattern_change(
-                            "deleted",
-                            &preset.id,
-                            Some(&preset.name),
-                            &preset.pattern,
-                        );
-                        self.save_settings();
-                    }
+                    self.delete_breathing_preset_from_user_action(preset_id);
                     return;
                 }
                 if let Some(preset_id) = saved_breathing_preset_id_from_menu_id(id) {
@@ -4044,14 +4014,11 @@ impl App {
                         .find(|preset| preset.id == preset_id)
                         .map(|preset| preset.name.clone());
                     let pattern = self.settings.breathing_pattern.clone();
-                    self.apply_breathing_pattern(preset_id.to_string(), pattern);
-                    self.telemetry_breathing_pattern_change(
-                        "applied",
-                        &self.settings.active_breathing_preset_id,
-                        preset_name.as_deref(),
-                        &self.settings.breathing_pattern,
+                    self.apply_breathing_pattern_from_user_action(
+                        preset_id.to_string(),
+                        pattern,
+                        preset_name,
                     );
-                    self.save_settings();
                 }
             }
         }
@@ -4482,6 +4449,17 @@ fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn size_slot_for_menu_id(id: &str) -> Option<usize> {
+    match id {
+        MENU_ID_SIZE_S => Some(0),
+        MENU_ID_SIZE_M => Some(1),
+        MENU_ID_SIZE_L => Some(2),
+        MENU_ID_SIZE_XL => Some(3),
+        _ => None,
+    }
+}
+
 fn main() -> std::process::ExitCode {
     if let Err(error) = validate_build_metadata_config() {
         log_stderr!("error: {error}");
@@ -4672,8 +4650,7 @@ mod tests {
         clear_external_contact_env();
         std::env::set_var("DOWNSHIFT_ENV", "prod");
 
-        let download_error =
-            download_release_url().expect_err("download release url should fail");
+        let download_error = download_release_url().expect_err("download release url should fail");
         let build_channel_error = build_channel().expect_err("build channel should fail");
         let github_error = github_issues_url().expect_err("github issues url should fail");
         let email_error = support_email_address().expect_err("support email should fail");
@@ -4712,7 +4689,8 @@ mod tests {
 
         let download_error =
             download_release_url().expect_err("download release url should stay compile-time only");
-        let build_channel_error = build_channel().expect_err("build channel should stay compile-time only");
+        let build_channel_error =
+            build_channel().expect_err("build channel should stay compile-time only");
         let telemetry_enabled_error =
             telemetry_enabled().expect_err("telemetry enabled should stay compile-time only");
         assert_eq!(
@@ -4747,27 +4725,15 @@ mod tests {
 
     #[test]
     fn telemetry_dependencies_are_required_in_prod_when_enabled() {
-        let token_error = resolve_compiled_setting_for_env(
-            "DOWNSHIFT_BETTERSTACK_LOGS_TOKEN",
-            None,
-            "",
-            true,
-        )
-        .expect_err("logs token should fail");
-        let host_error = resolve_compiled_setting_for_env(
-            "DOWNSHIFT_BETTERSTACK_LOGS_HOST",
-            None,
-            "",
-            true,
-        )
-        .expect_err("logs host should fail");
-        let dsn_error = resolve_compiled_setting_for_env(
-            "DOWNSHIFT_BETTERSTACK_ERRORS_DSN",
-            None,
-            "",
-            true,
-        )
-        .expect_err("errors dsn should fail");
+        let token_error =
+            resolve_compiled_setting_for_env("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN", None, "", true)
+                .expect_err("logs token should fail");
+        let host_error =
+            resolve_compiled_setting_for_env("DOWNSHIFT_BETTERSTACK_LOGS_HOST", None, "", true)
+                .expect_err("logs host should fail");
+        let dsn_error =
+            resolve_compiled_setting_for_env("DOWNSHIFT_BETTERSTACK_ERRORS_DSN", None, "", true)
+                .expect_err("errors dsn should fail");
         let heartbeat_error = resolve_compiled_setting_for_env(
             "DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC",
             None,
@@ -4993,6 +4959,16 @@ mod tests {
         assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_30), Some(30));
         assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_60), Some(60));
         assert_eq!(snooze_minutes_for_menu_id("nope"), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn size_menu_id_maps_to_expected_slots() {
+        assert_eq!(size_slot_for_menu_id(MENU_ID_SIZE_S), Some(0));
+        assert_eq!(size_slot_for_menu_id(MENU_ID_SIZE_M), Some(1));
+        assert_eq!(size_slot_for_menu_id(MENU_ID_SIZE_L), Some(2));
+        assert_eq!(size_slot_for_menu_id(MENU_ID_SIZE_XL), Some(3));
+        assert_eq!(size_slot_for_menu_id("nope"), None);
     }
 
     #[test]

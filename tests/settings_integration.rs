@@ -1,21 +1,13 @@
+mod support;
+
 use downshift::{
     load_settings, load_settings_result, BreathingPattern, Settings, DEFAULT_SIZE, MAX_SIZE,
     MIN_SIZE,
 };
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn temp_file_path(name: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!("breath-ball-{name}-{nanos}.toml"))
-}
 
 #[test]
 fn load_settings_returns_defaults_when_path_missing() {
-    let path = temp_file_path("missing");
+    let path = support::temp_file_path("breath-ball-missing", "toml");
     let settings = load_settings(Some(&path));
 
     assert_eq!(settings, Settings::default());
@@ -23,7 +15,7 @@ fn load_settings_returns_defaults_when_path_missing() {
 
 #[test]
 fn load_settings_parses_valid_toml_and_sanitizes_values() {
-    let path = temp_file_path("valid");
+    let path = support::temp_file_path("breath-ball-valid", "toml");
     let raw = r#"
 size = 400.0
 half_cycle_seconds = 4.52
@@ -59,7 +51,7 @@ launch_at_login = true
 
 #[test]
 fn load_settings_falls_back_to_default_when_toml_is_invalid() {
-    let path = temp_file_path("invalid");
+    let path = support::temp_file_path("breath-ball-invalid", "toml");
     std::fs::write(&path, "this is not toml").expect("should write invalid settings file");
 
     let settings = load_settings(Some(&path));
@@ -75,7 +67,7 @@ fn load_settings_falls_back_to_default_when_toml_is_invalid() {
 
 #[test]
 fn load_settings_result_reports_invalid_toml_without_touching_file() {
-    let path = temp_file_path("invalid-result");
+    let path = support::temp_file_path("breath-ball-invalid-result", "toml");
     let raw = "this is not toml";
     std::fs::write(&path, raw).expect("should write invalid settings file");
 
@@ -90,7 +82,7 @@ fn load_settings_result_reports_invalid_toml_without_touching_file() {
 
 #[test]
 fn load_settings_sanitizes_minimum_bounds() {
-    let path = temp_file_path("min-bounds");
+    let path = support::temp_file_path("breath-ball-min-bounds", "toml");
     let raw = r#"
 size = 0.0
 half_cycle_seconds = 999.0
@@ -107,7 +99,7 @@ paused = false
 
 #[test]
 fn load_settings_supports_new_pattern_and_saved_presets() {
-    let path = temp_file_path("pattern");
+    let path = support::temp_file_path("breath-ball-pattern", "toml");
     let raw = r#"
 size = 96.0
 paused = false
@@ -150,7 +142,7 @@ compressed_hold_seconds = 2.0
 
 #[test]
 fn load_settings_migrates_legacy_half_cycle_to_pattern() {
-    let path = temp_file_path("legacy-half-cycle");
+    let path = support::temp_file_path("breath-ball-legacy-half-cycle", "toml");
     let raw = r#"
 size = 96.0
 half_cycle_seconds = 6.49

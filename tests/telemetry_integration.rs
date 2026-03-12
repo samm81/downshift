@@ -1,3 +1,5 @@
+mod support;
+
 use downshift::telemetry::{
     ActivityState, BetterStackLogsSink, EventName, RuntimeTelemetryClient, TelemetryClient,
     TelemetrySink, TelemetryState,
@@ -5,17 +7,9 @@ use downshift::telemetry::{
 use serial_test::serial;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tiny_http::{Response, Server, StatusCode};
 use uuid::Uuid;
-
-fn temp_dir(name: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!("downshift-telemetry-int-{name}-{nanos}"))
-}
 
 fn test_state() -> TelemetryState {
     TelemetryState {
@@ -159,7 +153,7 @@ fn transient_failure_is_not_retried() {
 #[test]
 #[serial]
 fn missing_config_gracefully_degrades_to_noop() {
-    let root = temp_dir("noop");
+    let root = support::temp_dir_path("downshift-telemetry-int-noop");
     std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
     std::env::remove_var("DOWNSHIFT_BETTERSTACK_LOGS_TOKEN");
     std::env::remove_var("DOWNSHIFT_BETTERSTACK_LOGS_HOST");
