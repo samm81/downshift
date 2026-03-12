@@ -169,6 +169,12 @@ pub struct Settings {
     pub monitor: Option<PersistedMonitor>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadSettingsResult {
+    pub settings: Settings,
+    pub load_error: Option<String>,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -456,16 +462,33 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-pub fn load_settings(path: Option<&Path>) -> Settings {
-    let mut settings = match path {
-        Some(path) => std::fs::read_to_string(path)
-            .ok()
-            .and_then(|raw| toml::from_str::<Settings>(&raw).ok())
-            .unwrap_or_default(),
-        None => Settings::default(),
+pub fn load_settings_result(path: Option<&Path>) -> LoadSettingsResult {
+    let (mut settings, load_error) = match path {
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(raw) => match toml::from_str::<Settings>(&raw) {
+                Ok(settings) => (settings, None),
+                Err(error) => (
+                    Settings::default(),
+                    Some(format!("failed to parse settings {}: {error}", path.display())),
+                ),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Settings::default(), None),
+            Err(error) => (
+                Settings::default(),
+                Some(format!("failed to read settings {}: {error}", path.display())),
+            ),
+        },
+        None => (Settings::default(), None),
     };
     settings.sanitize();
-    settings
+    LoadSettingsResult {
+        settings,
+        load_error,
+    }
+}
+
+pub fn load_settings(path: Option<&Path>) -> Settings {
+    load_settings_result(path).settings
 }
 
 #[cfg(test)]

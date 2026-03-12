@@ -1,4 +1,7 @@
-use downshift::{load_settings, BreathingPattern, Settings, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE};
+use downshift::{
+    load_settings, load_settings_result, BreathingPattern, Settings, DEFAULT_SIZE, MAX_SIZE,
+    MIN_SIZE,
+};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -68,6 +71,21 @@ fn load_settings_falls_back_to_default_when_toml_is_invalid() {
     assert!(settings.launch_at_login);
     assert_eq!(settings.x, None);
     assert_eq!(settings.y, None);
+}
+
+#[test]
+fn load_settings_result_reports_invalid_toml_without_touching_file() {
+    let path = temp_file_path("invalid-result");
+    let raw = "this is not toml";
+    std::fs::write(&path, raw).expect("should write invalid settings file");
+
+    let result = load_settings_result(Some(&path));
+    let persisted = std::fs::read_to_string(&path).expect("should keep invalid settings content");
+    std::fs::remove_file(&path).ok();
+
+    assert!(result.load_error.is_some());
+    assert_eq!(result.settings, Settings::default());
+    assert_eq!(persisted, raw);
 }
 
 #[test]

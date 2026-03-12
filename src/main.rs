@@ -4,7 +4,7 @@ use downshift::telemetry::{
 };
 use downshift::{
     apply_resize_step, built_in_breathing_preset, built_in_breathing_presets, clamp_size,
-    diagnostics, load_settings, BreathingPattern, IpcCommand, PersistedMonitor,
+    diagnostics, load_settings_result, BreathingPattern, IpcCommand, PersistedMonitor,
     SavedBreathingPreset, Settings, BREATHING_PRESET_ID_COHERENT, BREATHING_PRESET_ID_CUSTOM,
     DEFAULT_SIZE,
 };
@@ -2343,6 +2343,8 @@ struct App {
     telemetry: RuntimeTelemetryClient,
     telemetry_install_first_run: bool,
     session_ended: bool,
+    settings_load_error: Option<String>,
+    settings_backup_pending: bool,
     updates: UpdateUiState,
     manual_update_check_in_flight: bool,
 }
@@ -2382,6 +2384,8 @@ impl Default for App {
             telemetry,
             telemetry_install_first_run,
             session_ended: false,
+            settings_load_error: None,
+            settings_backup_pending: false,
             updates: UpdateUiState::default(),
             manual_update_check_in_flight: false,
         }
@@ -2712,7 +2716,37 @@ impl App {
         Some(path)
     }
 
-    fn save_settings(&self) {
+    fn settings_backup_path(path: &std::path::Path) -> PathBuf {
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| format!("{name}.bak"))
+            .unwrap_or_else(|| "settings.toml.bak".to_string());
+        path.with_file_name(file_name)
+    }
+
+    fn backup_corrupt_settings_if_needed(&mut self, path: &std::path::Path) -> Result<(), String> {
+        if !self.settings_backup_pending {
+            return Ok(());
+        }
+        if !path.exists() {
+            self.settings_backup_pending = false;
+            self.settings_load_error = None;
+            return Ok(());
+        }
+        let backup_path = Self::settings_backup_path(path);
+        std::fs::copy(path, &backup_path).map_err(|error| {
+            format!(
+                "failed to back up unreadable settings to {}: {error}",
+                backup_path.display()
+            )
+        })?;
+        self.settings_backup_pending = false;
+        self.settings_load_error = None;
+        Ok(())
+    }
+
+    fn save_settings(&mut self) {
         let Some(path) = &self.config_path else {
             return;
         };
@@ -2721,6 +2755,11 @@ impl App {
                 log_stderr!("warning: failed to create config directory: {error}");
                 return;
             }
+        }
+        let path = path.clone();
+        if let Err(error) = self.backup_corrupt_settings_if_needed(&path) {
+            log_stderr!("warning: {error}");
+            return;
         }
         let content = match toml::to_string_pretty(&self.settings) {
             Ok(content) => content,
@@ -3739,7 +3778,7 @@ impl App {
                 self.launch_update_download("dialog");
             }
             IpcCommand::ShowContextMenu { x, y } => {
-                self.telemetry_menu_action(MenuAction::AnalyticsMenu, None);
+                self.telemetry_menu_action(MenuAction::ContextMenu, None);
                 #[cfg(target_os = "macos")]
                 self.show_native_context_menu(x, y);
                 #[cfg(not(target_os = "macos"))]
@@ -4027,7 +4066,13 @@ impl ApplicationHandler<AppEvent> for App {
         }
         self.config_path = Self::config_path();
         let settings_exist = self.config_path.as_ref().is_some_and(|path| path.exists());
-        self.settings = load_settings(self.config_path.as_deref());
+        let settings_load_result = load_settings_result(self.config_path.as_deref());
+        self.settings = settings_load_result.settings;
+        self.settings_load_error = settings_load_result.load_error;
+        self.settings_backup_pending = self.settings_load_error.is_some();
+        if let Some(error) = self.settings_load_error.as_ref() {
+            log_stderr!("warning: {error}");
+        }
         self.updates.dismissed_badge_version = self.settings.dismissed_update_version.clone();
         self.updates.latest_version = self.settings.cached_latest_update_version.clone();
         self.telemetry
@@ -4166,7 +4211,9 @@ impl ApplicationHandler<AppEvent> for App {
         }
         self.enforce_fixed_square_size();
         self.sync_webview_bounds();
-        self.save_settings();
+        if self.settings_load_error.is_none() {
+            self.save_settings();
+        }
 
         if let Some(proxy) = self.event_loop_proxy.as_ref().cloned() {
             std::thread::spawn(move || {
@@ -4903,6 +4950,38 @@ mod tests {
 
         assert_eq!(app.activity_mode, ActivityMode::Snoozed);
         assert!(app.snooze_deadline.is_some());
+    }
+
+    #[test]
+    #[serial]
+    fn save_settings_backs_up_corrupt_file_before_overwrite() {
+        let root = telemetry_test_dir("settings-backup");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+
+        let config_dir = root.join("config");
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        let settings_path = config_dir.join("settings.toml");
+        std::fs::write(&settings_path, "this is not toml").expect("write corrupt settings");
+
+        let mut app = App::default();
+        app.config_path = Some(settings_path.clone());
+        app.settings = Settings::default();
+        app.settings.size = 144.0;
+        app.settings_load_error = Some("failed to parse settings".to_string());
+        app.settings_backup_pending = true;
+
+        app.save_settings();
+
+        let backup_path = App::settings_backup_path(&settings_path);
+        let backup = std::fs::read_to_string(&backup_path).expect("read settings backup");
+        let saved = std::fs::read_to_string(&settings_path).expect("read saved settings");
+
+        assert_eq!(backup, "this is not toml");
+        assert!(saved.contains("size = 144.0"));
+        assert!(!app.settings_backup_pending);
+        assert!(app.settings_load_error.is_none());
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

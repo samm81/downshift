@@ -63,6 +63,7 @@ pub enum MenuAction {
     SizeChange,
     Reset,
     Quit,
+    ContextMenu,
     AnalyticsMenu,
 }
 
