@@ -2641,6 +2641,13 @@ impl App {
             .shutdown(std::time::Duration::from_millis(1500));
     }
 
+    fn quit_app(&mut self, event_loop: &ActiveEventLoop) {
+        self.telemetry_menu_action(MenuAction::Quit, None);
+        self.save_settings();
+        self.finish_session(SessionEndReason::QuitMenu);
+        event_loop.exit();
+    }
+
     fn start_manual_drag(&mut self, screen_x: i32, screen_y: i32) {
         self.drag_anchor_window_pos = self.current_window_logical_position();
         self.drag_anchor_pointer_pos = Some(LogicalPosition::new(screen_x as f64, screen_y as f64));
@@ -3150,35 +3157,39 @@ impl App {
     }
 
     fn handle_telemetry_info_window_event(&mut self, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => self.close_telemetry_info_window(),
-            WindowEvent::Resized(_) => self.sync_telemetry_info_webview_bounds(),
-            _ => {}
-        }
+        handle_child_window_event(
+            self,
+            event,
+            Self::close_telemetry_info_window,
+            Self::sync_telemetry_info_webview_bounds,
+        );
     }
 
     fn handle_custom_snooze_window_event(&mut self, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => self.close_custom_snooze_window(),
-            WindowEvent::Resized(_) => self.sync_custom_snooze_webview_bounds(),
-            _ => {}
-        }
+        handle_child_window_event(
+            self,
+            event,
+            Self::close_custom_snooze_window,
+            Self::sync_custom_snooze_webview_bounds,
+        );
     }
 
     fn handle_breathing_pattern_window_event(&mut self, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => self.cancel_breathing_pattern_window(),
-            WindowEvent::Resized(_) => self.sync_breathing_pattern_webview_bounds(),
-            _ => {}
-        }
+        handle_child_window_event(
+            self,
+            event,
+            Self::cancel_breathing_pattern_window,
+            Self::sync_breathing_pattern_webview_bounds,
+        );
     }
 
     fn handle_update_dialog_window_event(&mut self, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => self.close_update_dialog_window(),
-            WindowEvent::Resized(_) => self.sync_update_dialog_webview_bounds(),
-            _ => {}
-        }
+        handle_child_window_event(
+            self,
+            event,
+            Self::close_update_dialog_window,
+            Self::sync_update_dialog_webview_bounds,
+        );
     }
 
     fn sync_privacy_state_to_webview(&self) {
@@ -3645,10 +3656,7 @@ impl App {
     fn handle_ipc_command(&mut self, event_loop: &ActiveEventLoop, command: IpcCommand) {
         match command {
             IpcCommand::Quit => {
-                self.telemetry_menu_action(MenuAction::Quit, None);
-                self.save_settings();
-                self.finish_session(SessionEndReason::QuitMenu);
-                event_loop.exit();
+                self.quit_app(event_loop);
             }
             IpcCommand::SetPaused { paused } => {
                 self.set_paused_from_user_action(paused);
@@ -3860,10 +3868,7 @@ impl App {
                 self.apply_launch_at_login(enabled);
             }
             MENU_ID_QUIT => {
-                self.telemetry_menu_action(MenuAction::Quit, None);
-                self.save_settings();
-                self.finish_session(SessionEndReason::QuitMenu);
-                event_loop.exit();
+                self.quit_app(event_loop);
             }
             MENU_ID_USAGE_ON => {
                 self.apply_usage_data_sharing(true);
@@ -4332,6 +4337,19 @@ fn create_fixed_child_window(
         .build_as_child(&window)
         .map_err(|error| format!("failed to create {label} webview: {error}"))?;
     Ok((window, window_id, webview))
+}
+
+fn handle_child_window_event(
+    app: &mut App,
+    event: WindowEvent,
+    close: fn(&mut App),
+    sync_bounds: fn(&App),
+) {
+    match event {
+        WindowEvent::CloseRequested => close(app),
+        WindowEvent::Resized(_) => sync_bounds(app),
+        _ => {}
+    }
 }
 
 #[cfg(unix)]
