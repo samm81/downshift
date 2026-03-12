@@ -2283,6 +2283,14 @@ impl Default for App {
 }
 
 impl App {
+    fn handle_app_suspend(&self) {
+        self.telemetry.note_suspend();
+    }
+
+    fn handle_app_resume(&self) {
+        self.telemetry.note_resume();
+    }
+
     fn current_activity_state(&self) -> ActivityState {
         match self.activity_mode {
             ActivityMode::Active => ActivityState::Active,
@@ -3891,6 +3899,7 @@ impl App {
 impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
+            self.handle_app_resume();
             return;
         }
         self.config_path = Self::config_path();
@@ -4049,6 +4058,10 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             });
         }
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.handle_app_suspend();
     }
 
     fn window_event(

@@ -262,6 +262,8 @@ pub trait TelemetryClient {
         trigger: ActivityTrigger,
         requested_duration_sec: Option<u64>,
     );
+    fn note_suspend(&self);
+    fn note_resume(&self);
     fn end_session(&self, reason: SessionEndReason);
     fn flush(&self, timeout: Duration);
     fn shutdown(&self, timeout: Duration);
@@ -319,6 +321,8 @@ struct SessionContext {
     started_at: Instant,
     activity_state: ActivityState,
     state_started_at: Instant,
+    suspended_at: Option<Instant>,
+    suspended_duration_sec: u64,
     active_duration_sec: u64,
     paused_duration_sec: u64,
     snoozed_duration_sec: u64,
@@ -426,6 +430,59 @@ impl RuntimeTelemetryClient {
             properties,
         }
     }
+
+    fn accumulate_state_duration(session: &mut SessionContext, now: Instant) {
+        if session.suspended_at.is_some() {
+            return;
+        }
+        let elapsed = now.duration_since(session.state_started_at).as_secs();
+        match session.activity_state {
+            ActivityState::Active => {
+                session.active_duration_sec = session.active_duration_sec.saturating_add(elapsed)
+            }
+            ActivityState::Paused => {
+                session.paused_duration_sec = session.paused_duration_sec.saturating_add(elapsed)
+            }
+            ActivityState::Snoozed => {
+                session.snoozed_duration_sec = session.snoozed_duration_sec.saturating_add(elapsed)
+            }
+        }
+        session.state_started_at = now;
+    }
+
+    fn session_totals(session: &SessionContext, now: Instant) -> (u64, u64, u64, u64) {
+        let mut active_duration_sec = session.active_duration_sec;
+        let mut paused_duration_sec = session.paused_duration_sec;
+        let mut snoozed_duration_sec = session.snoozed_duration_sec;
+        let mut suspended_duration_sec = session.suspended_duration_sec;
+        if let Some(suspended_at) = session.suspended_at {
+            suspended_duration_sec = suspended_duration_sec
+                .saturating_add(now.duration_since(suspended_at).as_secs());
+        } else {
+            let trailing = now.duration_since(session.state_started_at).as_secs();
+            match session.activity_state {
+                ActivityState::Active => {
+                    active_duration_sec = active_duration_sec.saturating_add(trailing)
+                }
+                ActivityState::Paused => {
+                    paused_duration_sec = paused_duration_sec.saturating_add(trailing)
+                }
+                ActivityState::Snoozed => {
+                    snoozed_duration_sec = snoozed_duration_sec.saturating_add(trailing)
+                }
+            }
+        }
+        let session_duration_sec = now
+            .duration_since(session.started_at)
+            .as_secs()
+            .saturating_sub(suspended_duration_sec);
+        (
+            session_duration_sec,
+            active_duration_sec,
+            paused_duration_sec,
+            snoozed_duration_sec,
+        )
+    }
 }
 
 impl TelemetryClient for RuntimeTelemetryClient {
@@ -471,6 +528,8 @@ impl TelemetryClient for RuntimeTelemetryClient {
                     started_at: now,
                     activity_state: initial_state,
                     state_started_at: now,
+                    suspended_at: None,
+                    suspended_duration_sec: 0,
                     active_duration_sec: 0,
                     paused_duration_sec: 0,
                     snoozed_duration_sec: 0,
@@ -507,22 +566,10 @@ impl TelemetryClient for RuntimeTelemetryClient {
             .and_then(|mut session| {
                 let session = session.as_mut()?;
                 let now = Instant::now();
-                let elapsed = now.duration_since(session.state_started_at).as_secs();
-                match session.activity_state {
-                    ActivityState::Active => {
-                        session.active_duration_sec =
-                            session.active_duration_sec.saturating_add(elapsed)
-                    }
-                    ActivityState::Paused => {
-                        session.paused_duration_sec =
-                            session.paused_duration_sec.saturating_add(elapsed)
-                    }
-                    ActivityState::Snoozed => {
-                        session.snoozed_duration_sec =
-                            session.snoozed_duration_sec.saturating_add(elapsed)
-                    }
+                if session.suspended_at.is_some() {
+                    return Some(false);
                 }
-                session.state_started_at = now;
+                Self::accumulate_state_duration(session, now);
                 if session.activity_state == state && trigger != ActivityTrigger::AppStart {
                     return Some(false);
                 }
@@ -544,6 +591,36 @@ impl TelemetryClient for RuntimeTelemetryClient {
         self.track(EventName::ActivityStateChanged, payload);
     }
 
+    fn note_suspend(&self) {
+        if let Ok(mut session) = self.shared.session.lock() {
+            let Some(session) = session.as_mut() else {
+                return;
+            };
+            if session.suspended_at.is_some() {
+                return;
+            }
+            let now = Instant::now();
+            Self::accumulate_state_duration(session, now);
+            session.suspended_at = Some(now);
+        }
+    }
+
+    fn note_resume(&self) {
+        if let Ok(mut session) = self.shared.session.lock() {
+            let Some(session) = session.as_mut() else {
+                return;
+            };
+            let Some(suspended_at) = session.suspended_at.take() else {
+                return;
+            };
+            let now = Instant::now();
+            session.suspended_duration_sec = session
+                .suspended_duration_sec
+                .saturating_add(now.duration_since(suspended_at).as_secs());
+            session.state_started_at = now;
+        }
+    }
+
     fn end_session(&self, reason: SessionEndReason) {
         let (duration, active_duration_sec, paused_duration_sec, snoozed_duration_sec) = self
             .shared
@@ -553,27 +630,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
             .and_then(|session| {
                 session.as_ref().map(|ctx| {
                     let now = Instant::now();
-                    let mut active_duration_sec = ctx.active_duration_sec;
-                    let mut paused_duration_sec = ctx.paused_duration_sec;
-                    let mut snoozed_duration_sec = ctx.snoozed_duration_sec;
-                    let trailing = now.duration_since(ctx.state_started_at).as_secs();
-                    match ctx.activity_state {
-                        ActivityState::Active => {
-                            active_duration_sec = active_duration_sec.saturating_add(trailing)
-                        }
-                        ActivityState::Paused => {
-                            paused_duration_sec = paused_duration_sec.saturating_add(trailing)
-                        }
-                        ActivityState::Snoozed => {
-                            snoozed_duration_sec = snoozed_duration_sec.saturating_add(trailing)
-                        }
-                    }
-                    (
-                        ctx.started_at.elapsed().as_secs(),
-                        active_duration_sec,
-                        paused_duration_sec,
-                        snoozed_duration_sec,
-                    )
+                    Self::session_totals(ctx, now)
                 })
             })
             .unwrap_or((0, 0, 0, 0));
@@ -1063,6 +1120,51 @@ mod tests {
         assert!(active_duration_sec >= 1);
         assert!(paused_duration_sec >= 1);
         assert!(snoozed_duration_sec >= 1);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    #[serial]
+    fn suspended_time_is_excluded_from_session_durations() {
+        let root = temp_dir("suspend");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+        let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let state = TelemetryState {
+            anon_user_id: Uuid::new_v4().to_string(),
+            usage_enabled: true,
+            crash_enabled: true,
+            install_first_run: false,
+        };
+        let client = RuntimeTelemetryClient::new_with_sinks(
+            state,
+            Box::new(CollectingSink {
+                events: captured_events.clone(),
+            }),
+            Box::new(NoopSink),
+        );
+        client.start_session(ActivityState::Active);
+        thread::sleep(Duration::from_millis(1100));
+        client.note_suspend();
+        thread::sleep(Duration::from_millis(1100));
+        client.note_resume();
+        thread::sleep(Duration::from_millis(1100));
+        client.end_session(SessionEndReason::Unknown);
+        client.flush(Duration::from_millis(400));
+        client.shutdown(Duration::from_millis(400));
+
+        let events = captured_events.lock().expect("captured events lock");
+        let session_end = events
+            .iter()
+            .find(|event| event.event_name == EventName::SessionEnd)
+            .expect("session end event should exist");
+        let session_duration_sec = session_end.properties["session_duration_sec"]
+            .as_u64()
+            .expect("session duration should be u64 seconds");
+        let active_duration_sec = session_end.properties["active_duration_sec"]
+            .as_u64()
+            .expect("active duration should be u64 seconds");
+        assert_eq!(session_duration_sec, 2);
+        assert_eq!(active_duration_sec, 2);
         std::fs::remove_dir_all(root).ok();
     }
 
