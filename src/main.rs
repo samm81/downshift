@@ -39,6 +39,7 @@ use wry::{Rect, WebView, WebViewBuilder};
 const DEFAULT_SIZE_SHORT_SIDE_RATIO: f64 = 0.10;
 const DEFAULT_EDGE_MARGIN_RATIO: f64 = 0.05;
 const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
+const DEFAULT_SIZE_PRESETS: [f64; 4] = [64.0, 96.0, 128.0, 160.0];
 const DEFAULT_HEARTBEAT_INTERVAL_SEC: u64 = 60;
 const MIN_HEARTBEAT_INTERVAL_SEC: u64 = 5;
 const MAX_HEARTBEAT_INTERVAL_SEC: u64 = 3600;
@@ -2874,41 +2875,21 @@ impl App {
     }
 
     fn open_update_dialog_window(&mut self, event_loop: &ActiveEventLoop) {
-        if self.update_dialog_window.is_some() {
-            if let Some(window) = self.update_dialog_window.as_ref() {
-                window.focus_window();
-            }
+        if focus_existing_child_window(self.update_dialog_window.as_ref()) {
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title("updates")
-            .with_resizable(false)
-            .with_inner_size(LogicalSize::new(360.0, 168.0))
-            .with_min_inner_size(LogicalSize::new(360.0, 168.0))
-            .with_max_inner_size(LogicalSize::new(360.0, 168.0));
-        let window = match event_loop.create_window(attrs) {
-            Ok(window) => window,
+        let (window, window_id, webview) = match create_fixed_child_window(
+            event_loop,
+            self.event_loop_proxy.as_ref(),
+            "updates",
+            360.0,
+            168.0,
+            UPDATE_DIALOG_HTML,
+            "update dialog",
+        ) {
+            Ok(bundle) => bundle,
             Err(error) => {
-                log_stderr!("warning: failed to create update dialog window: {error}");
-                return;
-            }
-        };
-        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            log_stderr!("warning: missing event loop proxy for update dialog window");
-            return;
-        };
-        let window_id = window.id();
-        let webview = match WebViewBuilder::new()
-            .with_html(UPDATE_DIALOG_HTML)
-            .with_ipc_handler(move |request: wry::http::Request<String>| {
-                let payload = request.into_body();
-                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
-            })
-            .build_as_child(&window)
-        {
-            Ok(webview) => webview,
-            Err(error) => {
-                log_stderr!("warning: failed to create update dialog webview: {error}");
+                log_stderr!("warning: {error}");
                 return;
             }
         };
@@ -2937,9 +2918,11 @@ impl App {
     }
 
     fn close_update_dialog_window(&mut self) {
-        self.update_dialog_webview = None;
-        self.update_dialog_window = None;
-        self.update_dialog_window_id = None;
+        clear_child_window(
+            &mut self.update_dialog_window,
+            &mut self.update_dialog_window_id,
+            &mut self.update_dialog_webview,
+        );
     }
 
     fn set_update_dialog_mode_checking(&self) {
@@ -2990,41 +2973,21 @@ impl App {
     }
 
     fn open_custom_snooze_window(&mut self, event_loop: &ActiveEventLoop) {
-        if self.custom_snooze_window.is_some() {
-            if let Some(window) = self.custom_snooze_window.as_ref() {
-                window.focus_window();
-            }
+        if focus_existing_child_window(self.custom_snooze_window.as_ref()) {
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title("custom snooze")
-            .with_resizable(false)
-            .with_inner_size(LogicalSize::new(320.0, 144.0))
-            .with_min_inner_size(LogicalSize::new(320.0, 144.0))
-            .with_max_inner_size(LogicalSize::new(320.0, 144.0));
-        let window = match event_loop.create_window(attrs) {
-            Ok(window) => window,
+        let (window, window_id, webview) = match create_fixed_child_window(
+            event_loop,
+            self.event_loop_proxy.as_ref(),
+            "custom snooze",
+            320.0,
+            144.0,
+            CUSTOM_SNOOZE_HTML,
+            "custom snooze",
+        ) {
+            Ok(bundle) => bundle,
             Err(error) => {
-                log_stderr!("warning: failed to create custom snooze window: {error}");
-                return;
-            }
-        };
-        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            log_stderr!("warning: missing event loop proxy for custom snooze window");
-            return;
-        };
-        let window_id = window.id();
-        let webview = match WebViewBuilder::new()
-            .with_html(CUSTOM_SNOOZE_HTML)
-            .with_ipc_handler(move |request: wry::http::Request<String>| {
-                let payload = request.into_body();
-                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
-            })
-            .build_as_child(&window)
-        {
-            Ok(webview) => webview,
-            Err(error) => {
-                log_stderr!("warning: failed to create custom snooze webview: {error}");
+                log_stderr!("warning: {error}");
                 return;
             }
         };
@@ -3086,42 +3049,22 @@ impl App {
     }
 
     fn open_breathing_pattern_window(&mut self, event_loop: &ActiveEventLoop) {
-        if self.breathing_pattern_window.is_some() {
-            if let Some(window) = self.breathing_pattern_window.as_ref() {
-                window.focus_window();
-            }
+        if focus_existing_child_window(self.breathing_pattern_window.as_ref()) {
             self.sync_breathing_pattern_editor_state();
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title("add breathing pattern")
-            .with_resizable(false)
-            .with_inner_size(LogicalSize::new(420.0, 340.0))
-            .with_min_inner_size(LogicalSize::new(420.0, 340.0))
-            .with_max_inner_size(LogicalSize::new(420.0, 340.0));
-        let window = match event_loop.create_window(attrs) {
-            Ok(window) => window,
+        let (window, window_id, webview) = match create_fixed_child_window(
+            event_loop,
+            self.event_loop_proxy.as_ref(),
+            "add breathing pattern",
+            420.0,
+            340.0,
+            BREATHING_PATTERN_HTML,
+            "breathing pattern",
+        ) {
+            Ok(bundle) => bundle,
             Err(error) => {
-                log_stderr!("warning: failed to create breathing pattern window: {error}");
-                return;
-            }
-        };
-        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            log_stderr!("warning: missing event loop proxy for breathing pattern window");
-            return;
-        };
-        let window_id = window.id();
-        let webview = match WebViewBuilder::new()
-            .with_html(BREATHING_PATTERN_HTML)
-            .with_ipc_handler(move |request: wry::http::Request<String>| {
-                let payload = request.into_body();
-                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
-            })
-            .build_as_child(&window)
-        {
-            Ok(webview) => webview,
-            Err(error) => {
-                log_stderr!("warning: failed to create breathing pattern webview: {error}");
+                log_stderr!("warning: {error}");
                 return;
             }
         };
@@ -3134,9 +3077,11 @@ impl App {
     }
 
     fn close_breathing_pattern_window(&mut self) {
-        self.breathing_pattern_webview = None;
-        self.breathing_pattern_window = None;
-        self.breathing_pattern_window_id = None;
+        clear_child_window(
+            &mut self.breathing_pattern_window,
+            &mut self.breathing_pattern_window_id,
+            &mut self.breathing_pattern_webview,
+        );
     }
 
     fn cancel_breathing_pattern_window(&mut self) {
@@ -3156,28 +3101,29 @@ impl App {
     }
 
     fn close_custom_snooze_window(&mut self) {
-        self.custom_snooze_webview = None;
-        self.custom_snooze_window = None;
-        self.custom_snooze_window_id = None;
+        clear_child_window(
+            &mut self.custom_snooze_window,
+            &mut self.custom_snooze_window_id,
+            &mut self.custom_snooze_webview,
+        );
     }
 
     fn open_telemetry_info_window(&mut self, event_loop: &ActiveEventLoop) {
-        if self.telemetry_info_window.is_some() {
-            if let Some(window) = self.telemetry_info_window.as_ref() {
-                window.focus_window();
-            }
+        if focus_existing_child_window(self.telemetry_info_window.as_ref()) {
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title("what we collect")
-            .with_resizable(false)
-            .with_inner_size(LogicalSize::new(420.0, 240.0))
-            .with_min_inner_size(LogicalSize::new(420.0, 240.0))
-            .with_max_inner_size(LogicalSize::new(420.0, 240.0));
-        let window = match event_loop.create_window(attrs) {
-            Ok(window) => window,
+        let (window, window_id, webview) = match create_fixed_child_window(
+            event_loop,
+            self.event_loop_proxy.as_ref(),
+            "what we collect",
+            420.0,
+            240.0,
+            TELEMETRY_INFO_HTML,
+            "telemetry info",
+        ) {
+            Ok(bundle) => bundle,
             Err(error) => {
-                log_stderr!("warning: failed to create telemetry info window: {error}");
+                log_stderr!("warning: {error}");
                 self.telemetry.track_error(
                     EventName::AppError,
                     serde_json::json!({
@@ -3189,25 +3135,6 @@ impl App {
                 return;
             }
         };
-        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            log_stderr!("warning: missing event loop proxy for telemetry info window");
-            return;
-        };
-        let window_id = window.id();
-        let webview = match WebViewBuilder::new()
-            .with_html(TELEMETRY_INFO_HTML)
-            .with_ipc_handler(move |request: wry::http::Request<String>| {
-                let payload = request.into_body();
-                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
-            })
-            .build_as_child(&window)
-        {
-            Ok(webview) => webview,
-            Err(error) => {
-                log_stderr!("warning: failed to create telemetry info webview: {error}");
-                return;
-            }
-        };
         self.telemetry_info_window = Some(window);
         self.telemetry_info_window_id = Some(window_id);
         self.telemetry_info_webview = Some(webview);
@@ -3215,13 +3142,11 @@ impl App {
     }
 
     fn close_telemetry_info_window(&mut self) {
-        self.telemetry_info_webview = None;
-        self.telemetry_info_window = None;
-        self.telemetry_info_window_id = None;
-    }
-
-    fn show_analytics_modal(&mut self, event_loop: &ActiveEventLoop) {
-        self.open_telemetry_info_window(event_loop);
+        clear_child_window(
+            &mut self.telemetry_info_window,
+            &mut self.telemetry_info_window_id,
+            &mut self.telemetry_info_webview,
+        );
     }
 
     fn handle_telemetry_info_window_event(&mut self, event: WindowEvent) {
@@ -3843,7 +3768,7 @@ impl App {
             .as_ref()
             .and_then(|window| window.current_monitor())
             .map(|monitor| size_presets_for_monitor(&monitor))
-            .unwrap_or([64.0, 96.0, 128.0, 160.0])
+            .unwrap_or(DEFAULT_SIZE_PRESETS)
     }
 
     #[cfg(target_os = "macos")]
@@ -3952,7 +3877,7 @@ impl App {
             MENU_ID_CRASH_OFF => {
                 self.apply_crash_reports_sharing(false);
             }
-            MENU_ID_ANALYTICS_INFO => self.show_analytics_modal(event_loop),
+            MENU_ID_ANALYTICS_INFO => self.open_telemetry_info_window(event_loop),
             MENU_ID_UPDATE_PRIMARY => self.handle_update_primary_action(event_loop),
             MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
             MENU_ID_FILE_BUG_GITHUB => match github_issues_url() {
@@ -4070,7 +3995,7 @@ impl ApplicationHandler<AppEvent> for App {
         let size_presets = startup_monitor
             .as_ref()
             .map(size_presets_for_monitor)
-            .unwrap_or([64.0, 96.0, 128.0, 160.0]);
+            .unwrap_or(DEFAULT_SIZE_PRESETS);
         let init_script = self.build_init_script(size_presets);
         let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
             self.telemetry.track_error(
@@ -4356,6 +4281,57 @@ fn sync_child_webview_bounds(window: Option<&Window>, webview: Option<&WebView>,
     if let Err(error) = webview.set_bounds(bounds) {
         log_stderr!("warning: failed to sync {label} bounds: {error}");
     }
+}
+
+fn focus_existing_child_window(window: Option<&Window>) -> bool {
+    let Some(window) = window else {
+        return false;
+    };
+    window.focus_window();
+    true
+}
+
+fn clear_child_window(
+    window: &mut Option<Window>,
+    window_id: &mut Option<WindowId>,
+    webview: &mut Option<WebView>,
+) {
+    *webview = None;
+    *window = None;
+    *window_id = None;
+}
+
+fn create_fixed_child_window(
+    event_loop: &ActiveEventLoop,
+    event_loop_proxy: Option<&EventLoopProxy<AppEvent>>,
+    title: &str,
+    width: f64,
+    height: f64,
+    html: &str,
+    label: &str,
+) -> Result<(Window, WindowId, WebView), String> {
+    let attrs = Window::default_attributes()
+        .with_title(title)
+        .with_resizable(false)
+        .with_inner_size(LogicalSize::new(width, height))
+        .with_min_inner_size(LogicalSize::new(width, height))
+        .with_max_inner_size(LogicalSize::new(width, height));
+    let window = event_loop
+        .create_window(attrs)
+        .map_err(|error| format!("failed to create {label} window: {error}"))?;
+    let ipc_proxy = event_loop_proxy
+        .cloned()
+        .ok_or_else(|| format!("missing event loop proxy for {label} window"))?;
+    let window_id = window.id();
+    let webview = WebViewBuilder::new()
+        .with_html(html)
+        .with_ipc_handler(move |request: wry::http::Request<String>| {
+            let payload = request.into_body();
+            let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
+        })
+        .build_as_child(&window)
+        .map_err(|error| format!("failed to create {label} webview: {error}"))?;
+    Ok((window, window_id, webview))
 }
 
 #[cfg(unix)]
