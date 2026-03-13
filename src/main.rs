@@ -3493,8 +3493,13 @@ mod tests {
 
     fn clear_external_contact_env() {
         std::env::remove_var("DOWNSHIFT_ENV");
+        std::env::remove_var("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
         std::env::remove_var("DOWNSHIFT_GITHUB_ISSUES_URL");
         std::env::remove_var("DOWNSHIFT_SUPPORT_EMAIL");
+    }
+
+    fn expected_download_release_url() -> &'static str {
+        COMPILED_DOWNLOAD_RELEASE_URL.unwrap_or(UPDATE_DOWNLOAD_FALLBACK_URL)
     }
 
     #[test]
@@ -3527,7 +3532,7 @@ mod tests {
 
         assert_eq!(
             download_release_url().expect("download release url"),
-            UPDATE_DOWNLOAD_FALLBACK_URL
+            expected_download_release_url()
         );
         assert_eq!(
             github_issues_url().expect("github issues url"),
@@ -3547,7 +3552,7 @@ mod tests {
 
         assert_eq!(
             download_release_url().expect("download release url"),
-            UPDATE_DOWNLOAD_FALLBACK_URL
+            expected_download_release_url()
         );
         assert_eq!(
             github_issues_url().expect("github issues url"),
@@ -3564,12 +3569,16 @@ mod tests {
     fn external_contact_values_use_runtime_env_when_set() {
         clear_external_contact_env();
         std::env::set_var("DOWNSHIFT_ENV", "prod");
+        std::env::set_var(
+            "DOWNSHIFT_DOWNLOAD_RELEASE_URL",
+            "https://example.com/download",
+        );
         std::env::set_var("DOWNSHIFT_GITHUB_ISSUES_URL", "https://example.com/issues");
         std::env::set_var("DOWNSHIFT_SUPPORT_EMAIL", "support@example.com");
 
         assert_eq!(
             download_release_url().expect("download release url"),
-            UPDATE_DOWNLOAD_FALLBACK_URL
+            expected_download_release_url()
         );
         assert_eq!(
             github_issues_url().expect("github issues url"),
