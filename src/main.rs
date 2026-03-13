@@ -3060,6 +3060,25 @@ fn heartbeat_interval() -> Duration {
     Duration::from_secs(value)
 }
 
+fn report_abnormal_exit<T: TelemetryClient>(
+    telemetry: &T,
+    reason: SessionEndReason,
+    category: &str,
+) -> std::process::ExitCode {
+    telemetry.track_error(
+        EventName::AppError,
+        serde_json::json!({
+            "category": category,
+            "severity": "error",
+            "recoverable": false,
+        }),
+    );
+    telemetry.end_session(reason);
+    telemetry.flush(Duration::from_secs(2));
+    telemetry.shutdown(Duration::from_secs(2));
+    std::process::ExitCode::from(1)
+}
+
 fn parse_heartbeat_interval_seconds(raw: &str) -> u64 {
     raw.trim()
         .parse::<u64>()
@@ -3245,19 +3264,20 @@ fn main() -> std::process::ExitCode {
     }
 
     let panic_telemetry = RuntimeTelemetryClient::from_env();
+    let panic_telemetry_for_hook = panic_telemetry.clone();
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         log_stderr!("panic: {}", describe_panic(panic_info));
-        panic_telemetry.track_error(
+        panic_telemetry_for_hook.track_error(
             EventName::AppCrash,
             serde_json::json!({
                 "category": "panic",
                 "fatal": true,
             }),
         );
-        panic_telemetry.end_session(SessionEndReason::Panic);
-        panic_telemetry.flush(std::time::Duration::from_secs(2));
-        panic_telemetry.shutdown(std::time::Duration::from_secs(2));
+        panic_telemetry_for_hook.end_session(SessionEndReason::Panic);
+        panic_telemetry_for_hook.flush(std::time::Duration::from_secs(2));
+        panic_telemetry_for_hook.shutdown(std::time::Duration::from_secs(2));
         default_panic_hook(panic_info);
     }));
 
@@ -3268,7 +3288,11 @@ fn main() -> std::process::ExitCode {
         Ok(event_loop) => event_loop,
         Err(error) => {
             log_stderr!("error: failed to create event loop: {error}");
-            return std::process::ExitCode::from(1);
+            return report_abnormal_exit(
+                &panic_telemetry,
+                SessionEndReason::StartupFailure,
+                "event_loop_build",
+            );
         }
     };
     let event_loop_proxy = event_loop.create_proxy();
@@ -3315,20 +3339,22 @@ fn main() -> std::process::ExitCode {
     app.event_loop_proxy = Some(event_loop_proxy);
 
     if let Err(error) = event_loop.run_app(&mut app) {
-        app.finish_session(SessionEndReason::EventLoopFailure);
-        app.telemetry.track_error(
-            EventName::AppError,
-            serde_json::json!({
-                "category": "event_loop",
-                "severity": "error",
-                "recoverable": false,
-            }),
-        );
         log_stderr!("error: app event loop failed: {error}");
-        return std::process::ExitCode::from(1);
+        return report_abnormal_exit(
+            &app.telemetry,
+            SessionEndReason::EventLoopFailure,
+            "event_loop",
+        );
     }
     if let Some(error) = app.startup_error {
         log_stderr!("error: {error}");
+        if !app.session_ended {
+            return report_abnormal_exit(
+                &app.telemetry,
+                SessionEndReason::StartupFailure,
+                "startup",
+            );
+        }
         return std::process::ExitCode::from(1);
     }
     app.finish_session(SessionEndReason::Unknown);
@@ -3531,6 +3557,39 @@ mod tests {
         );
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn abnormal_exit_reports_error_and_session_end() {
+        let captured_usage = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let captured_crash = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let client = RuntimeTelemetryClient::new_with_sinks(
+            telemetry_test_state(),
+            Box::new(CollectingSink {
+                events: captured_usage.clone(),
+            }),
+            Box::new(CollectingSink {
+                events: captured_crash.clone(),
+            }),
+        );
+
+        let exit_code = report_abnormal_exit(&client, SessionEndReason::StartupFailure, "startup");
+
+        assert_eq!(exit_code, std::process::ExitCode::from(1));
+
+        let usage_events = captured_usage.lock().expect("usage events lock");
+        let crash_events = captured_crash.lock().expect("crash events lock");
+
+        assert!(crash_events.iter().any(|event| {
+            event.event_name == EventName::AppError
+                && event.properties["category"] == serde_json::json!("startup")
+                && event.properties["recoverable"] == serde_json::json!(false)
+        }));
+        assert!(usage_events.iter().any(|event| {
+            event.event_name == EventName::SessionEnd
+                && event.properties["reason"] == serde_json::json!("startup_failure")
+                && event.properties["clean_exit"] == serde_json::json!(false)
+        }));
     }
 
     #[test]
