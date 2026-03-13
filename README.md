@@ -210,10 +210,13 @@ recommended release sequence:
 # 1) bump cargo version first
 # edit Cargo.toml -> version = "0.1.0"
 
-# 2) verify packaging + tag sync
+# 2) verify repo state
+make verify-release
+
+# 3) verify packaging + tag sync
 make release-notarized TAG=v0.1.0
 
-# 3) commit, tag, push
+# 4) commit, tag, push
 git add Cargo.toml Cargo.lock Makefile README.md
 git commit -m "release v0.1.0"
 git tag -a v0.1.0 -m "release v0.1.0"

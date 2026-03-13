@@ -776,7 +776,7 @@ impl NativeContextMenu {
         );
         let breathing_coherent = CheckMenuItem::with_id(
             MENU_ID_BREATHING_COHERENT,
-            &format!(
+            format!(
                 "coherent breathing ({})",
                 breathing_pattern_summary(&BreathingPattern::coherent())
             ),
@@ -788,7 +788,7 @@ impl NativeContextMenu {
         );
         let breathing_box = CheckMenuItem::with_id(
             MENU_ID_BREATHING_BOX,
-            &format!(
+            format!(
                 "box breathing ({})",
                 breathing_pattern_summary(&BreathingPattern::box_breathing())
             ),
@@ -800,7 +800,7 @@ impl NativeContextMenu {
         );
         let breathing_479 = CheckMenuItem::with_id(
             MENU_ID_BREATHING_479,
-            &format!(
+            format!(
                 "4-7-9 ({})",
                 breathing_pattern_summary(&BreathingPattern::four_seven_nine())
             ),
@@ -818,8 +818,8 @@ impl NativeContextMenu {
                 (
                     preset.id.clone(),
                     CheckMenuItem::with_id(
-                        &breathing_saved_menu_id(&preset.id),
-                        &format!(
+                        breathing_saved_menu_id(&preset.id),
+                        format!(
                             "{} ({})",
                             preset.name,
                             breathing_pattern_summary(&preset.pattern)
@@ -837,8 +837,8 @@ impl NativeContextMenu {
                 (
                     preset.id.to_string(),
                     MenuItem::with_id(
-                        &breathing_delete_menu_id(preset.id),
-                        &format!(
+                        breathing_delete_menu_id(preset.id),
+                        format!(
                             "{} ({})",
                             preset.name,
                             breathing_pattern_summary(&preset.pattern)
@@ -852,8 +852,8 @@ impl NativeContextMenu {
                 (
                     preset.id.clone(),
                     MenuItem::with_id(
-                        &breathing_delete_menu_id(&preset.id),
-                        &format!(
+                        breathing_delete_menu_id(&preset.id),
+                        format!(
                             "{} ({})",
                             preset.name,
                             breathing_pattern_summary(&preset.pattern)
@@ -1017,7 +1017,7 @@ impl NativeContextMenu {
         breathing_items.push(&breathing_delete_menu);
         let breathing_menu = match Submenu::with_id_and_items(
             MENU_ID_BREATHING_PATTERN,
-            &breathing_pattern_menu_label(),
+            breathing_pattern_menu_label(),
             true,
             &breathing_items,
         ) {
@@ -1130,8 +1130,7 @@ impl NativeContextMenu {
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.size_scroll_hint.set_enabled(false);
         let _ = settings;
-        self.breathing_menu
-            .set_text(&breathing_pattern_menu_label());
+        self.breathing_menu.set_text(breathing_pattern_menu_label());
         self.breathing_coherent
             .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_COHERENT);
         self.breathing_box
@@ -1290,7 +1289,7 @@ impl App {
             .as_ref()
             .and_then(|window| window.current_monitor())
             .map(snapshot_monitor)
-            .or_else(|| self.settings.monitor);
+            .or(self.settings.monitor);
         let monitor = monitor.map(|monitor| {
             format!(
                 "{}x{} @ {:.2}x",
@@ -3408,8 +3407,10 @@ fn main() -> std::process::ExitCode {
         }
     });
 
-    let mut app = App::default();
-    app.event_loop_proxy = Some(event_loop_proxy);
+    let mut app = App {
+        event_loop_proxy: Some(event_loop_proxy),
+        ..App::default()
+    };
 
     if let Err(error) = event_loop.run_app(&mut app) {
         log_stderr!("error: app event loop failed: {error}");
@@ -3680,8 +3681,10 @@ mod tests {
             Box::new(NoopSink),
         );
 
-        let mut app = App::default();
-        app.telemetry = telemetry;
+        let app = App {
+            telemetry,
+            ..App::default()
+        };
         app.telemetry_breathing_pattern_window("add_new_opened");
         app.telemetry_breathing_pattern_window("add_new_canceled");
         app.telemetry.flush(Duration::from_millis(200));
@@ -3748,8 +3751,10 @@ mod tests {
 
     #[test]
     fn resume_from_snooze_restores_active_state_without_pausing() {
-        let mut app = App::default();
-        app.activity_mode = ActivityMode::Snoozed;
+        let mut app = App {
+            activity_mode: ActivityMode::Snoozed,
+            ..App::default()
+        };
         app.settings.paused = true;
         app.snooze_deadline = Some(SystemTime::now() + Duration::from_secs(60));
 
@@ -3761,8 +3766,10 @@ mod tests {
 
     #[test]
     fn resume_from_snooze_is_noop_when_not_snoozed() {
-        let mut app = App::default();
-        app.activity_mode = ActivityMode::Paused;
+        let mut app = App {
+            activity_mode: ActivityMode::Paused,
+            ..App::default()
+        };
         app.settings.paused = true;
 
         assert!(!app.resume_from_snooze());
@@ -3772,8 +3779,10 @@ mod tests {
 
     #[test]
     fn reconcile_snooze_after_resume_expires_elapsed_snooze() {
-        let mut app = App::default();
-        app.activity_mode = ActivityMode::Snoozed;
+        let mut app = App {
+            activity_mode: ActivityMode::Snoozed,
+            ..App::default()
+        };
         app.snooze_deadline = Some(SystemTime::now() - Duration::from_secs(1));
 
         app.reconcile_snooze_after_resume();
@@ -3784,8 +3793,10 @@ mod tests {
 
     #[test]
     fn reconcile_snooze_after_resume_keeps_pending_snooze() {
-        let mut app = App::default();
-        app.activity_mode = ActivityMode::Snoozed;
+        let mut app = App {
+            activity_mode: ActivityMode::Snoozed,
+            ..App::default()
+        };
         app.snooze_deadline = Some(SystemTime::now() + Duration::from_secs(60));
 
         app.reconcile_snooze_after_resume();
@@ -3805,9 +3816,11 @@ mod tests {
         let settings_path = config_dir.join("settings.toml");
         std::fs::write(&settings_path, "this is not toml").expect("write corrupt settings");
 
-        let mut app = App::default();
-        app.config_path = Some(settings_path.clone());
-        app.settings = Settings::default();
+        let mut app = App {
+            config_path: Some(settings_path.clone()),
+            settings: Settings::default(),
+            ..App::default()
+        };
         app.settings.size = 144.0;
         app.settings_load_error = Some("failed to parse settings".to_string());
         app.settings_backup_pending = true;

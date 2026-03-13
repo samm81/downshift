@@ -33,6 +33,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
 	app app-no-telemetry \
+	verify-rust verify-release \
 	sign-app \
 	generate-app-icon \
 	generate-dmg-background \
@@ -48,6 +49,14 @@ RUN_RESET := $(filter 1,$(RESET))
 	require-notarization-env release release-no-telemetry release-notarized clean
 
 all: app
+
+verify-rust:
+	cargo fmt --check
+	cargo test
+	cargo clippy --all-targets -- -D warnings
+
+verify-release: verify-rust
+	npm run check
 
 require-telemetry-env:
 	@if [ -z "$${DOWNSHIFT_TELEMETRY_ENABLED}" ]; then \

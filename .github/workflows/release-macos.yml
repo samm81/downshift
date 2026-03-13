@@ -70,9 +70,15 @@ jobs:
 
       - name: setup rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: cache cargo
         uses: Swatinem/rust-cache@v2
+
+      - name: verify repo
+        run: |
+          make verify-release
 
       - name: build signed release assets
         run: |

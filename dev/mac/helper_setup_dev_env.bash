@@ -25,10 +25,10 @@ ensure_rust() {
   curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
 }
 
-ensure_rustfmt() {
-  have rustup || die "rustup is required to install rustfmt"
-  log "ensuring rustfmt component is installed"
-  rustup component add rustfmt
+ensure_rust_components() {
+  have rustup || die "rustup is required to install rust components"
+  log "ensuring rustfmt and clippy components are installed"
+  rustup component add rustfmt clippy
 }
 
 load_rust_env_if_present() {
@@ -73,12 +73,12 @@ install_prereqs() {
   install_with_brew cliclick
   ensure_rust
   load_rust_env_if_present
-  ensure_rustfmt
+  ensure_rust_components
 }
 
 verify_tools() {
   local missing=()
-  for tool in shellcheck shfmt pre-commit node npm codex cargo rustc rustfmt cliclick; do
+  for tool in shellcheck shfmt pre-commit node npm codex cargo rustc rustfmt cargo-clippy cliclick; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -106,6 +106,7 @@ show_versions() {
   log "cargo: $(cargo --version)"
   log "rustc: $(rustc --version)"
   log "rustfmt: $(rustfmt --version)"
+  log "clippy: $(cargo clippy --version)"
 }
 
 install_prereqs

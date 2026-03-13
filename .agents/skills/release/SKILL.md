@@ -13,15 +13,17 @@ execute each step in order and stop immediately on any failed precondition.
 2. run `git branch --show-current` and require `mac`.
 3. run `git status --porcelain --untracked-files=no` and require empty output.
 4. if branch is not `mac` or tracked changes are present, stop and report to user. untracked files do not block the release flow.
-5. bump project version using the repo's normal version location and format.
-6. commit the version bump.
-7. update local `main` from `origin`.
-8. rebase current `mac` branch on updated `main`.
-9. switch to `main`.
-10. rebase `main` on `mac`.
-11. push branches required by the repo workflow.
-12. create and push release tag exactly as documented in `README.md`.
-13. switch back to `mac`.
+5. run the full repo verification pass required for releases.
+6. use `make verify-release` and require success before continuing.
+7. bump project version using the repo's normal version location and format.
+8. commit the version bump.
+9. update local `main` from `origin`.
+10. rebase current `mac` branch on updated `main`.
+11. switch to `main`.
+12. rebase `main` on `mac`.
+13. push branches required by the repo workflow.
+14. create and push release tag exactly as documented in `README.md`.
+15. switch back to `mac`.
 
 ## execution details
 
