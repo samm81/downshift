@@ -55,6 +55,12 @@ reset saved position/settings before launching:
 make run RESET=1
 ```
 
+default macos config dir:
+
+- `~/Library/Application Support/downshift/`
+- `settings.toml` is stored there by default
+- `telemetry.toml` is stored there by default unless `DOWNSHIFT_TELEMETRY_DIR` overrides it
+
 telemetry build vars (alpha analytics):
 
 ```bash
