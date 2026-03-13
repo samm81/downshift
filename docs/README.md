@@ -6,7 +6,7 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 
 - `index.html`: single-page landing structure and content
 - `styles.css`: desktop-first styling
-- `script.js`: release sync enhancement + plausible event tracking (no product-copy overrides)
+- `script.js`: release sync enhancement (no product-copy overrides)
 - `assets/icon.png`: placeholder app icon (locally generated)
 - `assets/mac-desktop-generic.svg`: placeholder desktop preview backdrop (locally generated)
 
@@ -14,7 +14,7 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 
 - `index.html` is the source of truth for all user-visible product narrative and baseline links.
 - the page must remain coherent and usable with JavaScript disabled.
-- `script.js` may only enhance behavior that cannot be done statically (latest release fetch, analytics wiring).
+- `script.js` may only enhance behavior that cannot be done statically (latest release fetch).
 - do not add JS-driven overrides for brand/product copy like app name, tagline, hero text, or trust claims.
 
 ## placeholder asset source/license
@@ -62,26 +62,6 @@ edit `index.html` and set:
 edit `index.html` data attributes for JS enhancement:
 
 - `#download[data-github-api-latest-release]`
-
-## plausible analytics setup
-
-`index.html` includes the Plausible script tag directly (`https://plausible.io/js/pa-....js`).
-if you rotate or replace your Plausible site script id, update that script URL in `index.html`.
-
-tracked custom events:
-
-- `download_click`
-- `checksum_click`
-- `email_capture_click`
-- `faq_open`
-- `github_click`
-- `release_notes_click`
-
-### verify events
-
-1. open the published page in a browser.
-2. click download/checksum/release notes/email/github links and open any FAQ item.
-3. in Plausible, check **Events** for the custom event names above.
 
 ## notes
 

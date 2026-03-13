@@ -30,6 +30,8 @@ the mac provisioning flow must install and verify `codex` on the remote macos ho
 
 once the environment is ready, the agent should proceed with normal repo tasks (editing files, running project commands, tests, and checks) in the current local checkout.
 
+- keep `telemetry.md` up to date whenever app telemetry, site analytics, telemetry sinks, event names, payloads, or privacy controls change
+
 ## env handling rule
 
 - app/runtime code must not load, parse, or reference `.env` or any `.env.*` files.

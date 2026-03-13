@@ -9,32 +9,6 @@ const dom = {
   checksumLink: document.getElementById("checksum-link"),
 };
 
-function safeTrack(eventName) {
-  if (typeof window.plausible === "function") {
-    window.plausible(eventName);
-  }
-}
-
-function wireTrackedClicks() {
-  const tracked = document.querySelectorAll("[data-track]");
-  tracked.forEach((el) => {
-    el.addEventListener("click", () => {
-      safeTrack(el.getAttribute("data-track"));
-    });
-  });
-}
-
-function wireFaqOpens() {
-  const faqItems = document.querySelectorAll("#faq details");
-  faqItems.forEach((item) => {
-    item.addEventListener("toggle", () => {
-      if (item.open) {
-        safeTrack("faq_open");
-      }
-    });
-  });
-}
-
 function wireDraggableDemoBall() {
   const stage = document.querySelector(".demo-stage");
   const ball = document.querySelector(".demo-ball");
@@ -189,7 +163,5 @@ async function loadLatestRelease() {
   }
 }
 
-wireTrackedClicks();
-wireFaqOpens();
 wireDraggableDemoBall();
 loadLatestRelease();
