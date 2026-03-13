@@ -54,6 +54,8 @@ const DEFAULT_GITHUB_ISSUES_URL: &str = "github-issues-url-not-set";
 const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
 const UPDATE_TOOLTIP: &str = "new version available";
 const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
+const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
+const COMPILED_TELEMETRY_ENABLED: Option<&str> = option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
 const COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC: Option<&str> =
     option_env!("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC");
 const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> = option_env!("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
@@ -444,6 +446,21 @@ fn optional_env_value(name: &str, compiled: Option<&str>) -> Option<String> {
         .or_else(|| compiled.map(str::to_string))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn runtime_env_label() -> String {
+    optional_env_value("DOWNSHIFT_ENV", None).unwrap_or_else(|| "unset".to_string())
+}
+
+fn build_channel_label() -> String {
+    optional_env_value("DOWNSHIFT_BUILD_CHANNEL", COMPILED_BUILD_CHANNEL)
+        .unwrap_or_else(|| "unset".to_string())
+}
+
+fn telemetry_globally_enabled() -> bool {
+    optional_env_value("DOWNSHIFT_TELEMETRY_ENABLED", COMPILED_TELEMETRY_ENABLED)
+        .map(|raw| !matches!(raw.to_ascii_lowercase().as_str(), "0" | "false" | "off"))
+        .unwrap_or(true)
 }
 
 fn resolve_compiled_setting(compiled: Option<&str>, fallback: &str) -> Result<String, String> {
@@ -1178,6 +1195,7 @@ struct App {
     session_ended: bool,
     settings_load_error: Option<String>,
     settings_backup_pending: bool,
+    startup_provenance: String,
     updates: UpdateUiState,
     manual_update_check_in_flight: bool,
 }
@@ -1219,6 +1237,7 @@ impl Default for App {
             session_ended: false,
             settings_load_error: None,
             settings_backup_pending: false,
+            startup_provenance: "unknown".to_string(),
             updates: UpdateUiState::default(),
             manual_update_check_in_flight: false,
         }
@@ -1252,12 +1271,59 @@ impl App {
     }
 
     fn diagnostics_snapshot(&self) -> diagnostics::DiagnosticsSnapshot {
+        let executable_path = std::env::current_exe()
+            .ok()
+            .map(|path| path.display().to_string());
+        let window_position = self.current_window_logical_position().map(|position| {
+            format!(
+                "x={}, y={}",
+                position.x.round() as i32,
+                position.y.round() as i32
+            )
+        });
+        let window_scale_factor = self
+            .window
+            .as_ref()
+            .map(|window| format!("{:.2}", window.scale_factor()));
+        let monitor = self
+            .window
+            .as_ref()
+            .and_then(|window| window.current_monitor())
+            .map(snapshot_monitor)
+            .or_else(|| self.settings.monitor);
+        let monitor = monitor.map(|monitor| {
+            format!(
+                "{}x{} @ {:.2}x",
+                monitor.width, monitor.height, monitor.scale_factor
+            )
+        });
+        let (width_px, height_px) = self.widget_dimensions_px();
         diagnostics::DiagnosticsSnapshot {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
+            build_channel: build_channel_label(),
+            env: runtime_env_label(),
             os_version: current_os_version(),
             arch: std::env::consts::ARCH.to_string(),
             runtime_state: self.current_activity_label().to_string(),
+            startup_provenance: self.startup_provenance.clone(),
+            settings_load_status: self
+                .settings_load_error
+                .clone()
+                .unwrap_or_else(|| "ok".to_string()),
+            telemetry_global_enabled: telemetry_globally_enabled(),
+            usage_sharing_enabled: self.settings.usage_data_sharing,
+            crash_reports_enabled: self.settings.crash_reports_sharing,
+            telemetry_install_first_run: self.telemetry_install_first_run,
+            executable_path,
+            settings_path: self
+                .config_path
+                .as_ref()
+                .map(|path| path.display().to_string()),
             log_path: diagnostics::log_path().map(|path| path.display().to_string()),
+            window_position,
+            window_size_px: format!("{width_px}x{height_px}"),
+            window_scale_factor,
+            monitor,
             settings_toml: toml::to_string_pretty(&self.settings)
                 .unwrap_or_else(|error| format!("serialization_error = {:?}", error.to_string())),
         }
@@ -2734,6 +2800,13 @@ impl ApplicationHandler<AppEvent> for App {
         self.settings = settings_load_result.settings;
         self.settings_load_error = settings_load_result.load_error;
         self.settings_backup_pending = self.settings_load_error.is_some();
+        self.startup_provenance = if self.settings_load_error.is_some() {
+            "fallback_after_settings_error".to_string()
+        } else if settings_exist {
+            "restored_settings".to_string()
+        } else {
+            "fresh_defaults".to_string()
+        };
         if let Some(error) = self.settings_load_error.as_ref() {
             log_stderr!("warning: {error}");
         }

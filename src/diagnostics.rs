@@ -105,10 +105,24 @@ fn log_dir() -> PathBuf {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiagnosticsSnapshot {
     pub app_version: String,
+    pub build_channel: String,
+    pub env: String,
     pub os_version: String,
     pub arch: String,
     pub runtime_state: String,
+    pub startup_provenance: String,
+    pub settings_load_status: String,
+    pub telemetry_global_enabled: bool,
+    pub usage_sharing_enabled: bool,
+    pub crash_reports_enabled: bool,
+    pub telemetry_install_first_run: bool,
+    pub executable_path: Option<String>,
+    pub settings_path: Option<String>,
     pub log_path: Option<String>,
+    pub window_position: Option<String>,
+    pub window_size_px: String,
+    pub window_scale_factor: Option<String>,
+    pub monitor: Option<String>,
     pub settings_toml: String,
 }
 
@@ -116,12 +130,49 @@ pub fn build_summary(snapshot: &DiagnosticsSnapshot) -> String {
     let mut lines = vec![
         "downshift diagnostics".to_string(),
         format!("app_version = {:?}", snapshot.app_version),
+        format!("build_channel = {:?}", snapshot.build_channel),
+        format!("env = {:?}", snapshot.env),
         format!("os_version = {:?}", snapshot.os_version),
         format!("arch = {:?}", snapshot.arch),
         format!("runtime_state = {:?}", snapshot.runtime_state),
+        format!("startup_provenance = {:?}", snapshot.startup_provenance),
+        format!("settings_load_status = {:?}", snapshot.settings_load_status),
+        format!(
+            "telemetry_global_enabled = {:?}",
+            snapshot.telemetry_global_enabled
+        ),
+        format!(
+            "usage_sharing_enabled = {:?}",
+            snapshot.usage_sharing_enabled
+        ),
+        format!(
+            "crash_reports_enabled = {:?}",
+            snapshot.crash_reports_enabled
+        ),
+        format!(
+            "telemetry_install_first_run = {:?}",
+            snapshot.telemetry_install_first_run
+        ),
     ];
+    if let Some(path) = snapshot.executable_path.as_ref() {
+        lines.push(format!("executable_path = {:?}", path));
+    }
+    if let Some(path) = snapshot.settings_path.as_ref() {
+        lines.push(format!("settings_path = {:?}", path));
+    }
     if let Some(path) = snapshot.log_path.as_ref() {
         lines.push(format!("log_path = {:?}", path));
+    }
+    lines.extend([String::new(), "[window]".to_string()]);
+    if let Some(position) = snapshot.window_position.as_ref() {
+        lines.push(format!("position = {:?}", position));
+    }
+    lines.push(format!("size_px = {:?}", snapshot.window_size_px));
+    if let Some(scale_factor) = snapshot.window_scale_factor.as_ref() {
+        lines.push(format!("scale_factor = {:?}", scale_factor));
+    }
+    if let Some(monitor) = snapshot.monitor.as_ref() {
+        lines.push(format!("monitor = {:?}", monitor));
     }
     lines.extend([
         String::new(),
@@ -148,10 +199,28 @@ mod tests {
     fn build_summary_includes_runtime_and_settings_dump() {
         let summary = build_summary(&DiagnosticsSnapshot {
             app_version: "0.1.12".to_string(),
+            build_channel: "alpha".to_string(),
+            env: "dev".to_string(),
             os_version: "macOS 15.4".to_string(),
             arch: "aarch64".to_string(),
             runtime_state: "active".to_string(),
+            startup_provenance: "restored_settings".to_string(),
+            settings_load_status: "ok".to_string(),
+            telemetry_global_enabled: true,
+            usage_sharing_enabled: true,
+            crash_reports_enabled: false,
+            telemetry_install_first_run: false,
+            executable_path: Some(
+                "/Applications/Downshift.app/Contents/MacOS/downshift".to_string(),
+            ),
+            settings_path: Some(
+                "/Users/m1/Library/Application Support/downshift/settings.toml".to_string(),
+            ),
             log_path: Some("/tmp/downshift.log".to_string()),
+            window_position: Some("x=240, y=32".to_string()),
+            window_size_px: "96x96".to_string(),
+            window_scale_factor: Some("2.00".to_string()),
+            monitor: Some("1728x1117 @ 2.00x".to_string()),
             settings_toml: [
                 "size = 96.0",
                 "[breathing_pattern]",
@@ -162,8 +231,20 @@ mod tests {
         });
 
         assert!(summary.contains(r#"app_version = "0.1.12""#));
+        assert!(summary.contains(r#"build_channel = "alpha""#));
+        assert!(summary.contains(r#"env = "dev""#));
+        assert!(summary.contains(r#"startup_provenance = "restored_settings""#));
+        assert!(summary.contains(r#"settings_load_status = "ok""#));
+        assert!(summary.contains(r#"usage_sharing_enabled = true"#));
+        assert!(summary.contains(r#"crash_reports_enabled = false"#));
+        assert!(summary.contains(
+            r#"settings_path = "/Users/m1/Library/Application Support/downshift/settings.toml""#
+        ));
         assert!(summary.contains(r#"runtime_state = "active""#));
         assert!(summary.contains(r#"log_path = "/tmp/downshift.log""#));
+        assert!(summary.contains("[window]"));
+        assert!(summary.contains(r#"position = "x=240, y=32""#));
+        assert!(summary.contains(r#"monitor = "1728x1117 @ 2.00x""#));
         assert!(summary.contains("[settings]"));
         assert!(summary.contains("expanding_seconds = 5.5"));
     }
