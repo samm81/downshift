@@ -36,6 +36,7 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 
 - app/runtime code must not load, parse, or reference `.env` or any `.env.*` files.
 - app/runtime code may only read environment variables provided by the process environment (including compile-time `option_env!` fallbacks when explicitly intended).
+- prod-only release/build metadata must fail during compilation or build-script execution, never by aborting app startup at runtime.
 
 ## testing
 

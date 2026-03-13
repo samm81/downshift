@@ -82,6 +82,7 @@ export DOWNSHIFT_DOWNLOAD_RELEASE_URL='https://github.com/samm81/downshift/relea
 ```
 
 these values are compiled into the app binary via `option_env!`. changing them after the binary is built has no effect; rebuild the app to pick up new values.
+when `DOWNSHIFT_ENV=prod`, missing required build-time values fail the build in `build.rs`; they do not fail later at app startup.
 when `DOWNSHIFT_ENV=prod`, these build-time values are required:
 
 - `DOWNSHIFT_BUILD_CHANNEL`
