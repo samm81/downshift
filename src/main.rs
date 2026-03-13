@@ -20,6 +20,7 @@ use semver::Version;
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::panic::PanicHookInfo;
 #[cfg(target_os = "macos")]
 use std::path::Path;
 use std::path::PathBuf;
@@ -138,7 +139,7 @@ const MENU_ID_FILE_BUG_EMAIL: &str = "file_bug_email";
 macro_rules! log_stderr {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
-        eprintln!("{message}");
+        diagnostics::log_line("ERROR", &message);
     }};
 }
 
@@ -1357,6 +1358,7 @@ impl App {
             os_version: current_os_version(),
             arch: std::env::consts::ARCH.to_string(),
             runtime_state: self.current_activity_label().to_string(),
+            log_path: diagnostics::log_path().map(|path| path.display().to_string()),
             settings_toml: toml::to_string_pretty(&self.settings)
                 .unwrap_or_else(|error| format!("serialization_error = {:?}", error.to_string())),
         }
@@ -3335,6 +3337,14 @@ fn size_slot_for_menu_id(id: &str) -> Option<usize> {
 }
 
 fn main() -> std::process::ExitCode {
+    match diagnostics::init_logging() {
+        Ok(path) => diagnostics::log_line(
+            "INFO",
+            &format!("logging initialized at {}", path.display()),
+        ),
+        Err(error) => eprintln!("failed to initialize diagnostics logging: {error}"),
+    }
+
     if let Err(error) = validate_build_metadata_config() {
         log_stderr!("error: {error}");
         return std::process::ExitCode::from(1);
@@ -3343,7 +3353,7 @@ fn main() -> std::process::ExitCode {
     let panic_telemetry = RuntimeTelemetryClient::from_env();
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        let _ = panic_info;
+        log_stderr!("panic: {}", describe_panic(panic_info));
         panic_telemetry.track_error(
             EventName::AppCrash,
             serde_json::json!({
@@ -3429,6 +3439,23 @@ fn main() -> std::process::ExitCode {
     }
     app.finish_session(SessionEndReason::Unknown);
     std::process::ExitCode::SUCCESS
+}
+
+fn describe_panic(panic_info: &PanicHookInfo<'_>) -> String {
+    let location = panic_info
+        .location()
+        .map(|location| format!("{}:{}", location.file(), location.line()))
+        .unwrap_or_else(|| "unknown location".to_string());
+
+    let payload = if let Some(message) = panic_info.payload().downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = panic_info.payload().downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    };
+
+    format!("{payload} ({location})")
 }
 
 #[cfg(test)]
