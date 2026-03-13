@@ -1,0 +1,84 @@
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #f7f9fc;
+  color: #18202a;
+  font:
+    13px/1.45 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+body {
+  display: grid;
+  align-content: center;
+  justify-items: stretch;
+  gap: 14px;
+  padding: 18px;
+  box-sizing: border-box;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 2px solid #b9c8e9;
+  border-top-color: #2f6bdb;
+  animation: spin 0.9s linear infinite;
+}
+
+.spinner[hidden] {
+  display: none;
+}
+
+.message {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font: inherit;
+  cursor: default;
+}
+
+button.secondary {
+  background: #dce5f7;
+  color: #24324d;
+}
+
+button.primary {
+  background: #2f6bdb;
+  color: #fff;
+}
+
+button[hidden] {
+  display: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

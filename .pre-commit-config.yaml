@@ -24,3 +24,13 @@ repos:
         entry: ./node_modules/.bin/markdownlint-cli2
         language: system
         pass_filenames: false
+      - id: eslint-ui
+        name: eslint ui
+        entry: ./node_modules/.bin/eslint 'src/ui/**/*.js'
+        language: system
+        pass_filenames: false
+      - id: stylelint-ui
+        name: stylelint ui
+        entry: ./node_modules/.bin/stylelint 'src/ui/**/*.css'
+        language: system
+        pass_filenames: false

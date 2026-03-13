@@ -1,0 +1,44 @@
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #f7f9fc;
+  color: #18202a;
+  font:
+    13px/1.45 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+body {
+  display: grid;
+  align-content: center;
+  justify-items: stretch;
+  padding: 18px;
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+p {
+  margin: 0 0 12px;
+}
+
+button {
+  justify-self: end;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 14px;
+  background: #2f6bdb;
+  color: #fff;
+  font: inherit;
+}

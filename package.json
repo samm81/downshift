@@ -8,13 +8,20 @@
     "fmt:check:web": "prettier --check 'src/ui/**/*.{html,css,js}'",
     "fmt:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -w -i 2 -ci",
     "fmt:check:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shfmt -d -i 2 -ci",
+    "lint:web:js": "eslint 'src/ui/**/*.js'",
+    "lint:web:css": "stylelint 'src/ui/**/*.css'",
     "lint:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shellcheck --external-sources",
     "lint:md": "markdownlint-cli2",
-    "lint": "npm run lint:shell && npm run lint:md",
+    "lint": "npm run lint:web:js && npm run lint:web:css && npm run lint:shell && npm run lint:md",
     "check": "npm run fmt:check:web && npm run fmt:check:shell && npm run lint"
   },
   "devDependencies": {
+    "@eslint/js": "^9.23.0",
+    "eslint": "^9.23.0",
+    "globals": "^16.0.0",
     "markdownlint-cli2": "^0.21.0",
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "stylelint": "^16.24.0",
+    "stylelint-config-standard": "^39.0.0"
   }
 }

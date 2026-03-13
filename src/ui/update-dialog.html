@@ -4,78 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      :root {
-        color-scheme: light;
-      }
-      html,
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        background: #f7f9fc;
-        color: #18202a;
-        font:
-          13px/1.45 -apple-system,
-          BlinkMacSystemFont,
-          "Segoe UI",
-          sans-serif;
-      }
-      body {
-        display: grid;
-        align-content: center;
-        justify-items: stretch;
-        gap: 14px;
-        padding: 18px;
-        box-sizing: border-box;
-      }
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-height: 42px;
-      }
-      .spinner {
-        width: 14px;
-        height: 14px;
-        border-radius: 9999px;
-        border: 2px solid #b9c8e9;
-        border-top-color: #2f6bdb;
-        animation: spin 0.9s linear infinite;
-      }
-      .spinner[hidden] {
-        display: none;
-      }
-      .message {
-        margin: 0;
-      }
-      .actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-      }
-      button {
-        border: 0;
-        border-radius: 8px;
-        padding: 7px 14px;
-        font: inherit;
-        cursor: default;
-      }
-      button.secondary {
-        background: #dce5f7;
-        color: #24324d;
-      }
-      button.primary {
-        background: #2f6bdb;
-        color: #fff;
-      }
-      button[hidden] {
-        display: none;
-      }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
+      __DOWNSHIFT_INLINE_STYLE__
     </style>
   </head>
   <body>
@@ -88,46 +17,7 @@
       <button class="primary" id="download" hidden>download</button>
     </div>
     <script>
-      (() => {
-        const spinner = document.getElementById("spinner");
-        const message = document.getElementById("message");
-        const okButton = document.getElementById("ok");
-        const downloadButton = document.getElementById("download");
-
-        function post(payload) {
-          if (window.ipc && typeof window.ipc.postMessage === "function") {
-            window.ipc.postMessage(JSON.stringify(payload));
-          }
-        }
-
-        window.updateDialogApplyState = function (next) {
-          const state = next || {};
-          const mode = String(state.mode || "checking");
-          if (mode === "checking") {
-            spinner.hidden = false;
-            message.textContent = "checking for updates...";
-            downloadButton.hidden = true;
-            return;
-          }
-          spinner.hidden = true;
-          if (mode === "available") {
-            const latest = state.latest_version || "latest";
-            message.textContent = `new update available (${latest})`;
-            downloadButton.hidden = false;
-            return;
-          }
-          message.textContent = "you are on the latest version!";
-          downloadButton.hidden = true;
-        };
-
-        okButton.addEventListener("click", () => {
-          post({ cmd: "close_update_dialog" });
-        });
-
-        downloadButton.addEventListener("click", () => {
-          post({ cmd: "download_update" });
-        });
-      })();
+      __DOWNSHIFT_INLINE_SCRIPT__;
     </script>
   </body>
 </html>

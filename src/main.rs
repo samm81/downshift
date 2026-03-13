@@ -1,6 +1,6 @@
 use downshift::telemetry::{
-    menu_action_size_target, telemetry_state, ActivityState, ActivityTrigger, EventName, MenuAction,
-    RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,
+    menu_action_size_target, telemetry_state, ActivityState, ActivityTrigger, EventName,
+    MenuAction, RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,
 };
 use downshift::{
     apply_resize_step, built_in_breathing_preset, built_in_breathing_presets, clamp_size,
@@ -23,6 +23,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 #[cfg(target_os = "macos")]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
@@ -215,11 +216,84 @@ fn remove_launch_agent(path: &Path) -> Result<(), String> {
     }
 }
 
-const BREATH_HTML: &str = include_str!("ui/breath.html");
-const TELEMETRY_INFO_HTML: &str = include_str!("ui/telemetry-info.html");
-const UPDATE_DIALOG_HTML: &str = include_str!("ui/update-dialog.html");
-const CUSTOM_SNOOZE_HTML: &str = include_str!("ui/custom-snooze.html");
-const BREATHING_PATTERN_HTML: &str = include_str!("ui/breathing-pattern.html");
+const INLINE_STYLE_PLACEHOLDER: &str = "__DOWNSHIFT_INLINE_STYLE__";
+const INLINE_SCRIPT_PLACEHOLDER: &str = "__DOWNSHIFT_INLINE_SCRIPT__";
+
+const BREATH_HTML_TEMPLATE: &str = include_str!("ui/breath.html");
+const BREATH_CSS: &str = include_str!("ui/breath.css");
+const BREATH_JS: &str = include_str!("ui/breath.js");
+
+const TELEMETRY_INFO_HTML_TEMPLATE: &str = include_str!("ui/telemetry-info.html");
+const TELEMETRY_INFO_CSS: &str = include_str!("ui/telemetry-info.css");
+const TELEMETRY_INFO_JS: &str = include_str!("ui/telemetry-info.js");
+
+const UPDATE_DIALOG_HTML_TEMPLATE: &str = include_str!("ui/update-dialog.html");
+const UPDATE_DIALOG_CSS: &str = include_str!("ui/update-dialog.css");
+const UPDATE_DIALOG_JS: &str = include_str!("ui/update-dialog.js");
+
+const CUSTOM_SNOOZE_HTML_TEMPLATE: &str = include_str!("ui/custom-snooze.html");
+const CUSTOM_SNOOZE_CSS: &str = include_str!("ui/custom-snooze.css");
+const CUSTOM_SNOOZE_JS: &str = include_str!("ui/custom-snooze.js");
+
+const BREATHING_PATTERN_HTML_TEMPLATE: &str = include_str!("ui/breathing-pattern.html");
+const BREATHING_PATTERN_CSS: &str = include_str!("ui/breathing-pattern.css");
+const BREATHING_PATTERN_JS: &str = include_str!("ui/breathing-pattern.js");
+
+static BREATH_HTML: OnceLock<String> = OnceLock::new();
+static TELEMETRY_INFO_HTML: OnceLock<String> = OnceLock::new();
+static UPDATE_DIALOG_HTML: OnceLock<String> = OnceLock::new();
+static CUSTOM_SNOOZE_HTML: OnceLock<String> = OnceLock::new();
+static BREATHING_PATTERN_HTML: OnceLock<String> = OnceLock::new();
+
+fn inline_ui_assets(template: &str, css: &str, js: &str) -> String {
+    template
+        .replace(INLINE_STYLE_PLACEHOLDER, css.trim())
+        .replace(INLINE_SCRIPT_PLACEHOLDER, js.trim())
+}
+
+fn breath_html() -> &'static str {
+    BREATH_HTML.get_or_init(|| inline_ui_assets(BREATH_HTML_TEMPLATE, BREATH_CSS, BREATH_JS))
+}
+
+fn telemetry_info_html() -> &'static str {
+    TELEMETRY_INFO_HTML.get_or_init(|| {
+        inline_ui_assets(
+            TELEMETRY_INFO_HTML_TEMPLATE,
+            TELEMETRY_INFO_CSS,
+            TELEMETRY_INFO_JS,
+        )
+    })
+}
+
+fn update_dialog_html() -> &'static str {
+    UPDATE_DIALOG_HTML.get_or_init(|| {
+        inline_ui_assets(
+            UPDATE_DIALOG_HTML_TEMPLATE,
+            UPDATE_DIALOG_CSS,
+            UPDATE_DIALOG_JS,
+        )
+    })
+}
+
+fn custom_snooze_html() -> &'static str {
+    CUSTOM_SNOOZE_HTML.get_or_init(|| {
+        inline_ui_assets(
+            CUSTOM_SNOOZE_HTML_TEMPLATE,
+            CUSTOM_SNOOZE_CSS,
+            CUSTOM_SNOOZE_JS,
+        )
+    })
+}
+
+fn breathing_pattern_html() -> &'static str {
+    BREATHING_PATTERN_HTML.get_or_init(|| {
+        inline_ui_assets(
+            BREATHING_PATTERN_HTML_TEMPLATE,
+            BREATHING_PATTERN_CSS,
+            BREATHING_PATTERN_JS,
+        )
+    })
+}
 
 #[derive(Debug, Clone)]
 enum AppEvent {
@@ -1139,7 +1213,8 @@ impl NativeContextMenu {
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.size_scroll_hint.set_enabled(false);
         let _ = settings;
-        self.breathing_menu.set_text(&breathing_pattern_menu_label());
+        self.breathing_menu
+            .set_text(&breathing_pattern_menu_label());
         self.breathing_coherent
             .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_COHERENT);
         self.breathing_box
@@ -1532,11 +1607,7 @@ impl App {
     }
 
     fn sync_webview_bounds(&self) {
-        sync_child_webview_bounds(
-            self.window.as_ref(),
-            self.webview.as_ref(),
-            "main webview",
-        );
+        sync_child_webview_bounds(self.window.as_ref(), self.webview.as_ref(), "main webview");
     }
 
     fn sync_telemetry_info_webview_bounds(&self) {
@@ -1726,7 +1797,7 @@ impl App {
             "updates",
             360.0,
             168.0,
-            UPDATE_DIALOG_HTML,
+            update_dialog_html(),
             "update dialog",
         ) {
             Ok(bundle) => bundle,
@@ -1824,7 +1895,7 @@ impl App {
             "custom snooze",
             320.0,
             144.0,
-            CUSTOM_SNOOZE_HTML,
+            custom_snooze_html(),
             "custom snooze",
         ) {
             Ok(bundle) => bundle,
@@ -1901,7 +1972,7 @@ impl App {
             "add breathing pattern",
             420.0,
             340.0,
-            BREATHING_PATTERN_HTML,
+            breathing_pattern_html(),
             "breathing pattern",
         ) {
             Ok(bundle) => bundle,
@@ -1960,7 +2031,7 @@ impl App {
             "what we collect",
             420.0,
             240.0,
-            TELEMETRY_INFO_HTML,
+            telemetry_info_html(),
             "telemetry info",
         ) {
             Ok(bundle) => bundle,
@@ -2850,7 +2921,7 @@ impl ApplicationHandler<AppEvent> for App {
             return;
         };
         let webview_result = WebViewBuilder::new()
-            .with_html(BREATH_HTML)
+            .with_html(breath_html())
             .with_transparent(true)
             .with_initialization_script(&init_script)
             .with_ipc_handler(move |request: wry::http::Request<String>| {
@@ -3680,6 +3751,20 @@ mod tests {
         );
         assert_eq!(InstanceCommand::Activate.as_bytes(), b"activate\n");
         assert_eq!(InstanceCommand::parse("nope"), None);
+    }
+
+    #[test]
+    fn inline_ui_assets_replaces_style_and_script_placeholders() {
+        let html = inline_ui_assets(
+            "<style>__DOWNSHIFT_INLINE_STYLE__</style><script>__DOWNSHIFT_INLINE_SCRIPT__</script>",
+            "\nbody { color: red; }\n",
+            "\nconsole.log('ok');\n",
+        );
+
+        assert_eq!(
+            html,
+            "<style>body { color: red; }</style><script>console.log('ok');</script>"
+        );
     }
 
     #[test]
