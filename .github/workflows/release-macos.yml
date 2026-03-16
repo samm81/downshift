@@ -73,6 +73,16 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: install node dependencies
+        run: |
+          npm ci
+
       - name: cache cargo
         uses: Swatinem/rust-cache@v2
 
