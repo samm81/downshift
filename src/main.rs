@@ -3502,6 +3502,14 @@ mod tests {
         COMPILED_DOWNLOAD_RELEASE_URL.unwrap_or(UPDATE_DOWNLOAD_FALLBACK_URL)
     }
 
+    fn expected_github_issues_url() -> &'static str {
+        COMPILED_GITHUB_ISSUES_URL.unwrap_or(DEFAULT_GITHUB_ISSUES_URL)
+    }
+
+    fn expected_support_email() -> &'static str {
+        COMPILED_SUPPORT_EMAIL.unwrap_or(DEFAULT_SUPPORT_EMAIL)
+    }
+
     #[test]
     fn heartbeat_interval_defaults_to_sixty_seconds() {
         assert_eq!(parse_heartbeat_interval_seconds(""), 60);
@@ -3536,11 +3544,11 @@ mod tests {
         );
         assert_eq!(
             github_issues_url().expect("github issues url"),
-            DEFAULT_GITHUB_ISSUES_URL
+            expected_github_issues_url()
         );
         assert_eq!(
             support_email_address().expect("support email"),
-            DEFAULT_SUPPORT_EMAIL
+            expected_support_email()
         );
     }
 
@@ -3556,11 +3564,11 @@ mod tests {
         );
         assert_eq!(
             github_issues_url().expect("github issues url"),
-            DEFAULT_GITHUB_ISSUES_URL
+            expected_github_issues_url()
         );
         assert_eq!(
             support_email_address().expect("support email"),
-            DEFAULT_SUPPORT_EMAIL
+            expected_support_email()
         );
     }
 
