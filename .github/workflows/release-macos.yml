@@ -83,6 +83,10 @@ jobs:
         run: |
           npm ci
 
+      - name: install shell tooling
+        run: |
+          brew install shellcheck shfmt
+
       - name: cache cargo
         uses: Swatinem/rust-cache@v2
 
