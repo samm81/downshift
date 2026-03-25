@@ -18,6 +18,7 @@ const COMPILED_BETTERSTACK_LOGS_TOKEN: Option<&str> =
 const COMPILED_BETTERSTACK_LOGS_HOST: Option<&str> = option_env!("DOWNSHIFT_BETTERSTACK_LOGS_HOST");
 const COMPILED_BETTERSTACK_ERRORS_DSN: Option<&str> =
     option_env!("DOWNSHIFT_BETTERSTACK_ERRORS_DSN");
+const COMPILED_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
 const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,7 +306,7 @@ fn default_telemetry_env() -> String {
 }
 
 fn telemetry_env_from_process() -> String {
-    env::var("DOWNSHIFT_ENV").unwrap_or_else(|_| default_telemetry_env())
+    env_or_compiled("DOWNSHIFT_ENV", COMPILED_ENV).unwrap_or_else(default_telemetry_env)
 }
 
 #[derive(Clone)]
@@ -1183,7 +1184,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn telemetry_env_defaults_to_unset_when_var_missing() {
+    fn telemetry_env_uses_compiled_default_when_runtime_var_missing() {
         let root = temp_dir("env-default");
         std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
         std::env::remove_var("DOWNSHIFT_ENV");
@@ -1213,7 +1214,43 @@ mod tests {
             .iter()
             .find(|event| event.event_name == EventName::MenuAction)
             .expect("menu action should be captured");
-        assert_eq!(menu_event.telemetry_env, "unset");
+        assert_eq!(menu_event.telemetry_env, COMPILED_ENV.unwrap_or("unset"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    #[serial]
+    fn telemetry_env_prefers_runtime_var_over_compiled_default() {
+        let root = temp_dir("env-runtime");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+        std::env::set_var("DOWNSHIFT_ENV", "qa");
+        let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let state = TelemetryState {
+            anon_user_id: Uuid::new_v4().to_string(),
+            usage_enabled: true,
+            crash_enabled: true,
+            install_first_run: false,
+        };
+        let client = RuntimeTelemetryClient::new_with_sinks(
+            state,
+            Box::new(CollectingSink {
+                events: captured_events.clone(),
+            }),
+            Box::new(NoopSink),
+        );
+        client.track(
+            EventName::MenuAction,
+            serde_json::json!({"action": "pause"}),
+        );
+        client.flush(Duration::from_millis(250));
+        client.shutdown(Duration::from_millis(250));
+
+        let events = captured_events.lock().expect("captured events lock");
+        let menu_event = events
+            .iter()
+            .find(|event| event.event_name == EventName::MenuAction)
+            .expect("menu action should be captured");
+        assert_eq!(menu_event.telemetry_env, "qa");
         std::fs::remove_dir_all(root).ok();
     }
 }

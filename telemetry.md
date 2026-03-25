@@ -1,6 +1,6 @@
 # telemetry
 
-this is a code-derived inventory of telemetry emitted by this repo as of 2026-03-13.
+this is a code-derived inventory of telemetry emitted by this repo as of 2026-03-24.
 
 scope:
 
@@ -39,6 +39,8 @@ common envelope fields on app events:
 - `arch`
 - `build_channel`
 - `env`
+  - from `DOWNSHIFT_ENV`, preferring the runtime process env and otherwise falling back to the value compiled into the binary
+  - defaults to `unset` only when neither runtime nor build-time `DOWNSHIFT_ENV` was set
 - `properties`
 
 delivery behavior:

@@ -54,6 +54,7 @@ const DEFAULT_GITHUB_ISSUES_URL: &str = "github-issues-url-not-set";
 const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
 const UPDATE_TOOLTIP: &str = "new version available";
 const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
+const COMPILED_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
 const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
 const COMPILED_TELEMETRY_ENABLED: Option<&str> = option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
 const COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC: Option<&str> =
@@ -449,7 +450,7 @@ fn optional_env_value(name: &str, compiled: Option<&str>) -> Option<String> {
 }
 
 fn runtime_env_label() -> String {
-    optional_env_value("DOWNSHIFT_ENV", None).unwrap_or_else(|| "unset".to_string())
+    optional_env_value("DOWNSHIFT_ENV", COMPILED_ENV).unwrap_or_else(|| "unset".to_string())
 }
 
 fn build_channel_label() -> String {
@@ -3502,6 +3503,10 @@ mod tests {
         COMPILED_DOWNLOAD_RELEASE_URL.unwrap_or(UPDATE_DOWNLOAD_FALLBACK_URL)
     }
 
+    fn expected_runtime_env() -> &'static str {
+        COMPILED_ENV.unwrap_or("unset")
+    }
+
     fn expected_github_issues_url() -> &'static str {
         COMPILED_GITHUB_ISSUES_URL.unwrap_or(DEFAULT_GITHUB_ISSUES_URL)
     }
@@ -3596,6 +3601,23 @@ mod tests {
             support_email_address().expect("support email"),
             "support@example.com"
         );
+    }
+
+    #[test]
+    #[serial]
+    fn runtime_env_label_uses_compiled_default_when_runtime_var_missing() {
+        clear_external_contact_env();
+
+        assert_eq!(runtime_env_label(), expected_runtime_env());
+    }
+
+    #[test]
+    #[serial]
+    fn runtime_env_label_prefers_runtime_var_over_compiled_default() {
+        clear_external_contact_env();
+        std::env::set_var("DOWNSHIFT_ENV", "qa");
+
+        assert_eq!(runtime_env_label(), "qa");
     }
 
     #[test]
