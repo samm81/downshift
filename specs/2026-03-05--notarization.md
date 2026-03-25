@@ -1,3 +1,5 @@
+# macos notarization workflow
+
 Add macOS Developer ID signing (+ hardened runtime + timestamp) to our existing GitHub Actions workflow that builds and ships a DMG for our Rust/Wry app.
 
 Goal: produce a DMG that passes Gatekeeper (“just open and run”) by doing:

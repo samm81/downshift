@@ -1,3 +1,5 @@
+# telemetry session metrics
+
 - A “session” is wall-clock from session start until user chooses “Disable until I turn back on” or the app quits/crashes.
 - “Disable for X minutes” does NOT end the session; it’s a within-session state. We need to analyze active vs temporarily disabled time.
 
