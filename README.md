@@ -3,7 +3,13 @@
 a tiny desktop breathing companion: one small animated ball that gently expands and contracts to cue slower, steadier breathing while you work.
 
 <p align="center">
-  <img src="docs/assets/readme-breath-preview.svg" alt="downshift breathing widget preview" width="700" />
+  <video
+    src="docs/assets/2026-02-25--demo--still.webm"
+    width="700"
+    controls
+    muted
+    aria-label="downshift breathing widget demo"
+  ></video>
 </p>
 
 ## motivation
