@@ -2,12 +2,6 @@
 
 a tiny desktop breathing companion: one small animated ball that gently expands and contracts to cue slower, steadier breathing while you work.
 
-<p align="center">
-  <a href="docs/assets/2026-02-25--demo--still.webm">
-    <img src="docs/assets/readme-breath-preview.svg" alt="downshift breathing widget demo" width="700" />
-  </a>
-</p>
-
 ## motivation
 
 when people focus on screens, they often unconsciously hold their breath or breathe shallowly (often called screen apnea). this project is meant to be a continuous, low-friction visual cue that nudges healthier breathing without interrupting flow.
