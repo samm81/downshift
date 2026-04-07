@@ -1,8 +1,28 @@
 name: gui-smoke-macos
 
 on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: specific release tag to verify instead of the latest published release
+        required: false
+        type: string
+      screenshot_count:
+        description: number of screenshots to capture
+        required: false
+        default: "4"
+        type: string
+      screenshot_interval:
+        description: seconds between screenshots
+        required: false
+        default: "0.8"
+        type: string
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: specific release tag to verify instead of the latest published release
+        required: false
+        type: string
       screenshot_count:
         description: number of screenshots to capture
         required: false
@@ -22,6 +42,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     env:
+      DOWNSHIFT_RELEASE_TAG: ${{ inputs.release_tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: checkout
@@ -32,7 +53,7 @@ jobs:
           set -euo pipefail
           brew install imagemagick
 
-      - name: launch latest released app
+      - name: launch release candidate app
         id: smoke
         continue-on-error: true
         run: |

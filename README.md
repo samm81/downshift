@@ -125,9 +125,11 @@ requirements: macos desktop session with screen recording permission enabled for
 
 for artifact-based visual verification on github-hosted mac runners, run the `gui-smoke-macos` workflow from the actions tab.
 
+you can optionally provide a `release_tag` input to verify a specific draft or published release asset instead of the latest published release.
+
 it:
 
-- downloads the latest published `Downshift-notarized-*.dmg` release asset from github
+- downloads the requested `Downshift-notarized-*.dmg` release asset from github, or the latest published one when `release_tag` is omitted
 - mounts the dmg and launches `Downshift.app` with `open`
 - fails if the app process or a visible app window does not appear
 - triggers the macos capture prompt with a warmup screenshot, waits briefly for the ui to settle, then captures a short screenshot sequence with `dev/mac/smoke_gui.bash`
@@ -135,6 +137,8 @@ it:
 - uploads `logs/latest-gui-smoke/` and the timestamped `logs/gui-smoke-*` directory as workflow artifacts
 
 the job summary includes the parsed smoke result, and the artifacts contain the screenshots plus `run.log` for manual review.
+
+`release-macos-finalize` now calls `gui-smoke-macos` as a required gate against the exact draft release tag. the release stays in draft until that smoke job passes.
 
 ## mac distribution (unsigned)
 
@@ -230,15 +234,18 @@ recommended release sequence:
 # 2) verify repo state
 make verify-release
 
-# 3) verify packaging + tag sync
+# 3) build and notarize the tagged draft assets
 make release-notarized TAG=v0.1.0
 
-# 4) commit, tag, push
+# 4) push the tag so github actions can build the draft release
 git add Cargo.toml Cargo.lock Makefile README.md
 git commit -m "release v0.1.0"
 git tag -a v0.1.0 -m "release v0.1.0"
 git push origin <branch>
 git push origin v0.1.0
+
+# 5) wait for github actions verification
+# release-macos-finalize publishes only after gui-smoke-macos passes for that tag
 ```
 
-when the tag-triggered github actions release workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published after notarization finalize succeeds.
+when the tag-triggered github actions release workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published only after notarization finalize succeeds and `gui-smoke-macos` passes for that tag.

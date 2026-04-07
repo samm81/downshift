@@ -53,6 +53,10 @@ require_github_auth() {
 }
 
 resolve_release_tag() {
+  if [[ -n "${DOWNSHIFT_RELEASE_TAG:-}" ]]; then
+    printf '%s\n' "$DOWNSHIFT_RELEASE_TAG"
+    return 0
+  fi
   gh release view --repo "$REPO_SLUG" --json tagName --jq '.tagName'
 }
 
