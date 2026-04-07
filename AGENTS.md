@@ -45,7 +45,7 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - by default, add or update tests in conjunction with code changes; do not treat tests as optional follow-up work.
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - `npm run check` is lint/format only and does not run rust tests.
-- artifact-based mac gui verification is available through the `gui-smoke-macos` github actions workflow; it downloads the latest published dmg, launches `Downshift.app`, and checks for a visible app window before capturing artifacts.
+- artifact-based mac gui verification is available through the `gui-smoke-macos` github actions workflow; it downloads the latest published dmg, launches `Downshift.app`, checks for a visible app window, and captures screenshots through a dedicated screenshot action.
 - when adding a new feature, add telemetry events when they are meaningful for product/usage visibility.
 
 ## notarization policy

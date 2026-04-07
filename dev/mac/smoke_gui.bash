@@ -24,7 +24,7 @@ require_macos() {
 
 ensure_tools() {
   local missing=()
-  for tool in gh hdiutil open pgrep screencapture shasum swift; do
+  for tool in gh hdiutil open pgrep swift; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -141,9 +141,6 @@ main() {
   ensure_tools
   require_github_auth
 
-  local screenshot_count="${1:-3}"
-  local screenshot_interval="${2:-1}"
-
   local script_dir repo_root
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   repo_root="$(cd "${script_dir}/../.." && pwd)"
@@ -155,13 +152,6 @@ main() {
   local run_log="$out_dir/run.log"
   local latest_link="logs/latest-gui-smoke"
   local release_dir="$out_dir/release"
-
-  if ! [[ "$screenshot_count" =~ ^[0-9]+$ ]] || ((screenshot_count < 2)); then
-    die "first arg must be screenshot count (integer >= 2)"
-  fi
-  if ! [[ "$screenshot_interval" =~ ^([0-9]+|[0-9]*\.[0-9]+)$ ]]; then
-    die "second arg must be interval seconds (for example: 1 or 0.5)"
-  fi
 
   mkdir -p "$out_dir"
   exec > >(tee "$run_log") 2>&1
@@ -184,27 +174,6 @@ main() {
   wait_for_window || die "no visible ${APP_NAME} window detected after launch"
   log "visible window count: ${WINDOW_COUNT}"
 
-  CAPTURE_MODE="fullscreen"
-  log "capturing full-screen screenshots"
-
-  local i=1
-  while ((i <= screenshot_count)); do
-    local file="$out_dir/shot-$i.png"
-    screencapture -x "$file"
-    log "saved $file"
-    if ((i < screenshot_count)); then
-      sleep "$screenshot_interval"
-    fi
-    i=$((i + 1))
-  done
-
-  local unique_hashes
-  unique_hashes="$(shasum "$out_dir"/shot-*.png | awk '{print $1}' | sort -u | wc -l | tr -d ' ')"
-  local motion_observed="no"
-  if ((unique_hashes > 1)); then
-    motion_observed="yes"
-  fi
-
   cat >"$out_dir/result.txt" <<EOF
 release_repo=$REPO_SLUG
 release_tag=$RELEASE_TAG
@@ -213,11 +182,6 @@ mount_point=$MOUNT_POINT
 app_path=$APP_PATH
 app_pid=$APP_PID
 window_count=$WINDOW_COUNT
-capture_mode=$CAPTURE_MODE
-screenshot_count=$screenshot_count
-screenshot_interval_seconds=$screenshot_interval
-unique_image_hashes=$unique_hashes
-motion_observed=$motion_observed
 run_log=$run_log
 EOF
 
