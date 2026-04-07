@@ -2,7 +2,7 @@
 
 a tiny desktop breathing companion: one small animated ball that gently expands and contracts to cue slower, steadier breathing while you work.
 
-https://getdownshift.app/assets/2026-02-25--demo--still.mp4
+[demo clip](https://getdownshift.app/assets/2026-02-25--demo--still.mp4)
 
 ## motivation
 
@@ -120,6 +120,19 @@ this writes artifacts under `logs/demo-capture-<timestamp>/`, including:
 - `result.txt`
 
 requirements: macos desktop session with screen recording permission enabled for terminal (`ffmpeg` is installed by `./dev/mac/bootstrap-02.bash`).
+
+## github actions gui smoke artifacts
+
+for artifact-based visual verification on github-hosted mac runners, run the `gui-smoke-macos` workflow from the actions tab.
+
+it:
+
+- launches the app on `macos-latest`
+- captures a short screenshot sequence with `dev/mac/smoke_gui.bash`
+- fails if the captured images do not change over time
+- uploads `logs/latest-gui-smoke/` and the timestamped `logs/gui-smoke-*` directory as workflow artifacts
+
+the job summary includes the parsed smoke result, and the artifacts contain the screenshots plus `run.log` for manual review.
 
 ## mac distribution (unsigned)
 

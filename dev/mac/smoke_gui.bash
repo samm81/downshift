@@ -65,12 +65,33 @@ main() {
   load_rust_env_if_present
   ensure_tools
 
+  local fail_if_static=0
   local screenshot_count="${1:-3}"
   local screenshot_interval="${2:-1}"
+  while (($# > 0)); do
+    case "$1" in
+      --fail-if-static)
+        fail_if_static=1
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  screenshot_count="${1:-3}"
+  screenshot_interval="${2:-1}"
+
+  local script_dir repo_root
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  repo_root="$(cd "${script_dir}/../.." && pwd)"
+  cd "$repo_root"
+
   local stamp
   stamp="$(date +%Y%m%d-%H%M%S)"
   local out_dir="logs/gui-smoke-$stamp"
   local run_log="$out_dir/run.log"
+  local latest_link="logs/latest-gui-smoke"
 
   if ! [[ "$screenshot_count" =~ ^[0-9]+$ ]] || ((screenshot_count < 2)); then
     die "first arg must be screenshot count (integer >= 2)"
@@ -118,8 +139,13 @@ motion_observed=$motion_observed
 run_log=$run_log
 EOF
 
+  ln -sfn "$(basename "$out_dir")" "$latest_link"
   log "result written to $out_dir/result.txt"
   log "motion_observed=$motion_observed (unique_image_hashes=$unique_hashes)"
+
+  if [[ "$fail_if_static" == "1" && "$motion_observed" != "yes" ]]; then
+    die "no visual motion detected in captured screenshots"
+  fi
 }
 
 main "$@"

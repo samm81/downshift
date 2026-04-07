@@ -43,6 +43,7 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - by default, add or update tests in conjunction with code changes; do not treat tests as optional follow-up work.
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - `npm run check` is lint/format only and does not run rust tests.
+- artifact-based mac gui verification is available through the `gui-smoke-macos` github actions workflow; use it when the task is to confirm the window appears and shows motion on a mac runner.
 - when adding a new feature, add telemetry events when they are meaningful for product/usage visibility.
 
 ## notarization policy
