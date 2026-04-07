@@ -130,7 +130,8 @@ it:
 - downloads the latest published `Downshift-notarized-*.dmg` release asset from github
 - mounts the dmg and launches `Downshift.app` with `open`
 - fails if the app process or a visible app window does not appear
-- captures a short screenshot sequence with `dev/mac/smoke_gui.bash`
+- triggers the macos capture prompt with a warmup screenshot, waits briefly for the ui to settle, then captures a short screenshot sequence with `dev/mac/smoke_gui.bash`
+- computes per-frame png diffs with ImageMagick `compare`
 - uploads `logs/latest-gui-smoke/` and the timestamped `logs/gui-smoke-*` directory as workflow artifacts
 
 the job summary includes the parsed smoke result, and the artifacts contain the screenshots plus `run.log` for manual review.

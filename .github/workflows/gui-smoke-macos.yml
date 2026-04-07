@@ -27,6 +27,11 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: install image diff tooling
+        run: |
+          set -euo pipefail
+          brew install imagemagick
+
       - name: launch latest released app
         id: smoke
         continue-on-error: true

@@ -24,7 +24,7 @@ require_macos() {
 
 ensure_tools() {
   local missing=()
-  for tool in gh hdiutil open pgrep screencapture shasum swift; do
+  for tool in compare gh hdiutil open pgrep screencapture swift; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -154,6 +154,7 @@ main() {
   local run_log="$out_dir/run.log"
   local latest_link="logs/latest-gui-smoke"
   local release_dir="$out_dir/release"
+  local diff_dir="$out_dir/diffs"
 
   if ! [[ "$screenshot_count" =~ ^[0-9]+$ ]] || ((screenshot_count < 2)); then
     die "first arg must be screenshot count (integer >= 2)"
@@ -162,7 +163,7 @@ main() {
     die "second arg must be interval seconds (for example: 1 or 0.5)"
   fi
 
-  mkdir -p "$out_dir"
+  mkdir -p "$out_dir" "$diff_dir"
   exec > >(tee "$run_log") 2>&1
   trap cleanup EXIT
 
@@ -183,7 +184,14 @@ main() {
   wait_for_window || die "no visible ${APP_NAME} window detected after launch"
   log "visible window count: ${WINDOW_COUNT}"
 
+  local warmup_capture="$out_dir/warmup-popup-trigger.png"
+  local settle_delay_seconds="2"
   CAPTURE_MODE="fullscreen"
+  log "triggering macos capture prompt with warmup screenshot"
+  screencapture -x "$warmup_capture"
+  log "saved $warmup_capture"
+  log "waiting ${settle_delay_seconds}s for animation and prompts to settle"
+  sleep "$settle_delay_seconds"
   log "capturing full-screen screenshots"
 
   local i=1
@@ -197,10 +205,38 @@ main() {
     i=$((i + 1))
   done
 
-  local unique_hashes
-  unique_hashes="$(shasum "$out_dir"/shot-*.png | awk '{print $1}' | sort -u | wc -l | tr -d ' ')"
+  local diff_nonzero_pairs=0
+  local diff_total_pairs=0
+  local max_diff_pixels=0
+  i=1
+  while ((i < screenshot_count)); do
+    local next=$((i + 1))
+    local metric_file="$diff_dir/shot-${i}-to-${next}.txt"
+    local diff_image="$diff_dir/shot-${i}-to-${next}.png"
+    local diff_pixels
+    diff_pixels="$(
+      compare -metric AE \
+        "$out_dir/shot-$i.png" \
+        "$out_dir/shot-$next.png" \
+        "$diff_image" \
+        2>"$metric_file"
+    )" || true
+    diff_pixels="$(tr -d '[:space:]' <"$metric_file")"
+    if ! [[ "$diff_pixels" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      die "failed to read image diff metric from $metric_file"
+    fi
+    if awk "BEGIN { exit !($diff_pixels > 0) }"; then
+      diff_nonzero_pairs=$((diff_nonzero_pairs + 1))
+    fi
+    if awk "BEGIN { exit !($diff_pixels > $max_diff_pixels) }"; then
+      max_diff_pixels="$diff_pixels"
+    fi
+    diff_total_pairs=$((diff_total_pairs + 1))
+    i=$((i + 1))
+  done
+
   local motion_observed="no"
-  if ((unique_hashes > 1)); then
+  if ((diff_nonzero_pairs > 0)); then
     motion_observed="yes"
   fi
 
@@ -213,9 +249,13 @@ app_path=$APP_PATH
 app_pid=$APP_PID
 window_count=$WINDOW_COUNT
 capture_mode=$CAPTURE_MODE
+warmup_capture=$warmup_capture
+settle_delay_seconds=$settle_delay_seconds
 screenshot_count=$screenshot_count
 screenshot_interval_seconds=$screenshot_interval
-unique_image_hashes=$unique_hashes
+diff_total_pairs=$diff_total_pairs
+diff_nonzero_pairs=$diff_nonzero_pairs
+max_diff_pixels=$max_diff_pixels
 motion_observed=$motion_observed
 run_log=$run_log
 EOF
