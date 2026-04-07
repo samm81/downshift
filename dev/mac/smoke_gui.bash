@@ -24,7 +24,7 @@ require_macos() {
 
 ensure_tools() {
   local missing=()
-  for tool in compare gh hdiutil open pgrep screencapture swift; do
+  for tool in compare gh hdiutil magick open pgrep screencapture swift; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -154,7 +154,9 @@ main() {
   local run_log="$out_dir/run.log"
   local latest_link="logs/latest-gui-smoke"
   local release_dir="$out_dir/release"
+  local crop_dir="$out_dir/crops"
   local diff_dir="$out_dir/diffs"
+  local crop_top_pixels=32
 
   if ! [[ "$screenshot_count" =~ ^[0-9]+$ ]] || ((screenshot_count < 2)); then
     die "first arg must be screenshot count (integer >= 2)"
@@ -163,7 +165,7 @@ main() {
     die "second arg must be interval seconds (for example: 1 or 0.5)"
   fi
 
-  mkdir -p "$out_dir" "$diff_dir"
+  mkdir -p "$out_dir" "$crop_dir" "$diff_dir"
   exec > >(tee "$run_log") 2>&1
   trap cleanup EXIT
 
@@ -199,6 +201,8 @@ main() {
     local file="$out_dir/shot-$i.png"
     screencapture -x "$file"
     log "saved $file"
+    magick "$file" -gravity North -chop "0x${crop_top_pixels}" "$crop_dir/shot-$i.png"
+    log "saved $crop_dir/shot-$i.png"
     if ((i < screenshot_count)); then
       sleep "$screenshot_interval"
     fi
@@ -216,8 +220,8 @@ main() {
     local diff_pixels
     diff_pixels="$(
       compare -metric AE \
-        "$out_dir/shot-$i.png" \
-        "$out_dir/shot-$next.png" \
+        "$crop_dir/shot-$i.png" \
+        "$crop_dir/shot-$next.png" \
         "$diff_image" \
         2>"$metric_file"
     )" || true
@@ -253,6 +257,7 @@ warmup_capture=$warmup_capture
 settle_delay_seconds=$settle_delay_seconds
 screenshot_count=$screenshot_count
 screenshot_interval_seconds=$screenshot_interval
+crop_top_pixels=$crop_top_pixels
 diff_total_pairs=$diff_total_pairs
 diff_nonzero_pairs=$diff_nonzero_pairs
 max_diff_pixels=$max_diff_pixels
