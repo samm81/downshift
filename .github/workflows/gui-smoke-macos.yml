@@ -21,15 +21,11 @@ jobs:
   gui-smoke:
     runs-on: macos-latest
     timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
-
-      - name: setup rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: cache cargo
-        uses: Swatinem/rust-cache@v2
 
       - name: run gui smoke capture
         id: smoke
@@ -37,7 +33,6 @@ jobs:
         run: |
           set -euo pipefail
           ./dev/mac/smoke_gui.bash \
-            --fail-if-static \
             "${{ inputs.screenshot_count }}" \
             "${{ inputs.screenshot_interval }}"
 
@@ -70,5 +65,5 @@ jobs:
       - name: fail when smoke verification fails
         if: steps.smoke.outcome != 'success'
         run: |
-          echo "error: gui smoke verification failed or no visual motion was detected"
+          echo "error: gui smoke verification failed"
           exit 1

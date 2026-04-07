@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+APP_NAME="Downshift"
+APP_BUNDLE_NAME="${APP_NAME}.app"
+REPO_SLUG="${DOWNSHIFT_RELEASE_REPO:-samm81/downshift}"
+
 log() {
   printf '[smoke-gui] %s\n' "$*"
 }
@@ -20,7 +24,7 @@ require_macos() {
 
 ensure_tools() {
   local missing=()
-  for tool in cargo screencapture shasum; do
+  for tool in gh hdiutil open pgrep screencapture shasum swift; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -30,21 +34,66 @@ ensure_tools() {
   fi
 }
 
-load_rust_env_if_present() {
-  if have cargo; then
-    return
+cleanup() {
+  if [[ -n "${APP_PID:-}" ]] && kill -0 "$APP_PID" >/dev/null 2>&1; then
+    kill "$APP_PID" >/dev/null 2>&1 || true
+    wait "$APP_PID" >/dev/null 2>&1 || true
   fi
 
-  if [[ -f "$HOME/.cargo/env" ]]; then
-    # shellcheck disable=SC1091
-    source "$HOME/.cargo/env"
+  pkill -x downshift >/dev/null 2>&1 || true
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+
+  if [[ -n "${MOUNT_POINT:-}" ]]; then
+    hdiutil detach "$MOUNT_POINT" >/dev/null 2>&1 || true
   fi
 }
 
-wait_for_app_start() {
+require_github_auth() {
+  gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
+}
+
+resolve_release_tag() {
+  gh release view --repo "$REPO_SLUG" --json tagName --jq '.tagName'
+}
+
+download_release_dmg() {
+  local tag="$1"
+  local release_dir="$2"
+
+  mkdir -p "$release_dir"
+  gh release download "$tag" \
+    --repo "$REPO_SLUG" \
+    --pattern "${APP_NAME}-notarized-*.dmg" \
+    --dir "$release_dir"
+
+  DMG_PATH="$(find "$release_dir" -maxdepth 1 -type f -name "${APP_NAME}-notarized-*.dmg" | head -n 1)"
+  [[ -n "$DMG_PATH" ]] || die "failed to download notarized dmg for ${tag}"
+}
+
+mount_release_dmg() {
+  local attach_log
+  attach_log="$(hdiutil attach "$DMG_PATH" -nobrowse)"
+  MOUNT_POINT="$(printf '%s\n' "$attach_log" | awk '/\/Volumes\// { print $NF; exit }')"
+  [[ -n "$MOUNT_POINT" ]] || die "failed to determine mounted dmg path"
+
+  APP_PATH="${MOUNT_POINT}/${APP_BUNDLE_NAME}"
+  [[ -d "$APP_PATH" ]] || die "mounted dmg does not contain ${APP_BUNDLE_NAME}"
+}
+
+launch_app_bundle() {
+  log "launching ${APP_PATH}"
+  open -a "$APP_PATH"
+}
+
+find_app_pid() {
+  pgrep -x downshift | head -n 1 || pgrep -x "$APP_NAME" | head -n 1 || true
+}
+
+wait_for_app_process() {
   local tries=0
   while ((tries < 40)); do
-    if kill -0 "$APP_PID" >/dev/null 2>&1; then
+    APP_PID="$(find_app_pid)"
+    if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" >/dev/null 2>&1; then
       return 0
     fi
     tries=$((tries + 1))
@@ -53,34 +102,47 @@ wait_for_app_start() {
   return 1
 }
 
-cleanup() {
-  if [[ -n "${APP_PID:-}" ]] && kill -0 "$APP_PID" >/dev/null 2>&1; then
-    kill "$APP_PID" >/dev/null 2>&1 || true
-    wait "$APP_PID" >/dev/null 2>&1 || true
-  fi
+count_visible_windows() {
+  local output
+  output="$(
+    swift -e '
+import CoreGraphics
+
+let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+let names = Set(["Downshift", "downshift"])
+let count = windows.filter { info in
+  guard let owner = info[kCGWindowOwnerName as String] as? String else {
+    return false
+  }
+  return names.contains(owner)
+}.count
+print(count)
+' 2>/dev/null
+  )" || return 1
+
+  printf '%s\n' "$output" | tr -d '[:space:]'
+}
+
+wait_for_window() {
+  local tries=0
+  while ((tries < 40)); do
+    WINDOW_COUNT="$(count_visible_windows || true)"
+    if [[ "${WINDOW_COUNT:-0}" =~ ^[0-9]+$ ]] && ((WINDOW_COUNT > 0)); then
+      return 0
+    fi
+    tries=$((tries + 1))
+    sleep 0.5
+  done
+  return 1
 }
 
 main() {
   require_macos
-  load_rust_env_if_present
   ensure_tools
+  require_github_auth
 
-  local fail_if_static=0
   local screenshot_count="${1:-3}"
   local screenshot_interval="${2:-1}"
-  while (($# > 0)); do
-    case "$1" in
-      --fail-if-static)
-        fail_if_static=1
-        shift
-        ;;
-      *)
-        break
-        ;;
-    esac
-  done
-  screenshot_count="${1:-3}"
-  screenshot_interval="${2:-1}"
 
   local script_dir repo_root
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,6 +154,7 @@ main() {
   local out_dir="logs/gui-smoke-$stamp"
   local run_log="$out_dir/run.log"
   local latest_link="logs/latest-gui-smoke"
+  local release_dir="$out_dir/release"
 
   if ! [[ "$screenshot_count" =~ ^[0-9]+$ ]] || ((screenshot_count < 2)); then
     die "first arg must be screenshot count (integer >= 2)"
@@ -101,13 +164,25 @@ main() {
   fi
 
   mkdir -p "$out_dir"
-
-  log "starting app with cargo run --quiet"
-  cargo run --quiet >"$run_log" 2>&1 &
-  APP_PID=$!
+  exec > >(tee "$run_log") 2>&1
   trap cleanup EXIT
 
-  wait_for_app_start || die "app process did not stay up long enough to verify"
+  RELEASE_TAG="$(resolve_release_tag)"
+  [[ -n "$RELEASE_TAG" ]] || die "failed to resolve latest release tag"
+  log "resolved latest release tag: ${RELEASE_TAG}"
+
+  download_release_dmg "$RELEASE_TAG" "$release_dir"
+  log "downloaded dmg: ${DMG_PATH}"
+
+  mount_release_dmg
+  log "mounted dmg at ${MOUNT_POINT}"
+
+  launch_app_bundle
+  wait_for_app_process || die "app process did not appear after launch"
+  log "app process detected (pid ${APP_PID})"
+
+  wait_for_window || die "no visible ${APP_NAME} window detected after launch"
+  log "visible window count: ${WINDOW_COUNT}"
 
   CAPTURE_MODE="fullscreen"
   log "capturing full-screen screenshots"
@@ -131,6 +206,13 @@ main() {
   fi
 
   cat >"$out_dir/result.txt" <<EOF
+release_repo=$REPO_SLUG
+release_tag=$RELEASE_TAG
+dmg_path=$DMG_PATH
+mount_point=$MOUNT_POINT
+app_path=$APP_PATH
+app_pid=$APP_PID
+window_count=$WINDOW_COUNT
 capture_mode=$CAPTURE_MODE
 screenshot_count=$screenshot_count
 screenshot_interval_seconds=$screenshot_interval
@@ -141,11 +223,6 @@ EOF
 
   ln -sfn "$(basename "$out_dir")" "$latest_link"
   log "result written to $out_dir/result.txt"
-  log "motion_observed=$motion_observed (unique_image_hashes=$unique_hashes)"
-
-  if [[ "$fail_if_static" == "1" && "$motion_observed" != "yes" ]]; then
-    die "no visual motion detected in captured screenshots"
-  fi
 }
 
 main "$@"
