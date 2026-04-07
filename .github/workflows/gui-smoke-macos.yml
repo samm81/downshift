@@ -32,43 +32,9 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          ./dev/mac/smoke_gui.bash
-
-      - name: capture screenshot 1
-        if: steps.smoke.outcome == 'success'
-        uses: OrbitalOwen/desktop-screenshot-action@0.1
-        with:
-          file-name: shot-1.jpg
-
-      - name: wait before screenshot 2
-        if: steps.smoke.outcome == 'success'
-        run: sleep ${{ inputs.screenshot_interval }}
-
-      - name: capture screenshot 2
-        if: steps.smoke.outcome == 'success'
-        uses: OrbitalOwen/desktop-screenshot-action@0.1
-        with:
-          file-name: shot-2.jpg
-
-      - name: wait before screenshot 3
-        if: steps.smoke.outcome == 'success'
-        run: sleep ${{ inputs.screenshot_interval }}
-
-      - name: capture screenshot 3
-        if: steps.smoke.outcome == 'success'
-        uses: OrbitalOwen/desktop-screenshot-action@0.1
-        with:
-          file-name: shot-3.jpg
-
-      - name: wait before screenshot 4
-        if: steps.smoke.outcome == 'success'
-        run: sleep ${{ inputs.screenshot_interval }}
-
-      - name: capture screenshot 4
-        if: steps.smoke.outcome == 'success'
-        uses: OrbitalOwen/desktop-screenshot-action@0.1
-        with:
-          file-name: shot-4.jpg
+          ./dev/mac/smoke_gui.bash \
+            "${{ inputs.screenshot_count }}" \
+            "${{ inputs.screenshot_interval }}"
 
       - name: summarize smoke result
         if: always()
