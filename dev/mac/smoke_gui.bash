@@ -221,7 +221,7 @@ main() {
         "$diff_image" \
         2>"$metric_file"
     )" || true
-    diff_pixels="$(tr -d '[:space:]' <"$metric_file")"
+    diff_pixels="$(awk '{ print $1 }' "$metric_file")"
     if ! [[ "$diff_pixels" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
       die "failed to read image diff metric from $metric_file"
     fi
