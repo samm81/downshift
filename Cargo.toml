@@ -19,6 +19,7 @@ wry = { version = "0.53", features = ["transparent"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.17.1", default-features = false }
+objc2-app-kit = { version = "0.2.2", default-features = false, features = ["NSResponder", "NSView", "NSWindow"] }
 
 [dev-dependencies]
 serial_test = "3.2"

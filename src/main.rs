@@ -16,6 +16,8 @@ use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 use muda::{
     CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSView, NSWindowCollectionBehavior};
 use semver::Version;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
@@ -118,6 +120,46 @@ const MENU_ID_USAGE_OFF: &str = "usage_off";
 const MENU_ID_CRASH_ON: &str = "crash_on";
 #[cfg(target_os = "macos")]
 const MENU_ID_CRASH_OFF: &str = "crash_off";
+
+#[cfg(target_os = "macos")]
+fn configure_window_for_all_spaces(window: &Window) {
+    let ns_view = match window.window_handle() {
+        Ok(handle) => match handle.as_raw() {
+            RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr().cast::<NSView>(),
+            _ => {
+                diagnostics::log_line("ERROR", "warning: window handle was not an AppKit handle");
+                return;
+            }
+        },
+        Err(error) => {
+            diagnostics::log_line(
+                "ERROR",
+                &format!(
+                    "warning: failed to access window handle for spaces configuration: {error}"
+                ),
+            );
+            return;
+        }
+    };
+    let Some(ns_view) = (unsafe { ns_view.as_ref() }) else {
+        diagnostics::log_line("ERROR", "warning: window handle returned a null NSView");
+        return;
+    };
+    let Some(ns_window) = ns_view.window() else {
+        diagnostics::log_line("ERROR", "warning: failed to resolve NSWindow from NSView");
+        return;
+    };
+
+    let mut behavior = unsafe { ns_window.collectionBehavior() };
+    behavior.insert(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary,
+    );
+    behavior.remove(NSWindowCollectionBehavior::MoveToActiveSpace);
+    unsafe {
+        ns_window.setCollectionBehavior(behavior);
+    }
+}
 #[cfg(target_os = "macos")]
 const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
 #[cfg(target_os = "macos")]
@@ -2259,7 +2301,8 @@ impl App {
             }
         }
 
-        if let Some(saved) = self.choose_initial_position_from_legacy_logical(&monitors, &primary, size)
+        if let Some(saved) =
+            self.choose_initial_position_from_legacy_logical(&monitors, &primary, size)
         {
             return Some(saved);
         }
@@ -3075,6 +3118,8 @@ impl ApplicationHandler<AppEvent> for App {
             }
         };
         let window_id = window.id();
+        #[cfg(target_os = "macos")]
+        configure_window_for_all_spaces(&window);
         self.settings.monitor = window.current_monitor().map(snapshot_monitor);
 
         let startup_monitor = window
@@ -3346,7 +3391,8 @@ fn position_fits_monitor_legacy(
 fn default_corner_position(monitor: &MonitorHandle, size: f64) -> PhysicalPosition<i32> {
     let monitor_pos = monitor.position();
     let monitor_size = monitor.size();
-    let margin = (f64::from(monitor_size.width.min(monitor_size.height)) * DEFAULT_EDGE_MARGIN_RATIO)
+    let margin = (f64::from(monitor_size.width.min(monitor_size.height))
+        * DEFAULT_EDGE_MARGIN_RATIO)
         .round() as i32;
     let window_size = physical_size_for_monitor(size, monitor);
     PhysicalPosition::new(
