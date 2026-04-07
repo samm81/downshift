@@ -164,3 +164,21 @@ paused = false
     );
     assert_eq!(settings.active_breathing_preset_id, "custom");
 }
+
+#[test]
+fn load_settings_migrates_legacy_update_dismissal_to_ignored_version() {
+    let path = support::temp_file_path("breath-ball-legacy-update-dismissal", "toml");
+    let raw = r#"
+size = 96.0
+paused = false
+dismissed_update_version = "0.9.0"
+"#;
+    std::fs::write(&path, raw).expect("should write temp settings file");
+
+    let settings = load_settings(Some(&path));
+    std::fs::remove_file(&path).ok();
+
+    assert_eq!(settings.ignored_update_version.as_deref(), Some("0.9.0"));
+    assert!(settings.update_badge_snoozed_version.is_none());
+    assert!(settings.update_badge_snoozed_at_epoch_seconds.is_none());
+}

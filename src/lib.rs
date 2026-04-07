@@ -161,7 +161,13 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub crash_reports_sharing: bool,
     #[serde(default)]
-    pub dismissed_update_version: Option<String>,
+    pub update_badge_snoozed_version: Option<String>,
+    #[serde(default)]
+    pub update_badge_snoozed_at_epoch_seconds: Option<i64>,
+    #[serde(default)]
+    pub ignored_update_version: Option<String>,
+    #[serde(rename = "dismissed_update_version", default, skip_serializing)]
+    legacy_dismissed_update_version: Option<String>,
     #[serde(default)]
     pub cached_latest_update_version: Option<String>,
     pub x: Option<i32>,
@@ -188,7 +194,10 @@ impl Default for Settings {
             launch_at_login: true,
             usage_data_sharing: true,
             crash_reports_sharing: true,
-            dismissed_update_version: None,
+            update_badge_snoozed_version: None,
+            update_badge_snoozed_at_epoch_seconds: None,
+            ignored_update_version: None,
+            legacy_dismissed_update_version: None,
             cached_latest_update_version: None,
             x: None,
             y: None,
@@ -209,6 +218,19 @@ impl Settings {
     pub fn sanitize(&mut self) {
         self.size = self.size.clamp(MIN_SIZE, MAX_SIZE);
         self.breathing_pattern.sanitize();
+        sanitize_optional_string(&mut self.update_badge_snoozed_version);
+        sanitize_optional_string(&mut self.ignored_update_version);
+        sanitize_optional_string(&mut self.legacy_dismissed_update_version);
+        if self
+            .update_badge_snoozed_at_epoch_seconds
+            .is_some_and(|value| value < 0)
+        {
+            self.update_badge_snoozed_at_epoch_seconds = None;
+        }
+        if self.ignored_update_version.is_none() {
+            self.ignored_update_version = self.legacy_dismissed_update_version.clone();
+        }
+        self.legacy_dismissed_update_version = None;
 
         if let Some(legacy_half_cycle_seconds) = self.legacy_half_cycle_seconds.take() {
             self.breathing_pattern = legacy_pattern_from_half_cycle(legacy_half_cycle_seconds);
@@ -292,6 +314,15 @@ impl Settings {
     }
 }
 
+fn sanitize_optional_string(value: &mut Option<String>) {
+    if let Some(current) = value.as_mut() {
+        *current = current.trim().to_string();
+        if current.is_empty() {
+            *value = None;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum IpcCommand {
@@ -328,6 +359,9 @@ pub enum IpcCommand {
     CloseCustomSnooze,
     UpdatePrimaryAction,
     DismissUpdateBadge,
+    SetIgnoreCurrentUpdate {
+        ignored: bool,
+    },
     CloseUpdateDialog,
     DownloadUpdate,
     ShowContextMenu {
@@ -586,7 +620,10 @@ mod tests {
             launch_at_login: true,
             usage_data_sharing: false,
             crash_reports_sharing: true,
-            dismissed_update_version: Some("0.1.2".to_string()),
+            update_badge_snoozed_version: Some(" 0.1.2 ".to_string()),
+            update_badge_snoozed_at_epoch_seconds: Some(-1),
+            ignored_update_version: None,
+            legacy_dismissed_update_version: Some(" 0.1.4 ".to_string()),
             cached_latest_update_version: Some("0.1.5".to_string()),
             x: Some(10),
             y: Some(20),
@@ -620,13 +657,31 @@ mod tests {
         assert!(settings.launch_at_login);
         assert!(!settings.usage_data_sharing);
         assert!(settings.crash_reports_sharing);
-        assert_eq!(settings.dismissed_update_version.as_deref(), Some("0.1.2"));
+        assert_eq!(
+            settings.update_badge_snoozed_version.as_deref(),
+            Some("0.1.2")
+        );
+        assert!(settings.update_badge_snoozed_at_epoch_seconds.is_none());
+        assert_eq!(settings.ignored_update_version.as_deref(), Some("0.1.4"));
         assert_eq!(
             settings.cached_latest_update_version.as_deref(),
             Some("0.1.5")
         );
         assert_eq!(settings.x, Some(10));
         assert_eq!(settings.y, Some(20));
+    }
+
+    #[test]
+    fn sanitize_preserves_explicit_ignored_update_version_over_legacy_value() {
+        let mut settings = Settings {
+            ignored_update_version: Some("0.2.0".to_string()),
+            legacy_dismissed_update_version: Some("0.1.9".to_string()),
+            ..Settings::default()
+        };
+
+        settings.sanitize();
+
+        assert_eq!(settings.ignored_update_version.as_deref(), Some("0.2.0"));
     }
 
     #[test]

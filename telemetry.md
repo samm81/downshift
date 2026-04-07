@@ -134,11 +134,13 @@ delivery behavior:
     - `manual_check_started`
     - `check_completed`
     - `badge_dismissed`
+    - `ignore_current_update_changed`
     - `download_opened`
   - extra properties by action:
     - `manual_check_started`: no extra fields
     - `check_completed`: `source`, `latest_version`, `has_update_available`
     - `badge_dismissed`: `latest_version`
+    - `ignore_current_update_changed`: `latest_version`, `ignored`
     - `download_opened`: `source`, `has_update_available`, `latest_version`
   - observed `source` values: `manual`, `background`, `menu`, `dialog`
 - `privacy_preference_changed`

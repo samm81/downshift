@@ -17,11 +17,12 @@ use muda::{
     CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
 use semver::Version;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::PanicHookInfo;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -47,6 +48,7 @@ const MIN_HEARTBEAT_INTERVAL_SEC: u64 = 5;
 const MAX_HEARTBEAT_INTERVAL_SEC: u64 = 3600;
 const UPDATE_CHECK_STARTUP_DELAY_SEC: u64 = 8;
 const UPDATE_CHECK_BACKGROUND_INTERVAL_SEC: u64 = 6 * 60 * 60;
+const UPDATE_BADGE_REMINDER_INTERVAL_SEC: i64 = 24 * 60 * 60;
 const UPDATE_RELEASE_API_URL: &str =
     "https://api.github.com/repos/samm81/downshift/releases/latest";
 const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
@@ -119,7 +121,11 @@ const MENU_ID_CRASH_OFF: &str = "crash_off";
 #[cfg(target_os = "macos")]
 const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
 #[cfg(target_os = "macos")]
+const MENU_ID_UPDATE_ROOT: &str = "update_root";
+#[cfg(target_os = "macos")]
 const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
+#[cfg(target_os = "macos")]
+const MENU_ID_UPDATE_IGNORE_CURRENT: &str = "update_ignore_current";
 #[cfg(target_os = "macos")]
 const MENU_ID_LAUNCH_AT_LOGIN: &str = "launch_at_login";
 #[cfg(target_os = "macos")]
@@ -357,7 +363,9 @@ struct UpdateUiState {
     download_url: String,
     checking: bool,
     checked_once: bool,
-    dismissed_badge_version: Option<String>,
+    badge_snoozed_version: Option<String>,
+    badge_snoozed_at_epoch_seconds: Option<i64>,
+    ignored_version: Option<String>,
 }
 
 impl Default for UpdateUiState {
@@ -368,7 +376,9 @@ impl Default for UpdateUiState {
                 .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
             checking: false,
             checked_once: false,
-            dismissed_badge_version: None,
+            badge_snoozed_version: None,
+            badge_snoozed_at_epoch_seconds: None,
+            ignored_version: None,
         }
     }
 }
@@ -381,14 +391,38 @@ impl UpdateUiState {
         is_newer_version(latest, env!("CARGO_PKG_VERSION"))
     }
 
-    fn should_show_badge(&self) -> bool {
+    fn is_ignoring_current_update(&self) -> bool {
         let Some(latest) = self.latest_version.as_ref() else {
             return false;
         };
+        self.ignored_version.as_deref() == Some(latest.as_str())
+    }
+
+    fn ignore_current_update_enabled(&self) -> bool {
         if !self.has_update_available() {
             return false;
         }
-        self.dismissed_badge_version.as_deref() != Some(latest.as_str())
+        true
+    }
+
+    fn should_show_badge(&self) -> bool {
+        self.should_show_badge_at(now_epoch_seconds())
+    }
+
+    fn should_show_badge_at(&self, now_epoch_seconds: i64) -> bool {
+        let Some(latest) = self.latest_version.as_ref() else {
+            return false;
+        };
+        if !self.has_update_available() || self.is_ignoring_current_update() {
+            return false;
+        }
+        if self.badge_snoozed_version.as_deref() != Some(latest.as_str()) {
+            return true;
+        }
+        let Some(snoozed_at) = self.badge_snoozed_at_epoch_seconds else {
+            return true;
+        };
+        now_epoch_seconds - snoozed_at >= UPDATE_BADGE_REMINDER_INTERVAL_SEC
     }
 
     fn menu_label(&self) -> String {
@@ -568,6 +602,15 @@ fn export_diagnostics_to_temp_file(text: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn now_epoch_seconds() -> i64 {
+    use std::time::UNIX_EPOCH;
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}
+
 fn check_latest_release() -> UpdateCheckResult {
     let response = ureq::get(UPDATE_RELEASE_API_URL)
         .set("User-Agent", "downshift")
@@ -726,7 +769,9 @@ struct NativeContextMenu {
     breathing_delete_items: Vec<(String, MenuItem)>,
     reset: MenuItem,
     quit: MenuItem,
+    update_menu: Submenu,
     update_primary: MenuItem,
+    update_ignore_current: CheckMenuItem,
     bugs_menu: Submenu,
     copy_diagnostics: MenuItem,
     file_bug_github: MenuItem,
@@ -873,6 +918,13 @@ impl NativeContextMenu {
             true,
             None,
         );
+        let update_ignore_current = CheckMenuItem::with_id(
+            MENU_ID_UPDATE_IGNORE_CURRENT,
+            "do not remind me about the current update again",
+            false,
+            false,
+            None,
+        );
         let copy_diagnostics =
             MenuItem::with_id(MENU_ID_COPY_DIAGNOSTICS, "copy diagnostics", true, None);
         let file_bug_github = MenuItem::with_id(
@@ -970,6 +1022,18 @@ impl NativeContextMenu {
                 return None;
             }
         };
+        let update_menu = match Submenu::with_id_and_items(
+            MENU_ID_UPDATE_ROOT,
+            "updates",
+            true,
+            &[&update_primary, &update_ignore_current],
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                log_stderr!("warning: failed to build update submenu: {error}");
+                return None;
+            }
+        };
         let size_separator = PredefinedMenuItem::separator();
         let size_submenu = match Submenu::with_items(
             "size",
@@ -1053,7 +1117,7 @@ impl NativeContextMenu {
                 &separator_four,
                 &quit,
                 &separator_five,
-                &update_primary,
+                &update_menu,
                 &separator_six,
                 &bugs_menu,
                 &separator_seven,
@@ -1092,7 +1156,9 @@ impl NativeContextMenu {
             breathing_delete_items,
             reset,
             quit,
+            update_menu,
             update_primary,
+            update_ignore_current,
             bugs_menu,
             copy_diagnostics,
             file_bug_github,
@@ -1106,7 +1172,14 @@ impl NativeContextMenu {
         })
     }
 
-    fn sync_from_settings(&self, settings: &Settings, size_presets: [f64; 4], update_label: &str) {
+    fn sync_from_settings(
+        &self,
+        settings: &Settings,
+        size_presets: [f64; 4],
+        update_label: &str,
+        update_ignore_enabled: bool,
+        update_ignore_checked: bool,
+    ) {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
@@ -1145,8 +1218,13 @@ impl NativeContextMenu {
             .set_enabled(!self.breathing_delete_items.is_empty());
         self.reset.set_enabled(true);
         self.quit.set_enabled(true);
+        self.update_menu.set_enabled(true);
         self.update_primary.set_text(update_label);
         self.update_primary.set_enabled(true);
+        self.update_ignore_current
+            .set_enabled(update_ignore_enabled);
+        self.update_ignore_current
+            .set_checked(update_ignore_checked);
         self.bugs_menu.set_enabled(true);
         self.copy_diagnostics.set_enabled(true);
         self.file_bug_github.set_enabled(true);
@@ -1681,6 +1759,8 @@ impl App {
                 &self.settings,
                 self.current_size_presets(),
                 &self.updates.menu_label(),
+                self.updates.ignore_current_update_enabled(),
+                self.updates.is_ignoring_current_update(),
             );
         }
     }
@@ -1690,6 +1770,8 @@ impl App {
             "update_menu_label": self.updates.menu_label(),
             "update_has_new_version": self.updates.has_update_available(),
             "update_show_badge": self.updates.should_show_badge(),
+            "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
+            "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
         }));
     }
 
@@ -1708,8 +1790,58 @@ impl App {
                 "latest_version": latest,
             }),
         );
-        self.settings.dismissed_update_version = Some(latest.clone());
-        self.updates.dismissed_badge_version = Some(latest.clone());
+        self.settings.update_badge_snoozed_version = Some(latest.clone());
+        self.settings.update_badge_snoozed_at_epoch_seconds = Some(now_epoch_seconds());
+        self.updates.badge_snoozed_version = Some(latest.clone());
+        self.updates.badge_snoozed_at_epoch_seconds =
+            self.settings.update_badge_snoozed_at_epoch_seconds;
+        self.save_settings();
+        self.sync_update_surfaces();
+    }
+
+    fn apply_ignore_current_update(&mut self, ignored: bool) {
+        let latest = self
+            .updates
+            .latest_version
+            .as_ref()
+            .filter(|latest| is_newer_version(latest, env!("CARGO_PKG_VERSION")))
+            .cloned();
+        if ignored {
+            let Some(latest) = latest else {
+                return;
+            };
+            self.settings.ignored_update_version = Some(latest.clone());
+            self.updates.ignored_version = Some(latest.clone());
+            self.telemetry_update_flow(
+                "ignore_current_update_changed",
+                serde_json::json!({
+                    "latest_version": latest,
+                    "ignored": true,
+                }),
+            );
+        } else {
+            let was_ignored = self.updates.is_ignoring_current_update()
+                || self.settings.ignored_update_version.is_some();
+            self.settings.ignored_update_version = match (
+                latest.as_deref(),
+                self.settings.ignored_update_version.as_deref(),
+            ) {
+                (Some(latest), Some(ignored_version)) if ignored_version != latest => {
+                    self.settings.ignored_update_version.clone()
+                }
+                _ => None,
+            };
+            self.updates.ignored_version = self.settings.ignored_update_version.clone();
+            if was_ignored {
+                self.telemetry_update_flow(
+                    "ignore_current_update_changed",
+                    serde_json::json!({
+                        "latest_version": latest,
+                        "ignored": false,
+                    }),
+                );
+            }
+        }
         self.save_settings();
         self.sync_update_surfaces();
     }
@@ -1723,13 +1855,32 @@ impl App {
         self.updates.download_url = result.download_url;
         self.updates.checked_once = true;
         self.updates.checking = false;
-        self.updates.dismissed_badge_version = self.settings.dismissed_update_version.clone();
+        self.updates.badge_snoozed_version = self.settings.update_badge_snoozed_version.clone();
+        self.updates.badge_snoozed_at_epoch_seconds =
+            self.settings.update_badge_snoozed_at_epoch_seconds;
+        self.updates.ignored_version = self.settings.ignored_update_version.clone();
 
         if let Some(latest) = self.updates.latest_version.as_ref() {
-            if self.settings.dismissed_update_version.as_deref() == Some(latest.as_str())
+            let mut settings_changed = false;
+            if self.settings.ignored_update_version.as_deref() == Some(latest.as_str())
                 && !self.updates.has_update_available()
             {
-                self.settings.dismissed_update_version = None;
+                self.settings.ignored_update_version = None;
+                settings_changed = true;
+            }
+            if self.settings.update_badge_snoozed_version.as_deref() == Some(latest.as_str())
+                && !self.updates.has_update_available()
+            {
+                self.settings.update_badge_snoozed_version = None;
+                self.settings.update_badge_snoozed_at_epoch_seconds = None;
+                settings_changed = true;
+            }
+            if settings_changed {
+                self.updates.badge_snoozed_version =
+                    self.settings.update_badge_snoozed_version.clone();
+                self.updates.badge_snoozed_at_epoch_seconds =
+                    self.settings.update_badge_snoozed_at_epoch_seconds;
+                self.updates.ignored_version = self.settings.ignored_update_version.clone();
                 self.save_settings();
             }
         }
@@ -2120,6 +2271,8 @@ impl App {
           "update_menu_label": self.updates.menu_label(),
           "update_has_new_version": self.updates.has_update_available(),
           "update_show_badge": self.updates.should_show_badge(),
+          "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
+          "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "update_tooltip": UPDATE_TOOLTIP,
           "size_presets": size_presets,
           "use_native_menu": cfg!(target_os = "macos"),
@@ -2575,6 +2728,9 @@ impl App {
             IpcCommand::DismissUpdateBadge => {
                 self.dismiss_current_update_badge();
             }
+            IpcCommand::SetIgnoreCurrentUpdate { ignored } => {
+                self.apply_ignore_current_update(ignored);
+            }
             IpcCommand::CloseUpdateDialog => self.close_update_dialog_window(),
             IpcCommand::DownloadUpdate => {
                 self.close_update_dialog_window();
@@ -2673,6 +2829,8 @@ impl App {
             &self.settings,
             self.current_size_presets(),
             &self.updates.menu_label(),
+            self.updates.ignore_current_update_enabled(),
+            self.updates.is_ignoring_current_update(),
         );
         menu.sync_consent(
             self.settings.usage_data_sharing,
@@ -2755,6 +2913,10 @@ impl App {
             }
             MENU_ID_ANALYTICS_INFO => self.open_telemetry_info_window(event_loop),
             MENU_ID_UPDATE_PRIMARY => self.handle_update_primary_action(event_loop),
+            MENU_ID_UPDATE_IGNORE_CURRENT => {
+                let ignored = !self.updates.is_ignoring_current_update();
+                self.apply_ignore_current_update(ignored);
+            }
             MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
             MENU_ID_FILE_BUG_GITHUB => match github_issues_url() {
                 Ok(url) => open_external_url(&url),
@@ -2810,7 +2972,10 @@ impl ApplicationHandler<AppEvent> for App {
         if let Some(error) = self.settings_load_error.as_ref() {
             log_stderr!("warning: {error}");
         }
-        self.updates.dismissed_badge_version = self.settings.dismissed_update_version.clone();
+        self.updates.badge_snoozed_version = self.settings.update_badge_snoozed_version.clone();
+        self.updates.badge_snoozed_at_epoch_seconds =
+            self.settings.update_badge_snoozed_at_epoch_seconds;
+        self.updates.ignored_version = self.settings.ignored_update_version.clone();
         self.updates.latest_version = self.settings.cached_latest_update_version.clone();
         self.telemetry
             .set_usage_enabled(self.settings.usage_data_sharing);
@@ -3250,11 +3415,20 @@ fn handle_child_window_event(
 }
 
 #[cfg(unix)]
-fn instance_socket_path() -> Option<PathBuf> {
+fn instance_socket_path_for_executable(executable: &Path) -> Option<PathBuf> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    executable.hash(&mut hasher);
+    let executable_hash = hasher.finish();
     let mut path = dirs::config_dir()?;
     path.push("downshift");
-    path.push("instance.sock");
+    path.push(format!("instance-{executable_hash:016x}.sock"));
     Some(path)
+}
+
+#[cfg(unix)]
+fn instance_socket_path() -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    instance_socket_path_for_executable(&executable)
 }
 
 #[cfg(unix)]
@@ -3756,6 +3930,64 @@ mod tests {
     }
 
     #[test]
+    fn update_badge_visibility_respects_daily_snooze() {
+        let state = UpdateUiState {
+            latest_version: Some("9.9.9".to_string()),
+            badge_snoozed_version: Some("9.9.9".to_string()),
+            badge_snoozed_at_epoch_seconds: Some(10_000),
+            ..UpdateUiState::default()
+        };
+
+        assert!(!state.should_show_badge_at(10_000 + UPDATE_BADGE_REMINDER_INTERVAL_SEC - 1));
+        assert!(state.should_show_badge_at(10_000 + UPDATE_BADGE_REMINDER_INTERVAL_SEC));
+    }
+
+    #[test]
+    fn update_badge_visibility_is_version_scoped() {
+        let state = UpdateUiState {
+            latest_version: Some("9.9.10".to_string()),
+            badge_snoozed_version: Some("9.9.9".to_string()),
+            badge_snoozed_at_epoch_seconds: Some(10_000),
+            ..UpdateUiState::default()
+        };
+
+        assert!(state.should_show_badge_at(10_001));
+    }
+
+    #[test]
+    fn update_badge_visibility_respects_ignored_current_version() {
+        let state = UpdateUiState {
+            latest_version: Some("9.9.9".to_string()),
+            ignored_version: Some("9.9.9".to_string()),
+            ..UpdateUiState::default()
+        };
+
+        assert!(!state.should_show_badge_at(10_000));
+        assert!(state.ignore_current_update_enabled());
+        assert!(state.is_ignoring_current_update());
+    }
+
+    #[test]
+    fn update_check_result_clears_matching_ignore_and_snooze_after_upgrade() {
+        let current = env!("CARGO_PKG_VERSION").to_string();
+        let mut app = App::default();
+        app.settings.cached_latest_update_version = Some(current.clone());
+        app.settings.update_badge_snoozed_version = Some(current.clone());
+        app.settings.update_badge_snoozed_at_epoch_seconds = Some(10_000);
+        app.settings.ignored_update_version = Some(current.clone());
+
+        app.apply_update_check_result(UpdateCheckResult {
+            latest_version: Some(current),
+            download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
+        });
+
+        assert!(app.settings.update_badge_snoozed_version.is_none());
+        assert!(app.settings.update_badge_snoozed_at_epoch_seconds.is_none());
+        assert!(app.settings.ignored_update_version.is_none());
+        assert!(!app.updates.should_show_badge_at(10_001));
+    }
+
+    #[test]
     fn size_target_label_matches_menu_slots() {
         assert_eq!(size_target_label(0), Some("S"));
         assert_eq!(size_target_label(1), Some("M"));
@@ -3772,6 +4004,25 @@ mod tests {
         );
         assert_eq!(InstanceCommand::Activate.as_bytes(), b"activate\n");
         assert_eq!(InstanceCommand::parse("nope"), None);
+    }
+
+    #[test]
+    fn instance_socket_path_is_scoped_to_executable_path() {
+        let debug_path = instance_socket_path_for_executable(Path::new(
+            "/Users/m1/src/downshift/target/debug/downshift",
+        ))
+        .expect("debug executable path should resolve a socket path");
+        let app_path = instance_socket_path_for_executable(Path::new(
+            "/Applications/Downshift.app/Contents/MacOS/downshift",
+        ))
+        .expect("app executable path should resolve a socket path");
+
+        assert_ne!(debug_path, app_path);
+        assert_eq!(debug_path.parent(), app_path.parent());
+        assert!(debug_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("instance-") && name.ends_with(".sock")));
     }
 
     #[test]

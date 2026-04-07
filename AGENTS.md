@@ -4,6 +4,8 @@
 
 downshift is a tiny desktop breathing companion. it renders a small, gentle visual breathing cue (an expanding/contracting ball) intended to reduce screen apnea and encourage a steady 5.5s inhale / 5.5s exhale rhythm.
 
+update reminders are badge-based: dismissing the current update badge snoozes it for 24 hours, and users can separately choose not to be reminded about the current update version again from the updates menu.
+
 ## execution environment
 
 the agent runs in an already-provisioned development environment.

@@ -151,6 +151,14 @@ fn ipc_json_deserializes_supported_commands() {
         IpcCommand::DismissUpdateBadge
     ));
 
+    let set_ignore_current_update: IpcCommand =
+        serde_json::from_str(r#"{"cmd":"set_ignore_current_update","ignored":true}"#)
+            .expect("set_ignore_current_update should parse");
+    assert!(matches!(
+        set_ignore_current_update,
+        IpcCommand::SetIgnoreCurrentUpdate { ignored: true }
+    ));
+
     let close_update_dialog: IpcCommand = serde_json::from_str(r#"{"cmd":"close_update_dialog"}"#)
         .expect("close_update_dialog should parse");
     assert!(matches!(close_update_dialog, IpcCommand::CloseUpdateDialog));

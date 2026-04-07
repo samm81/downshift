@@ -5,6 +5,9 @@
   const resetButton = document.getElementById("menu-reset");
   const quitButton = document.getElementById("menu-quit");
   const updatePrimaryButton = document.getElementById("menu-update-primary");
+  const updateIgnoreCurrentButton = document.getElementById(
+    "menu-update-ignore-current",
+  );
   const updateBadge = document.getElementById("update-badge");
   const customSnoozeButton = document.getElementById("menu-snooze-custom");
   const analyticsToggleButton = document.getElementById(
@@ -136,6 +139,8 @@
     updateLabel: String(init.update_menu_label || "check for updates"),
     updateHasNewVersion: Boolean(init.update_has_new_version),
     updateShowBadge: Boolean(init.update_show_badge),
+    updateIgnoreCurrentEnabled: Boolean(init.update_ignore_current_enabled),
+    updateIgnoreCurrentChecked: Boolean(init.update_ignore_current_checked),
     sizePresets:
       Array.isArray(init.size_presets) && init.size_presets.length === 4
         ? init.size_presets
@@ -204,6 +209,9 @@
     updatePrimaryButton.dataset.newVersion = state.updateHasNewVersion
       ? "1"
       : "0";
+    updateIgnoreCurrentButton.disabled = !state.updateIgnoreCurrentEnabled;
+    updateIgnoreCurrentButton.textContent =
+      `do not remind me about the current update again ${state.updateIgnoreCurrentChecked ? "✓" : ""}`.trim();
     syncAnimationPauseState();
     positionBadge();
   }
@@ -366,6 +374,26 @@
         dismissBadge(true);
       }
     }
+    if (
+      Object.prototype.hasOwnProperty.call(
+        next,
+        "update_ignore_current_enabled",
+      )
+    ) {
+      state.updateIgnoreCurrentEnabled = Boolean(
+        next.update_ignore_current_enabled,
+      );
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(
+        next,
+        "update_ignore_current_checked",
+      )
+    ) {
+      state.updateIgnoreCurrentChecked = Boolean(
+        next.update_ignore_current_checked,
+      );
+    }
     applyBallState();
     applyAnalyticsButtons();
     applyBreathingButtons();
@@ -460,6 +488,23 @@
 
   updatePrimaryButton.addEventListener("click", () => {
     post({ cmd: "update_primary_action" });
+    hideMenu();
+  });
+
+  updateIgnoreCurrentButton.addEventListener("click", () => {
+    if (!state.updateIgnoreCurrentEnabled) {
+      return;
+    }
+    state.updateIgnoreCurrentChecked = !state.updateIgnoreCurrentChecked;
+    if (state.updateIgnoreCurrentChecked) {
+      state.updateShowBadge = false;
+      dismissBadge(true);
+    }
+    applyBallState();
+    post({
+      cmd: "set_ignore_current_update",
+      ignored: state.updateIgnoreCurrentChecked,
+    });
     hideMenu();
   });
 
