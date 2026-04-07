@@ -2227,7 +2227,7 @@ impl App {
         &self,
         event_loop: &ActiveEventLoop,
         size: f64,
-    ) -> Option<LogicalPosition<f64>> {
+    ) -> Option<PhysicalPosition<i32>> {
         let monitors: Vec<_> = event_loop.available_monitors().collect();
         if monitors.is_empty() {
             return None;
@@ -2236,8 +2236,9 @@ impl App {
             .primary_monitor()
             .or_else(|| monitors.first().cloned())?;
 
-        if let (Some(saved_x), Some(saved_y)) = (self.settings.x, self.settings.y) {
-            let saved = LogicalPosition::new(saved_x as f64, saved_y as f64);
+        if let (Some(saved_x), Some(saved_y)) = (self.settings.physical_x, self.settings.physical_y)
+        {
+            let saved = PhysicalPosition::new(saved_x, saved_y);
             if let Some(saved_monitor) = self.settings.monitor.as_ref() {
                 if let Some(current) = monitors
                     .iter()
@@ -2257,7 +2258,45 @@ impl App {
                 return Some(saved);
             }
         }
+
+        if let Some(saved) = self.choose_initial_position_from_legacy_logical(&monitors, &primary, size)
+        {
+            return Some(saved);
+        }
+
         Some(default_corner_position(&primary, size))
+    }
+
+    fn choose_initial_position_from_legacy_logical(
+        &self,
+        monitors: &[MonitorHandle],
+        primary: &MonitorHandle,
+        size: f64,
+    ) -> Option<PhysicalPosition<i32>> {
+        let (Some(saved_x), Some(saved_y)) = (self.settings.x, self.settings.y) else {
+            return None;
+        };
+        let saved = LogicalPosition::new(saved_x as f64, saved_y as f64);
+
+        if let Some(saved_monitor) = self.settings.monitor.as_ref() {
+            if let Some(current) = monitors
+                .iter()
+                .find(|monitor| monitor_matches_persisted(monitor, saved_monitor))
+            {
+                if position_fits_monitor_legacy(saved, size, current) {
+                    return Some(logical_to_physical_position(saved, current.scale_factor()));
+                }
+            } else {
+                return Some(default_corner_position(primary, size));
+            }
+        } else if let Some(current) = monitors
+            .iter()
+            .find(|monitor| position_fits_monitor_legacy(saved, size, monitor))
+        {
+            return Some(logical_to_physical_position(saved, current.scale_factor()));
+        }
+
+        None
     }
 
     fn build_init_script(&self, size_presets: [f64; 4]) -> String {
@@ -2286,6 +2325,11 @@ impl App {
         Some(physical.to_logical(window.scale_factor()))
     }
 
+    fn current_window_physical_position(&self) -> Option<PhysicalPosition<i32>> {
+        let window = self.window.as_ref()?;
+        window.outer_position().ok()
+    }
+
     fn apply_size(&mut self, size: f64) {
         let window = match self.window.as_ref() {
             Some(window) => window,
@@ -2304,8 +2348,10 @@ impl App {
             let next_x = (center_x - size / 2.0).round() as i32;
             let next_y = (center_y - size / 2.0).round() as i32;
             window.set_outer_position(LogicalPosition::new(next_x, next_y));
-            self.settings.x = Some(next_x);
-            self.settings.y = Some(next_y);
+            if let Some(physical) = self.current_window_physical_position() {
+                self.settings.physical_x = Some(physical.x);
+                self.settings.physical_y = Some(physical.y);
+            }
         }
     }
 
@@ -2627,9 +2673,8 @@ impl App {
 
     fn update_position_from_physical(&mut self, physical: PhysicalPosition<i32>) {
         if let Some(window) = self.window.as_ref() {
-            let logical = physical.to_logical::<f64>(window.scale_factor());
-            self.settings.x = Some(logical.x.round() as i32);
-            self.settings.y = Some(logical.y.round() as i32);
+            self.settings.physical_x = Some(physical.x);
+            self.settings.physical_y = Some(physical.y);
             let current_monitor = window.current_monitor();
             self.settings.monitor = current_monitor.clone().map(snapshot_monitor);
             if let Some(monitor) = current_monitor {
@@ -2661,11 +2706,9 @@ impl App {
         if let Some(window) = self.window.as_ref() {
             if let Some(monitor) = monitor {
                 let pos = default_corner_position(&monitor, self.settings.size);
-                let x = pos.x.round() as i32;
-                let y = pos.y.round() as i32;
-                window.set_outer_position(LogicalPosition::new(x, y));
-                self.settings.x = Some(x);
-                self.settings.y = Some(y);
+                window.set_outer_position(pos);
+                self.settings.physical_x = Some(pos.x);
+                self.settings.physical_y = Some(pos.y);
                 self.settings.monitor = Some(snapshot_monitor(monitor));
             }
         }
@@ -3009,11 +3052,9 @@ impl ApplicationHandler<AppEvent> for App {
             .with_inner_size(LogicalSize::new(self.settings.size, self.settings.size));
 
         if let Some(position) = self.choose_initial_position(event_loop, self.settings.size) {
-            let x = position.x.round() as i32;
-            let y = position.y.round() as i32;
-            window_attributes = window_attributes.with_position(LogicalPosition::new(x, y));
-            self.settings.x = Some(x);
-            self.settings.y = Some(y);
+            window_attributes = window_attributes.with_position(position);
+            self.settings.physical_x = Some(position.x);
+            self.settings.physical_y = Some(position.y);
         }
 
         let window = match event_loop.create_window(window_attributes) {
@@ -3172,6 +3213,16 @@ impl ApplicationHandler<AppEvent> for App {
                 self.update_position_from_physical(position);
                 self.save_settings();
             }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                if let Some(window) = self.window.as_ref() {
+                    let current_monitor = window.current_monitor();
+                    self.settings.monitor = current_monitor.clone().map(snapshot_monitor);
+                    if let Some(monitor) = current_monitor {
+                        self.apply_size_presets_for_monitor(&monitor);
+                    }
+                }
+                self.save_settings();
+            }
             WindowEvent::Resized(_) => {
                 self.enforce_fixed_square_size();
                 self.sync_webview_bounds();
@@ -3260,6 +3311,23 @@ fn monitor_matches_persisted(monitor: &MonitorHandle, persisted: &PersistedMonit
 }
 
 fn position_fits_monitor(
+    position: PhysicalPosition<i32>,
+    size: f64,
+    monitor: &MonitorHandle,
+) -> bool {
+    let monitor_pos = monitor.position();
+    let monitor_size = monitor.size();
+    let window_size = physical_size_for_monitor(size, monitor);
+    let max_x = i64::from(monitor_pos.x) + i64::from(monitor_size.width) - i64::from(window_size);
+    let max_y = i64::from(monitor_pos.y) + i64::from(monitor_size.height) - i64::from(window_size);
+
+    i64::from(position.x) >= i64::from(monitor_pos.x)
+        && i64::from(position.y) >= i64::from(monitor_pos.y)
+        && i64::from(position.x) <= max_x
+        && i64::from(position.y) <= max_y
+}
+
+fn position_fits_monitor_legacy(
     position: LogicalPosition<f64>,
     size: f64,
     monitor: &MonitorHandle,
@@ -3275,13 +3343,14 @@ fn position_fits_monitor(
         && position.y <= max_y
 }
 
-fn default_corner_position(monitor: &MonitorHandle, size: f64) -> LogicalPosition<f64> {
-    let scale = monitor.scale_factor();
-    let monitor_pos = monitor.position().to_logical::<f64>(scale);
-    let monitor_size = monitor.size().to_logical::<f64>(scale);
-    let margin = monitor_size.width.min(monitor_size.height) * DEFAULT_EDGE_MARGIN_RATIO;
-    LogicalPosition::new(
-        monitor_pos.x + monitor_size.width - size - margin,
+fn default_corner_position(monitor: &MonitorHandle, size: f64) -> PhysicalPosition<i32> {
+    let monitor_pos = monitor.position();
+    let monitor_size = monitor.size();
+    let margin = (f64::from(monitor_size.width.min(monitor_size.height)) * DEFAULT_EDGE_MARGIN_RATIO)
+        .round() as i32;
+    let window_size = physical_size_for_monitor(size, monitor);
+    PhysicalPosition::new(
+        monitor_pos.x + monitor_size.width as i32 - window_size - margin,
         monitor_pos.y + margin,
     )
 }
@@ -3291,6 +3360,20 @@ fn default_size_for_monitor(monitor: &MonitorHandle) -> f64 {
     let size = monitor.size().to_logical::<f64>(scale);
     let shorter_side = size.width.min(size.height);
     clamp_size(shorter_side * DEFAULT_SIZE_SHORT_SIDE_RATIO)
+}
+
+fn physical_size_for_monitor(size: f64, monitor: &MonitorHandle) -> i32 {
+    (size * monitor.scale_factor()).round() as i32
+}
+
+fn logical_to_physical_position(
+    position: LogicalPosition<f64>,
+    scale_factor: f64,
+) -> PhysicalPosition<i32> {
+    PhysicalPosition::new(
+        (position.x * scale_factor).round() as i32,
+        (position.y * scale_factor).round() as i32,
+    )
 }
 
 fn heartbeat_interval() -> Duration {

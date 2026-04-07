@@ -170,7 +170,13 @@ pub struct Settings {
     legacy_dismissed_update_version: Option<String>,
     #[serde(default)]
     pub cached_latest_update_version: Option<String>,
+    #[serde(default)]
+    pub physical_x: Option<i32>,
+    #[serde(default)]
+    pub physical_y: Option<i32>,
+    #[serde(default, skip_serializing)]
     pub x: Option<i32>,
+    #[serde(default, skip_serializing)]
     pub y: Option<i32>,
     pub monitor: Option<PersistedMonitor>,
 }
@@ -199,6 +205,8 @@ impl Default for Settings {
             ignored_update_version: None,
             legacy_dismissed_update_version: None,
             cached_latest_update_version: None,
+            physical_x: None,
+            physical_y: None,
             x: None,
             y: None,
             monitor: None,
@@ -625,6 +633,8 @@ mod tests {
             ignored_update_version: None,
             legacy_dismissed_update_version: Some(" 0.1.4 ".to_string()),
             cached_latest_update_version: Some("0.1.5".to_string()),
+            physical_x: None,
+            physical_y: None,
             x: Some(10),
             y: Some(20),
             monitor: None,
@@ -667,8 +677,28 @@ mod tests {
             settings.cached_latest_update_version.as_deref(),
             Some("0.1.5")
         );
+        assert_eq!(settings.physical_x, None);
+        assert_eq!(settings.physical_y, None);
         assert_eq!(settings.x, Some(10));
         assert_eq!(settings.y, Some(20));
+    }
+
+    #[test]
+    fn settings_serialize_physical_position_without_legacy_logical_fields() {
+        let settings = Settings {
+            physical_x: Some(640),
+            physical_y: Some(480),
+            x: Some(10),
+            y: Some(20),
+            ..Settings::default()
+        };
+
+        let serialized = toml::to_string(&settings).expect("serialize settings");
+
+        assert!(serialized.contains("physical_x = 640"));
+        assert!(serialized.contains("physical_y = 480"));
+        assert!(!serialized.contains("\nx = 10"));
+        assert!(!serialized.contains("\ny = 20"));
     }
 
     #[test]

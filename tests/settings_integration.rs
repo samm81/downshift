@@ -44,6 +44,8 @@ launch_at_login = true
     assert!(settings.launch_at_login);
     assert!(settings.usage_data_sharing);
     assert!(settings.crash_reports_sharing);
+    assert_eq!(settings.physical_x, None);
+    assert_eq!(settings.physical_y, None);
     assert_eq!(settings.x, Some(120));
     assert_eq!(settings.y, Some(240));
     assert_eq!(settings.monitor, None);
@@ -63,6 +65,8 @@ fn load_settings_falls_back_to_default_when_toml_is_invalid() {
     assert!(settings.launch_at_login);
     assert_eq!(settings.x, None);
     assert_eq!(settings.y, None);
+    assert_eq!(settings.physical_x, None);
+    assert_eq!(settings.physical_y, None);
 }
 
 #[test]
@@ -181,4 +185,24 @@ dismissed_update_version = "0.9.0"
     assert_eq!(settings.ignored_update_version.as_deref(), Some("0.9.0"));
     assert!(settings.update_badge_snoozed_version.is_none());
     assert!(settings.update_badge_snoozed_at_epoch_seconds.is_none());
+}
+
+#[test]
+fn load_settings_parses_physical_window_position_fields() {
+    let path = support::temp_file_path("breath-ball-physical-position", "toml");
+    let raw = r#"
+size = 96.0
+paused = false
+physical_x = 1440
+physical_y = 900
+"#;
+    std::fs::write(&path, raw).expect("should write temp settings file");
+
+    let settings = load_settings(Some(&path));
+    std::fs::remove_file(&path).ok();
+
+    assert_eq!(settings.physical_x, Some(1440));
+    assert_eq!(settings.physical_y, Some(900));
+    assert_eq!(settings.x, None);
+    assert_eq!(settings.y, None);
 }
