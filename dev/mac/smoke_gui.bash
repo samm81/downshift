@@ -185,7 +185,7 @@ main() {
   log "visible window count: ${WINDOW_COUNT}"
 
   local warmup_capture="$out_dir/warmup-popup-trigger.png"
-  local settle_delay_seconds="2"
+  local settle_delay_seconds="10"
   CAPTURE_MODE="fullscreen"
   log "triggering macos capture prompt with warmup screenshot"
   screencapture -x "$warmup_capture"
