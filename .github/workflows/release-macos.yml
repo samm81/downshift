@@ -45,7 +45,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: resolve release tag
         id: release
@@ -74,7 +74,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -169,7 +169,7 @@ jobs:
           cp "dist/${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt" release-artifacts/
 
       - name: upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: breath-ball-macos
           path: release-artifacts/*

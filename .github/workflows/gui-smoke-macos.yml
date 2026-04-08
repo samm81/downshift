@@ -54,11 +54,11 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: download workflow artifact
         if: inputs.artifact_name != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: ${{ inputs.artifact_name }}
           path: release-artifacts
@@ -109,7 +109,7 @@ jobs:
 
       - name: upload gui smoke artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gui-smoke-macos
           path: |

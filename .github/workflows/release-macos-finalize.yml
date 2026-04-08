@@ -23,7 +23,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: resolve release tag
         id: release
