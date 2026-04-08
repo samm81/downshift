@@ -153,7 +153,7 @@ if [[ "$SYNC_GIT_CONFIG" == "1" ]]; then
     "${SSH_CMD[@]}" "$REMOTE" \
       "/bin/bash -lc 'cat > \"\$HOME/.gitconfig\"'"
   "${SSH_CMD[@]}" "$REMOTE" \
-    "/bin/bash -lc 'git config --global commit.gpgsign false; git config --global --unset-all user.signingkey || true; git config --global tag.gpgsign false'"
+    "/bin/bash -lc 'git config --global commit.gpgsign false; git config --global --unset-all user.signingkey || true; git config --global tag.gpgsign false; git config --global --unset commit.template'"
   echo "[bootstrap] git config sync complete"
 fi
 
