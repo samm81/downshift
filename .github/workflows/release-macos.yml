@@ -126,9 +126,7 @@ jobs:
         run: |
           set -euo pipefail
           RELEASE_TAG="${{ steps.release.outputs.tag }}"
-          SIGNED_ZIP_PATH="dist/${APP_NAME}-signed-${RELEASE_TAG}.zip"
           DMG_PATH="dist/${APP_NAME}-notarized-${RELEASE_TAG}.dmg"
-          SUBMISSION_FILE="dist/${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt"
 
           gh api "/repos/${{ github.repository }}/git/ref/tags/${RELEASE_TAG}" >/dev/null
 
@@ -154,9 +152,7 @@ jobs:
           fi
 
           gh release upload "$RELEASE_TAG" \
-            "$SIGNED_ZIP_PATH" \
             "$DMG_PATH" \
-            "$SUBMISSION_FILE" \
             --clobber
 
       - name: collect workflow artifacts
@@ -164,7 +160,6 @@ jobs:
           set -euo pipefail
           RELEASE_TAG="${{ steps.release.outputs.tag }}"
           mkdir -p release-artifacts
-          cp "dist/${APP_NAME}-signed-${RELEASE_TAG}.zip" release-artifacts/
           cp "dist/${APP_NAME}-notarized-${RELEASE_TAG}.dmg" release-artifacts/
           cp "dist/${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt" release-artifacts/
 
@@ -255,4 +250,5 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "/repos/${{ github.repository }}/actions/workflows/release-macos-finalize.yml/dispatches" \
             -f ref="$RELEASE_TAG" \
-            -f inputs[tag]="$RELEASE_TAG"
+            -f inputs[tag]="$RELEASE_TAG" \
+            -f inputs[submission_id]="${{ needs.build-macos.outputs.submission_id }}"

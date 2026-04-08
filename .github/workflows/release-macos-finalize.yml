@@ -7,6 +7,10 @@ on:
         description: tag to finalize (for example v0.1.0)
         required: true
         type: string
+      submission_id:
+        description: apple notarytool submission id for the release dmg
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -48,18 +52,14 @@ jobs:
           set -euo pipefail
           RELEASE_TAG="${{ steps.release.outputs.tag }}"
           mkdir -p dist
-          gh release download "$RELEASE_TAG" --pattern "${APP_NAME}-signed-${RELEASE_TAG}.zip" --dir dist
           gh release download "$RELEASE_TAG" --pattern "${APP_NAME}-notarized-${RELEASE_TAG}.dmg" --dir dist
-          gh release download "$RELEASE_TAG" --pattern "${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt" --dir dist
 
       - name: check notarization status
         id: status
         run: |
           set -euo pipefail
-          RELEASE_TAG="${{ steps.release.outputs.tag }}"
-          SUBMISSION_FILE="dist/${APP_NAME}-notary-submission-id-${RELEASE_TAG}.txt"
           STATUS_JSON="$RUNNER_TEMP/notary-status.json"
-          SUBMISSION_ID="$(tr -d '\r\n' < "$SUBMISSION_FILE")"
+          SUBMISSION_ID="${{ inputs.submission_id }}"
 
           xcrun notarytool info "$SUBMISSION_ID" \
             --apple-id "$MACOS_NOTARY_APPLE_ID" \

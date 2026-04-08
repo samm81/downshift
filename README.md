@@ -249,3 +249,5 @@ git push origin v0.1.0
 ```
 
 when the tag-triggered github actions release workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published only after notarization finalize succeeds and `gui-smoke-macos` passes for that tag from the same workflow run.
+
+the published github release only includes the notarized dmg plus `SHA256SUMS.txt`. the signed zip and notarization submission id stay workflow-internal and are not uploaded as release assets.
