@@ -12,15 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  gui-smoke:
-    uses: ./.github/workflows/gui-smoke-macos.yml
-    permissions:
-      contents: read
-    with:
-      release_tag: ${{ inputs.tag }}
-
   finalize-macos:
-    needs: gui-smoke
     runs-on: macos-latest
     environment: release
     env:

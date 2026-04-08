@@ -46,7 +46,7 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - `npm run check` is lint/format only and does not run rust tests.
 - artifact-based mac gui verification is available through the `gui-smoke-macos` github actions workflow; it can target a specific release tag or the latest published dmg, launches `Downshift.app`, checks for a visible app window, triggers a warmup capture, and records cropped screenshot plus diff artifacts.
-- release publishing is gated on `gui-smoke-macos`; `release-macos-finalize` must not publish a release unless that smoke workflow passes for the target tag.
+- release publishing is gated on `gui-smoke-macos`; `release-macos` must not dispatch `release-macos-finalize` unless that smoke workflow passes for the target tag.
 - when adding a new feature, add telemetry events when they are meaningful for product/usage visibility.
 
 ## notarization policy

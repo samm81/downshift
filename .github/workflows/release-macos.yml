@@ -223,11 +223,33 @@ jobs:
 
           echo "finished=$FINISHED" >> "$GITHUB_OUTPUT"
 
+  gui-smoke:
+    needs: build-macos
+    if: needs.build-macos.outputs.notarization_finished == 'true'
+    uses: ./.github/workflows/gui-smoke-macos.yml
+    permissions:
+      actions: read
+      contents: read
+    with:
+      artifact_name: breath-ball-macos
+      release_tag: ${{ needs.build-macos.outputs.release_tag }}
+
+  finalize-release:
+    needs:
+      - build-macos
+      - gui-smoke
+    if: needs.build-macos.outputs.notarization_finished == 'true' && needs.gui-smoke.result == 'success'
+    runs-on: macos-latest
+    permissions:
+      actions: write
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
       - name: trigger release finalize
-        if: steps.wait.outputs.finished == 'true'
         run: |
           set -euo pipefail
-          RELEASE_TAG="${{ steps.release.outputs.tag }}"
+          RELEASE_TAG="${{ needs.build-macos.outputs.release_tag }}"
           gh api \
             -X POST \
             -H "Accept: application/vnd.github+json" \

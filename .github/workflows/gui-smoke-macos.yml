@@ -3,6 +3,10 @@ name: gui-smoke-macos
 on:
   workflow_call:
     inputs:
+      artifact_name:
+        description: workflow artifact name to download and verify instead of a github release asset
+        required: false
+        type: string
       release_tag:
         description: specific release tag to verify instead of the latest published release
         required: false
@@ -19,6 +23,10 @@ on:
         type: string
   workflow_dispatch:
     inputs:
+      artifact_name:
+        description: workflow artifact name to download and verify instead of a github release asset
+        required: false
+        type: string
       release_tag:
         description: specific release tag to verify instead of the latest published release
         required: false
@@ -48,6 +56,25 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: download workflow artifact
+        if: inputs.artifact_name != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: release-artifacts
+
+      - name: resolve dmg path from artifact
+        if: inputs.artifact_name != ''
+        id: artifact
+        run: |
+          set -euo pipefail
+          DMG_PATH="$(find release-artifacts -maxdepth 1 -type f -name 'Downshift-notarized-*.dmg' | head -n 1)"
+          if [ -z "$DMG_PATH" ]; then
+            echo "error: no notarized dmg found in artifact '${{ inputs.artifact_name }}'"
+            exit 1
+          fi
+          echo "dmg_path=$DMG_PATH" >> "$GITHUB_OUTPUT"
+
       - name: install image diff tooling
         run: |
           set -euo pipefail
@@ -56,6 +83,8 @@ jobs:
       - name: launch release candidate app
         id: smoke
         continue-on-error: true
+        env:
+          DOWNSHIFT_RELEASE_DMG_PATH: ${{ steps.artifact.outputs.dmg_path }}
         run: |
           set -euo pipefail
           ./dev/mac/smoke_gui.bash \

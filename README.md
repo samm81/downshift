@@ -138,7 +138,7 @@ it:
 
 the job summary includes the parsed smoke result, and the artifacts contain the screenshots plus `run.log` for manual review.
 
-`release-macos-finalize` now calls `gui-smoke-macos` as a required gate against the exact draft release tag. the release stays in draft until that smoke job passes.
+`release-macos` now runs `gui-smoke-macos` as a required gate against the notarized dmg artifact from the same workflow run before it dispatches `release-macos-finalize`. the release stays in draft until that smoke job passes.
 
 ## mac distribution (unsigned)
 
@@ -245,7 +245,7 @@ git push origin <branch>
 git push origin v0.1.0
 
 # 5) wait for github actions verification
-# release-macos-finalize publishes only after gui-smoke-macos passes for that tag
+# release-macos dispatches release-macos-finalize only after gui-smoke-macos passes for that tag
 ```
 
-when the tag-triggered github actions release workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published only after notarization finalize succeeds and `gui-smoke-macos` passes for that tag.
+when the tag-triggered github actions release workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published only after notarization finalize succeeds and `gui-smoke-macos` passes for that tag from the same workflow run.

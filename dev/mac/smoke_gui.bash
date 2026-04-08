@@ -24,7 +24,11 @@ require_macos() {
 
 ensure_tools() {
   local missing=()
-  for tool in compare gh hdiutil magick open pgrep screencapture swift; do
+  local tools=(compare hdiutil magick open pgrep screencapture swift)
+  if [[ -z "${DOWNSHIFT_RELEASE_DMG_PATH:-}" ]]; then
+    tools+=(gh)
+  fi
+  for tool in "${tools[@]}"; do
     if ! have "$tool"; then
       missing+=("$tool")
     fi
@@ -143,7 +147,6 @@ wait_for_window() {
 main() {
   require_macos
   ensure_tools
-  require_github_auth
 
   local script_dir repo_root
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -173,12 +176,20 @@ main() {
   exec > >(tee "$run_log") 2>&1
   trap cleanup EXIT
 
-  RELEASE_TAG="$(resolve_release_tag)"
-  [[ -n "$RELEASE_TAG" ]] || die "failed to resolve latest release tag"
-  log "resolved latest release tag: ${RELEASE_TAG}"
+  if [[ -n "${DOWNSHIFT_RELEASE_DMG_PATH:-}" ]]; then
+    DMG_PATH="${DOWNSHIFT_RELEASE_DMG_PATH}"
+    [[ -f "$DMG_PATH" ]] || die "provided dmg path does not exist: ${DMG_PATH}"
+    RELEASE_TAG="${DOWNSHIFT_RELEASE_TAG:-}"
+    log "using provided dmg: ${DMG_PATH}"
+  else
+    require_github_auth
+    RELEASE_TAG="$(resolve_release_tag)"
+    [[ -n "$RELEASE_TAG" ]] || die "failed to resolve latest release tag"
+    log "resolved release tag: ${RELEASE_TAG}"
 
-  download_release_dmg "$RELEASE_TAG" "$release_dir"
-  log "downloaded dmg: ${DMG_PATH}"
+    download_release_dmg "$RELEASE_TAG" "$release_dir"
+    log "downloaded dmg: ${DMG_PATH}"
+  fi
 
   mount_release_dmg
   log "mounted dmg at ${MOUNT_POINT}"
