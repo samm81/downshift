@@ -2,9 +2,9 @@
 
 a tiny desktop breathing companion: one small animated ball that gently expands and contracts to cue slower, steadier breathing while you work.
 
-[![downshift demo clip](docs/assets/demo.gif)](https://getdownshift.app/assets/2026-02-25--demo--still.mp4)
+[![downshift demo clip](docs/assets/2026-05-25--demo--still.webp)](docs/assets/2026-05-25--demo--still.mp4)
 
-full-resolution clip: [mp4](https://getdownshift.app/assets/2026-02-25--demo--still.mp4) | [webm](https://getdownshift.app/assets/2026-02-25--demo--still.webm)
+full-resolution clip: [mp4](docs/assets/2026-05-25--demo--still.mp4) | [webm](docs/assets/2026-05-25--demo--still.webm)
 
 ## motivation
 
