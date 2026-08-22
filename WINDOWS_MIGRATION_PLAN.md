@@ -123,14 +123,16 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [x] Defined local and VM GUI verification as scripted UI automation, not human interaction.
 - [x] Commit this plan file locally as `1c394a5`.
 - [x] Push `codex/windows-port` to GitHub after local GitHub CLI authentication is available.
-- [ ] Install local Rust/MSVC, Node.js, and Inno Setup prerequisites.
-- [ ] Implement the Windows platform layer.
+- [x] Install Rust stable/MSVC tooling, Node.js, and Inno Setup prerequisites that do not require the Visual C++ workload.
+- [x] Add the initial Windows platform layer: native menus, clipboard copying, launch-at-login, and single-instance activation.
+- [x] Add an initial Windows x64 GitHub Actions build/test workflow.
+- [ ] Complete local MSVC workload installation and validate the Windows target locally and in GitHub Actions.
 - [ ] Add fast local smoke checks.
-- [ ] Add Windows CI and packaging.
+- [ ] Add Windows packaging and release signing.
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Run macOS regression and release verification.
 
-The current shell has Git and an authenticated GitHub CLI; Rust, Node.js, Inno Setup, and local VM tooling are not yet installed.
+The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, Node.js, and Inno Setup are installed. The Visual C++ Build Tools workload is still finishing installation; local VM tooling has not yet been provisioned.
 
 ## Log
 
@@ -167,3 +169,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: `git push -u origin codex/windows-port` succeeded; the branch tracks `origin/codex/windows-port`; `main` was not modified.
 - Result: The migration plan and its clarifications are available for review on the separate branch.
 - Next: Install Rust/MSVC, Node.js, and Inno Setup, then begin the platform-layer implementation.
+
+### 2026-08-22 — initial Windows platform checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Added Windows-native menu support through `muda`, `clip.exe` diagnostics copying, per-user launch-at-login registration, named-mutex/named-pipe single-instance activation, explicit macOS target packaging, and the first Windows x64 build/test workflow in commit `09d008b`.
+- Validation: `cargo fmt --check` passes. The first local Windows-target Cargo check reached compilation but was blocked by the missing `link.exe`; dependency resolution completed and the GitHub Actions run is queued.
+- Result: The first platform implementation is on the separate branch; no changes were made to `main`.
+- Next: Finish the local MSVC workload, rerun the Windows compile/tests, then add the fast scripted UI smoke path and installer.
