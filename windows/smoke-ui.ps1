@@ -76,6 +76,9 @@ public static class DownshiftSmokeNative
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);
 
     [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
     private static extern bool AttachThreadInput(uint attachTo, uint attachFrom, bool attach);
 
     [DllImport("user32.dll")]
@@ -151,6 +154,16 @@ public static class DownshiftSmokeNative
     public static IntPtr[] FindVisibleWindowsByTitle(string title)
     {
         return FindWindows(hWnd => ReadWindowText(hWnd) == title);
+    }
+
+    public static IntPtr[] FindVisibleWindowsByTitleForProcess(string title, int processId)
+    {
+        return FindWindows(hWnd =>
+        {
+            uint actualProcessId;
+            GetWindowThreadProcessId(hWnd, out actualProcessId);
+            return actualProcessId == (uint)processId && ReadWindowText(hWnd) == title;
+        });
     }
 
     public static int[] GetRectValues(IntPtr hWnd)
@@ -332,11 +345,16 @@ function Wait-MainPopup {
 function Wait-WindowTitle {
     param(
         [Parameter(Mandatory = $true)][string]$Title,
+        [int]$ProcessId,
         [int]$TimeoutMilliseconds = 5000
     )
     $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
     do {
-        $handles = @([DownshiftSmokeNative]::FindVisibleWindowsByTitle($Title))
+        if ($ProcessId -gt 0) {
+            $handles = @([DownshiftSmokeNative]::FindVisibleWindowsByTitleForProcess($Title, $ProcessId))
+        } else {
+            $handles = @([DownshiftSmokeNative]::FindVisibleWindowsByTitle($Title))
+        }
         if ($handles.Count -gt 0) {
             return $handles[0]
         }
@@ -533,7 +551,7 @@ function Wait-ProcessWindow {
         if ($Process.HasExited) {
             throw "Downshift exited during startup with code $($Process.ExitCode)."
         }
-        $handles = @([DownshiftSmokeNative]::FindVisibleWindowsByTitle('downshift'))
+        $handles = @([DownshiftSmokeNative]::FindVisibleWindowsByTitleForProcess('downshift', $Process.Id))
         foreach ($handle in $handles) {
             $rect = Get-WindowRectObject $handle
             if ($null -ne $rect -and $rect.Width -ge 50 -and $rect.Height -ge 50) {
@@ -543,6 +561,69 @@ function Wait-ProcessWindow {
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
     throw 'Timed out waiting for the Downshift window.'
+}
+
+function Wait-WindowWidthAtLeast {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$Handle,
+        [Parameter(Mandatory = $true)][int]$Width,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $rect = Get-WindowRectObject $Handle
+        if ($null -ne $rect -and $rect.Width -ge $Width) {
+            return $rect
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Timed out waiting for window width to reach at least $Width pixels."
+}
+
+function Wait-WindowWidthAtMost {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$Handle,
+        [Parameter(Mandatory = $true)][int]$Width,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $rect = Get-WindowRectObject $Handle
+        if ($null -ne $rect -and $rect.Width -le $Width) {
+            return $rect
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Timed out waiting for window width to reach at most $Width pixels."
+}
+
+function Wait-WindowWidthNear {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$Handle,
+        [Parameter(Mandatory = $true)][int]$Width,
+        [int]$Tolerance = 4,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $rect = Get-WindowRectObject $Handle
+        if ($null -ne $rect -and [Math]::Abs($rect.Width - $Width) -le $Tolerance) {
+            return $rect
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Timed out waiting for window width to return near $Width pixels."
+}
+
+function Select-SizeMenuSlot {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$WindowHandle,
+        [Parameter(Mandatory = $true)][int]$Slot
+    )
+    $mainPopup = Open-MainMenu -WindowHandle $WindowHandle
+    Move-ToMainMenuItem -Popup $mainPopup -TextIndex 2
+    $sizeSubmenu = Wait-SubmenuPopup -MainPopup $mainPopup
+    Click-SubmenuItem -Submenu $sizeSubmenu -TextIndex $Slot -TextItemCount 4
 }
 
 function Get-SettingsPath {
@@ -633,6 +714,18 @@ try {
     }
     Log-Message 'second-instance activation passed'
 
+    $initialRect = Get-WindowRectObject $windowHandle
+    Select-SizeMenuSlot -WindowHandle $windowHandle -Slot 2
+    $largeRect = Wait-WindowWidthAtLeast -Handle $windowHandle -Width ($initialRect.Width + 8)
+    Capture-Checkpoint -Name 'size-large' -WindowHandle $windowHandle
+    Select-SizeMenuSlot -WindowHandle $windowHandle -Slot 0
+    $smallRect = Wait-WindowWidthAtMost -Handle $windowHandle -Width ($largeRect.Width - 8)
+    Capture-Checkpoint -Name 'size-small' -WindowHandle $windowHandle
+    Select-SizeMenuSlot -WindowHandle $windowHandle -Slot 2
+    $restoredRect = Wait-WindowWidthNear -Handle $windowHandle -Width $largeRect.Width
+    Capture-Checkpoint -Name 'size-large-restored' -WindowHandle $windowHandle
+    Log-Message "size resize sequence passed: $($initialRect.Width) -> $($largeRect.Width) -> $($smallRect.Width) -> $($restoredRect.Width)"
+
     $mainPopup = Open-MainMenu -WindowHandle $windowHandle
     Capture-Checkpoint -Name '02-context-menu'
 
@@ -673,7 +766,7 @@ try {
     $updatesSubmenu = Wait-SubmenuPopup -MainPopup $mainPopup
     Capture-Checkpoint -Name '06-updates-submenu'
     Click-SubmenuItem -Submenu $updatesSubmenu -TextIndex 0 -TextItemCount 2
-    $updatesHandle = Wait-WindowTitle -Title 'updates'
+    $updatesHandle = Wait-WindowTitle -Title 'updates' -ProcessId $appProcess.Id
     Capture-Checkpoint -Name '07-updates-dialog' -WindowHandle $updatesHandle
     [DownshiftSmokeNative]::CloseWindow($updatesHandle)
     Log-Message 'updates dialog opened and closed'
@@ -689,6 +782,7 @@ try {
         'main_window_handle=0x' + $windowHandle.ToString('X'),
         'webview2_version=' + $(if ($webView2Version) { $webView2Version } else { 'missing' }),
         'second_instance=passed',
+        'size_resize_sequence=passed',
         'pause_resume=passed',
         'clipboard_copy=passed',
         'breathing_submenu_screenshot=passed',

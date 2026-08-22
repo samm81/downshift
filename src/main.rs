@@ -38,6 +38,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+#[cfg(target_os = "windows")]
+use winit::platform::windows::WindowAttributesExtWindows;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
@@ -1776,6 +1778,12 @@ impl App {
     }
 
     fn sync_webview_bounds(&self) {
+        // Wry's non-child Windows WebView2 path subclasses the parent HWND and
+        // resizes the controller directly from WM_SIZE. That path also avoids
+        // racing request_inner_size with a second asynchronous SetWindowPos.
+        // Keep the explicit bounds sync for macOS, where this app owns the
+        // child view geometry.
+        #[cfg(not(target_os = "windows"))]
         sync_child_webview_bounds(self.window.as_ref(), self.webview.as_ref(), "main webview");
     }
 
@@ -3198,6 +3206,14 @@ impl ApplicationHandler<AppEvent> for App {
             .with_window_level(WindowLevel::AlwaysOnTop)
             .with_inner_size(LogicalSize::new(self.settings.size, self.settings.size));
 
+        #[cfg(target_os = "windows")]
+        {
+            // A transparent WebView2 child can retain the previous opaque
+            // DWM redirection bitmap after the host window is resized. The
+            // no-redirection path keeps the transparent surface current.
+            window_attributes = window_attributes.with_no_redirection_bitmap(true);
+        }
+
         if let Some(position) = self.choose_initial_position(event_loop, self.settings.size) {
             window_attributes = window_attributes.with_position(position);
             self.settings.physical_x = Some(position.x);
@@ -3249,15 +3265,18 @@ impl ApplicationHandler<AppEvent> for App {
             event_loop.exit();
             return;
         };
-        let webview_result = WebViewBuilder::new()
+        let webview_builder = WebViewBuilder::new()
             .with_html(breath_html())
             .with_transparent(true)
             .with_initialization_script(&init_script)
             .with_ipc_handler(move |request: wry::http::Request<String>| {
                 let payload = request.into_body();
                 let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
-            })
-            .build_as_child(&window);
+            });
+        #[cfg(target_os = "windows")]
+        let webview_result = webview_builder.build(&window);
+        #[cfg(not(target_os = "windows"))]
+        let webview_result = webview_builder.build_as_child(&window);
 
         let webview = match webview_result {
             Ok(webview) => webview,

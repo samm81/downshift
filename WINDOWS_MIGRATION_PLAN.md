@@ -129,6 +129,7 @@ GitHub-hosted Windows runners provide the routine clean CI environment for compi
 - [x] Complete local MSVC workload installation and validate the Windows target locally and in GitHub Actions.
 - [x] Add the first reusable unsigned Windows x64 Inno packaging path, including WebView2 detection/bootstrapper logic and SHA-256 output.
 - [x] Add fast local Rust/web checks and a scripted local Windows GUI smoke test with screenshots.
+- [x] Reproduce and fix the Windows transparent WebView2 stale-surface bug during repeated resize cycles; retain the regression screenshots in the local UI smoke test.
 - [x] Add the conditional Authenticode signing hook with an unsigned fallback.
 - [x] Validate interactive and silent installer install/uninstall flows, shortcuts, registry entries, WebView2 runtime data cleanup, and installed-binary UI smoke.
 - [x] Validate the Windows build, tests, packaging, and installer wizard/install/uninstall path on a GitHub-hosted Windows runner.
@@ -221,3 +222,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Windows run `32565568929` and macOS run `32565568971` both passed. The Windows artifact confirms scripted wizard navigation, interactive install, silent install/uninstall, Start Menu cleanup, and uninstall-registry cleanup. The hosted wizard screenshots were captured, but the runner desktop also shows blank/overlapping surfaces, so they are functional evidence rather than a visual rendering sign-off.
 - Result: Cross-platform build/test/packaging CI is green. Local full GUI screenshots remain the reliable visual baseline; a real interactive Windows VM is still required for the second visual environment.
 - Next: Provision the local Windows x64 VM, install the WebView2-present package there, run the full installed-app smoke, and then exercise the WebView2-missing/bootstrapper path.
+
+### 2026-08-22 — Windows transparent resize regression checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Reproduced the Windows sequence `large → small → large`, which showed a white opaque square retained at the previous WebView2 surface size. The Windows main WebView now uses Wry's automatic-resize path, and the transparent host window opts out of Winit's DWM redirection bitmap with `with_no_redirection_bitmap(true)`.
+- Validation: `windows/fast-check.ps1 -Release` passed formatting, Windows-target check/tests/Clippy, web checks, and the release build. The local scripted smoke passed the size sequence `108 → 173 → 86 → 173`, all menu/input/clipboard/update/launch-at-login checks, and produced inspected initial, large, small, and restored screenshots without the white square. The full-screen screenshot also shows the desktop through the transparent corners.
+- Result: The ball now resizes correctly in both directions and the stale opaque background is gone in the local Windows release path. The smoke harness is process-scoped so it cannot accidentally select another `downshift` window.
+- Next: Commit and push this regression fix, run the hosted Windows/macOS CI again, then validate the installed build in the interactive Windows VM.
