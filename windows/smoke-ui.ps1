@@ -69,11 +69,29 @@ public static class DownshiftSmokeNative
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attachTo, uint attachFrom, bool attach);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetActiveWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
 
     [DllImport("user32.dll")]
     private static extern bool SetCursorPos(int x, int y);
@@ -95,6 +113,7 @@ public static class DownshiftSmokeNative
     private const uint WmClose = 0x0010;
     private const byte Escape = 0x1B;
     private const int SwHide = 0;
+    private const int SwRestore = 9;
 
     private static string ReadWindowText(IntPtr hWnd)
     {
@@ -146,7 +165,37 @@ public static class DownshiftSmokeNative
 
     public static bool FocusWindow(IntPtr hWnd)
     {
-        return SetForegroundWindow(hWnd);
+        var currentThread = GetCurrentThreadId();
+        var targetThread = GetWindowThreadProcessId(hWnd, IntPtr.Zero);
+        var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
+        var attachedToForeground = false;
+        var attachedToTarget = false;
+        try
+        {
+            if (foregroundThread != 0 && foregroundThread != currentThread)
+            {
+                attachedToForeground = AttachThreadInput(currentThread, foregroundThread, true);
+            }
+            if (targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread)
+            {
+                attachedToTarget = AttachThreadInput(currentThread, targetThread, true);
+            }
+            ShowWindow(hWnd, SwRestore);
+            BringWindowToTop(hWnd);
+            SetActiveWindow(hWnd);
+            return SetForegroundWindow(hWnd);
+        }
+        finally
+        {
+            if (attachedToTarget)
+            {
+                AttachThreadInput(currentThread, targetThread, false);
+            }
+            if (attachedToForeground)
+            {
+                AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
     }
 
     public static void HideAutomationConsole()
