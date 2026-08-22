@@ -208,6 +208,22 @@ powershell -ExecutionPolicy Bypass -File .\windows\build-installer.ps1 `
 
 Never commit the certificate or its password. The script rejects partial signing configuration.
 
+For quick Windows iteration, run the host-native checks without packaging:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows\fast-check.ps1
+```
+
+Add `-Release` when a release build is also needed. The web portion uses `npm run check:windows`, which omits the Unix-only shell-tool checks while retaining UI formatting, JavaScript, CSS, and Markdown validation.
+
+Run the local scripted GUI smoke test with screenshots:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows\smoke-ui.ps1
+```
+
+The script performs the clicks and keystrokes itself, stores screenshots and logs under `logs\gui-smoke-windows-*`, checks the clipboard and launch-at-login registry entry, and restores the pre-test settings and registry state. The same script is intended for the clean Windows VM once the installer path is added.
+
 ## mac distribution (signed + notarized dmg)
 
 required env vars:

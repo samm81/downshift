@@ -12,6 +12,7 @@
     "lint:web:css": "stylelint 'src/ui/**/*.css'",
     "lint:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shellcheck --external-sources",
     "lint:md": "markdownlint-cli2",
+    "check:windows": "prettier --check src/ui && eslint src/ui && stylelint src/ui/**/*.css && markdownlint-cli2",
     "lint": "npm run lint:web:js && npm run lint:web:css && npm run lint:shell && npm run lint:md",
     "check": "npm run fmt:check:web && npm run fmt:check:shell && npm run lint"
   },

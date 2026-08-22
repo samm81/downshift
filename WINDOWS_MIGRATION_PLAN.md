@@ -128,7 +128,7 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [x] Add an initial Windows x64 GitHub Actions build/test workflow.
 - [x] Complete local MSVC workload installation and validate the Windows target locally and in GitHub Actions.
 - [x] Add the first reusable unsigned Windows x64 Inno packaging path, including WebView2 detection/bootstrapper logic and SHA-256 output.
-- [ ] Add fast local smoke checks.
+- [x] Add fast local Rust/web checks and a scripted local Windows GUI smoke test with screenshots.
 - [ ] Add conditional Authenticode signing and installer install/uninstall validation.
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Run macOS regression and release verification.
@@ -186,3 +186,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Local `cargo check --locked`, release build, and Rust tests pass for `x86_64-pc-windows-msvc`; the GitHub Actions run `32561631885` passed formatting, release build, and all Rust tests. The full packaging script produced `dist/windows/Downshift-Setup-0.1.28.exe` and `dist/windows/SHA256SUMS.txt` without signing credentials; Inno Setup compiled successfully and reported `NotSigned` as expected.
 - Result: The repository now has a repeatable unsigned Windows installer build and a tested conditional-signing hook. No certificate material is stored in the repository.
 - Next: Add the fast local process/UI smoke checks, then exercise the installer and WebView2 paths with scripted screenshots locally and in a clean Windows VM.
+
+### 2026-08-22 — fast checks and local GUI smoke checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Added `windows/fast-check.ps1`, `windows/smoke-ui.ps1`, the Windows-safe `npm run check:windows` script, and Windows CI coverage for web checks and Clippy.
+- Validation: `windows/fast-check.ps1` passed Rust formatting, Windows-target check/tests/Clippy, and Prettier/ESLint/Stylelint/Markdownlint. `windows/smoke-ui.ps1` passed locally against the release binary and produced inspected screenshots for the widget, native menus, diagnostics clipboard, and updates dialog; it also passed second-instance, pause/resume, and launch-at-login checks.
+- Result: Windows development now has a fast repeatable path plus a scripted visual smoke path. The smoke script performs all UI input and restores the pre-test settings and Run registry value.
+- Next: Test the compiled Inno installer with scripted install/uninstall interaction, provision the clean Windows VM, and run the same smoke flow there.

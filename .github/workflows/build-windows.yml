@@ -22,7 +22,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-pc-windows-msvc
-          components: rustfmt
+          components: rustfmt, clippy
+
+      - name: install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: install web tooling
+        run: npm ci
 
       - name: cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -30,8 +39,14 @@ jobs:
       - name: check formatting
         run: cargo fmt --check
 
+      - name: check Windows web tooling
+        run: npm run check:windows
+
       - name: build Windows x64
         run: cargo build --locked --release --target x86_64-pc-windows-msvc
 
       - name: run Rust tests
         run: cargo test --locked --target x86_64-pc-windows-msvc
+
+      - name: run Rust Clippy
+        run: cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings

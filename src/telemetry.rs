@@ -754,13 +754,7 @@ fn env_or_compiled(key: &str, compiled_value: Option<&str>) -> Option<String> {
     env::var(key)
         .ok()
         .or_else(|| compiled_value.map(ToString::to_string))
-        .and_then(|value| {
-            if value.trim().is_empty() {
-                None
-            } else {
-                Some(value)
-            }
-        })
+        .filter(|value| !value.trim().is_empty())
 }
 
 pub fn telemetry_state() -> TelemetryState {
