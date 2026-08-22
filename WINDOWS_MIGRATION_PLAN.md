@@ -122,7 +122,8 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [x] Agreed to use Inno Setup.
 - [x] Agreed to use conditional Windows signing.
 - [x] Agreed to test screenshots and manual interaction both locally and in the Windows VM.
-- [ ] Commit and push this plan file to `codex/windows-port`.
+- [x] Commit this plan file locally as `1c394a5`.
+- [ ] Push `codex/windows-port` to GitHub after local GitHub CLI authentication is available.
 - [ ] Install local Rust/MSVC, Node.js, GitHub CLI, and Inno Setup prerequisites.
 - [ ] Implement the Windows platform layer.
 - [ ] Add fast local smoke checks.
@@ -142,4 +143,12 @@ Append one entry for each meaningful migration action. Each entry should include
 - Change: Initialized the local checkout from `origin/main` and created this migration plan.
 - Validation: Confirmed the branch is based on commit `0ad2fe6`; confirmed no pre-existing Windows migration branch.
 - Result: Migration work can proceed without modifying `main`.
-- Next: Commit and push this plan, install the local development prerequisites, then begin the Windows platform-layer implementation.
+- Next: Commit this plan, install the local development prerequisites, then begin the Windows platform-layer implementation.
+
+### 2026-08-22 — planning checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Committed `WINDOWS_MIGRATION_PLAN.md` as `1c394a5`.
+- Validation: `git diff --check` passed; the local branch remains separate from `main`.
+- Result: The plan is safely recorded locally. The shell push was stopped because GitHub credentials are not configured for the bundled Git process.
+- Next: Run `gh auth login` and `gh auth setup-git`, then push this branch without touching `main`.
