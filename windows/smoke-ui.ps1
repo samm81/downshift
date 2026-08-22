@@ -203,8 +203,23 @@ public static class DownshiftSmokeNative
         var console = GetConsoleWindow();
         if (console != IntPtr.Zero)
         {
-            ShowWindow(console, SwHide);
+            HideWindow(console);
         }
+    }
+
+    public static string GetWindowTitle(IntPtr hWnd)
+    {
+        return ReadWindowText(hWnd);
+    }
+
+    public static void HideWindow(IntPtr hWnd)
+    {
+        ShowWindow(hWnd, SwHide);
+    }
+
+    public static void RestoreWindow(IntPtr hWnd)
+    {
+        ShowWindow(hWnd, SwRestore);
     }
 
     public static void LeftClick(int x, int y)
@@ -250,6 +265,23 @@ function Log-Message {
     $line = "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff zzz'), $Message
     Add-Content -LiteralPath $runLogPath -Value $line
     Write-Host $line
+}
+
+function Hide-CiConsoleWindows {
+    if ($env:CI -ne 'true') {
+        return @()
+    }
+
+    $hidden = @()
+    foreach ($handle in @([DownshiftSmokeNative]::FindVisibleWindowsByClass('ConsoleWindowClass'))) {
+        $title = [DownshiftSmokeNative]::GetWindowTitle($handle)
+        if ($title -match 'hosted-compute-agent|Windows PowerShell|PowerShell') {
+            [DownshiftSmokeNative]::HideWindow($handle)
+            $hidden += $handle
+            Log-Message "temporarily hid CI console '$title'"
+        }
+    }
+    return $hidden
 }
 
 function Get-WindowRectObject {
@@ -549,6 +581,7 @@ function Is-WebView2Installed {
 
 $appProcess = $null
 $windowHandle = [IntPtr]::Zero
+$hiddenCiConsoles = @()
 $settingsPath = Get-SettingsPath
 $settingsExisted = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $runValue = Get-RunValue
@@ -556,6 +589,8 @@ $runValueExisted = $null -ne $runValue
 $settingsBackup = Join-Path $userStateBackupPath 'settings.toml'
 
 try {
+    $hiddenCiConsoles = Hide-CiConsoleWindows
+
     if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
         throw "Binary not found at '$BinaryPath'."
     }
@@ -662,6 +697,9 @@ try {
     Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.txt') -Value $resultLines -Encoding UTF8
     Log-Message "GUI smoke passed; result written to $(Join-Path $OutputDirectory 'result.txt')"
 } finally {
+    foreach ($handle in $hiddenCiConsoles) {
+        [DownshiftSmokeNative]::RestoreWindow($handle)
+    }
     if ($null -ne $appProcess) {
         try {
             $appProcess.Refresh()
