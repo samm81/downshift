@@ -50,3 +50,23 @@ jobs:
 
       - name: run Rust Clippy
         run: cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings
+
+      - name: install Inno Setup
+        run: choco install innosetup --no-progress --yes
+
+      - name: build unsigned Windows installer
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\build-installer.ps1 -SkipBuild
+
+      - name: run scripted installer and UI smoke
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\smoke-installer.ps1
+
+      - name: upload Windows installer smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-installer-smoke
+          path: |
+            logs/installer-smoke-windows-*
+            logs/gui-smoke-windows-*
+            dist/windows/SHA256SUMS.txt
+          if-no-files-found: warn

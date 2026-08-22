@@ -1,0 +1,64 @@
+name: build-macos
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: install web and shell tooling
+        run: |
+          brew install shellcheck shfmt
+          npm ci
+
+      - name: cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: resolve macOS target
+        id: target
+        run: echo "value=$(rustc -vV | sed -n 's/^host: //p')" >> "$GITHUB_OUTPUT"
+
+      - name: check formatting and web tooling
+        run: |
+          cargo fmt --check
+          npm run check
+
+      - name: build macOS app bundle without telemetry
+        run: make app-no-telemetry MACOS_TARGET="${{ steps.target.outputs.value }}"
+
+      - name: run macOS target tests
+        run: cargo test --locked --target "${{ steps.target.outputs.value }}"
+
+      - name: run macOS target Clippy
+        run: cargo clippy --locked --target "${{ steps.target.outputs.value }}" --all-targets -- -D warnings
+
+      - name: upload unsigned macOS app evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-app-smoke
+          path: dist/Downshift.app
+          if-no-files-found: warn
