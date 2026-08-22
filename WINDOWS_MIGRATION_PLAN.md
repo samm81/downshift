@@ -230,3 +230,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: `windows/fast-check.ps1 -Release` passed formatting, Windows-target check/tests/Clippy, web checks, and the release build. The local scripted smoke passed the size sequence `108 → 173 → 86 → 173`, all menu/input/clipboard/update/launch-at-login checks, and produced inspected initial, large, small, and restored screenshots without the white square. The full-screen screenshot also shows the desktop through the transparent corners.
 - Result: The ball now resizes correctly in both directions and the stale opaque background is gone in the local Windows release path. The smoke harness is process-scoped so it cannot accidentally select another `downshift` window.
 - Next: Commit and push this regression fix, run the hosted Windows/macOS CI again, then validate the installed build in the interactive Windows VM.
+
+### 2026-08-22 — transparent resize hosted verification
+
+- Branch: `codex/windows-port`
+- Change: Pushed the transparent resize fix and its process-scoped resize regression smoke coverage as commit `b0a4c3a`.
+- Validation: Windows run `32567232872` passed the Windows x64 build, Rust tests, Clippy, unsigned Inno build, and hosted installer smoke. macOS run `32567232889` passed the explicit macOS-target app-bundle build, tests, Clippy, and unsigned packaging.
+- Result: The Windows-specific WebView2 host change does not regress the macOS target, and the hosted cross-platform checks remain green.
+- Next: Provision the clean interactive Windows VM and run the installed-app screenshot checklist there; retain the WebView2-missing/bootstrapper scenario as a separate VM check.
