@@ -10,9 +10,9 @@ use downshift::{
 };
 #[cfg(target_os = "macos")]
 use downshift::{launch_agent_path_from_home, launch_agent_plist};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::{
     CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
@@ -36,7 +36,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 use wry::{Rect, WebView, WebViewBuilder};
@@ -66,59 +66,59 @@ const COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC: Option<&str> =
 const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> = option_env!("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
 const COMPILED_GITHUB_ISSUES_URL: Option<&str> = option_env!("DOWNSHIFT_GITHUB_ISSUES_URL");
 const COMPILED_SUPPORT_EMAIL: Option<&str> = option_env!("DOWNSHIFT_SUPPORT_EMAIL");
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_PAUSE: &str = "pause";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SNOOZE_5: &str = "snooze_5";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SNOOZE_10: &str = "snooze_10";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SNOOZE_15: &str = "snooze_15";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SNOOZE_30: &str = "snooze_30";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SNOOZE_60: &str = "snooze_60";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SNOOZE_CUSTOM: &str = "snooze_custom";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SIZE_S: &str = "size_s";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SIZE_M: &str = "size_m";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SIZE_L: &str = "size_l";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_SIZE_XL: &str = "size_xl";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_PATTERN: &str = "breathing_pattern";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_COHERENT: &str = "breathing_coherent";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_BOX: &str = "breathing_box";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_479: &str = "breathing_479";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_EDIT: &str = "breathing_edit";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_DELETE_ROOT: &str = "breathing_delete_root";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_DELETE_PREFIX: &str = "breathing_delete:";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BREATHING_SAVED_PREFIX: &str = "breathing_saved:";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_RESET: &str = "reset";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_QUIT: &str = "quit";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_ANALYTICS_ROOT: &str = "analytics_root";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_USAGE_ON: &str = "usage_on";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_USAGE_OFF: &str = "usage_off";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_CRASH_ON: &str = "crash_on";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_CRASH_OFF: &str = "crash_off";
 
 #[cfg(target_os = "macos")]
@@ -160,23 +160,23 @@ fn configure_window_for_all_spaces(window: &Window) {
         ns_window.setCollectionBehavior(behavior);
     }
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_UPDATE_ROOT: &str = "update_root";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_UPDATE_IGNORE_CURRENT: &str = "update_ignore_current";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_LAUNCH_AT_LOGIN: &str = "launch_at_login";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_BUGS_ROOT: &str = "bugs_root";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_COPY_DIAGNOSTICS: &str = "copy_diagnostics";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_FILE_BUG_GITHUB: &str = "file_bug_github";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MENU_ID_FILE_BUG_EMAIL: &str = "file_bug_email";
 
 macro_rules! log_stderr {
@@ -258,6 +258,54 @@ fn remove_launch_agent(path: &Path) -> Result<(), String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.to_string()),
     }
+}
+
+#[cfg(target_os = "windows")]
+const WINDOWS_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(target_os = "windows")]
+const WINDOWS_RUN_VALUE: &str = "Downshift";
+
+#[cfg(target_os = "windows")]
+fn set_windows_launch_at_login(enabled: bool) -> Result<(), String> {
+    let output = if enabled {
+        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+        let command = format!("\"{}\"", executable.display());
+        std::process::Command::new("reg.exe")
+            .args([
+                "add",
+                WINDOWS_RUN_KEY,
+                "/v",
+                WINDOWS_RUN_VALUE,
+                "/t",
+                "REG_SZ",
+                "/d",
+                &command,
+                "/f",
+            ])
+            .output()
+            .map_err(|error| error.to_string())?
+    } else {
+        std::process::Command::new("reg.exe")
+            .args(["delete", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE, "/f"])
+            .output()
+            .map_err(|error| error.to_string())?
+    };
+
+    if output.status.success()
+        || (!enabled
+            && String::from_utf8_lossy(&output.stderr)
+                .to_ascii_lowercase()
+                .contains("unable to find"))
+    {
+        return Ok(());
+    }
+
+    let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(if details.is_empty() {
+        format!("reg.exe exited with status {}", output.status)
+    } else {
+        details
+    })
 }
 
 const INLINE_STYLE_PLACEHOLDER: &str = "__DOWNSHIFT_INLINE_STYLE__";
@@ -347,7 +395,7 @@ enum AppEvent {
     TelemetryHeartbeat,
     SnoozeExpired(u64),
     UpdateCheckFinished(UpdateCheckResult, UpdateCheckSource),
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     MenuActivated(String),
 }
 
@@ -628,6 +676,25 @@ fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
             Err(format!("pbcopy exited with status {status}"))
         };
     }
+    #[cfg(target_os = "windows")]
+    {
+        let mut process = std::process::Command::new("clip.exe")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        let Some(stdin) = process.stdin.as_mut() else {
+            return Err("clipboard stdin unavailable".to_string());
+        };
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|error| error.to_string())?;
+        let status = process.wait().map_err(|error| error.to_string())?;
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(format!("clip.exe exited with status {status}"))
+        };
+    }
     #[allow(unreachable_code)]
     Err("clipboard copy is unsupported on this platform".to_string())
 }
@@ -742,22 +809,22 @@ fn size_target_label(size_slot: usize) -> Option<&'static str> {
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn breathing_delete_menu_id(id: &str) -> String {
     format!("{MENU_ID_BREATHING_DELETE_PREFIX}{id}")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn deleted_breathing_preset_id_from_menu_id(id: &str) -> Option<&str> {
     id.strip_prefix(MENU_ID_BREATHING_DELETE_PREFIX)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn breathing_saved_menu_id(id: &str) -> String {
     format!("{MENU_ID_BREATHING_SAVED_PREFIX}{id}")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn saved_breathing_preset_id_from_menu_id(id: &str) -> Option<&str> {
     id.strip_prefix(MENU_ID_BREATHING_SAVED_PREFIX)
 }
@@ -783,7 +850,7 @@ fn slugify_preset_name(name: &str) -> String {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Clone)]
 struct NativeContextMenu {
     root: Submenu,
@@ -826,7 +893,7 @@ struct NativeContextMenu {
     analytics_info: MenuItem,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl NativeContextMenu {
     fn new(settings: &Settings) -> Option<Self> {
         let visible_built_in_presets = built_in_breathing_presets()
@@ -1299,7 +1366,7 @@ struct App {
     update_dialog_window: Option<Window>,
     update_dialog_window_id: Option<WindowId>,
     update_dialog_webview: Option<WebView>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     native_context_menu: Option<NativeContextMenu>,
     startup_error: Option<String>,
     settings: Settings,
@@ -1341,7 +1408,7 @@ impl Default for App {
             update_dialog_window: None,
             update_dialog_window_id: None,
             update_dialog_webview: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             native_context_menu: None,
             startup_error: None,
             settings: Settings::default(),
@@ -1601,14 +1668,27 @@ impl App {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "windows")]
+    fn sync_launch_at_login_setting(&mut self, enabled: bool) {
+        let result = set_windows_launch_at_login(enabled);
+        match result {
+            Ok(()) => {
+                self.settings.launch_at_login = enabled;
+            }
+            Err(error) => {
+                log_stderr!("warning: failed to update launch-at-login setting: {error}");
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn apply_launch_at_login(&mut self, enabled: bool) {
         self.sync_launch_at_login_setting(enabled);
         self.sync_update_menu_state();
         self.save_settings();
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn reconcile_launch_at_login(&mut self) {
         self.sync_launch_at_login_setting(self.settings.launch_at_login);
     }
@@ -1770,7 +1850,7 @@ impl App {
     }
 
     fn sync_analytics_menu_state(&self) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let Some(menu) = self.native_context_menu.as_ref() {
             menu.sync_consent(
                 self.settings.usage_data_sharing,
@@ -1795,7 +1875,7 @@ impl App {
     }
 
     fn sync_update_menu_state(&self) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let Some(menu) = self.native_context_menu.as_ref() {
             menu.sync_from_settings(
                 &self.settings,
@@ -2357,7 +2437,7 @@ impl App {
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "update_tooltip": UPDATE_TOOLTIP,
           "size_presets": size_presets,
-          "use_native_menu": cfg!(target_os = "macos"),
+          "use_native_menu": cfg!(any(target_os = "macos", target_os = "windows")),
         });
         format!("window.__BB_INIT__ = {payload};")
     }
@@ -2824,9 +2904,9 @@ impl App {
             }
             IpcCommand::ShowContextMenu { x, y } => {
                 self.telemetry_menu_action(MenuAction::ContextMenu, None);
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 self.show_native_context_menu(x, y);
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
                 let _ = (x, y);
             }
             IpcCommand::Resize { delta, fine } => {
@@ -2883,7 +2963,7 @@ impl App {
             .and_then(size_target_label)
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn current_size_presets(&self) -> [f64; 4] {
         self.window
             .as_ref()
@@ -2892,7 +2972,7 @@ impl App {
             .unwrap_or(DEFAULT_SIZE_PRESETS)
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn show_native_context_menu(&mut self, x: i32, y: i32) {
         self.native_context_menu = NativeContextMenu::new(&self.settings);
         let Some(menu) = self.native_context_menu.as_ref() else {
@@ -2900,16 +2980,6 @@ impl App {
         };
         let Some(window) = self.window.as_ref() else {
             return;
-        };
-        let view = match window.window_handle() {
-            Ok(handle) => match handle.as_raw() {
-                RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr(),
-                _ => return,
-            },
-            Err(error) => {
-                log_stderr!("warning: failed to access window handle for native menu: {error}");
-                return;
-            }
         };
         menu.sync_from_settings(
             &self.settings,
@@ -2922,15 +2992,47 @@ impl App {
             self.settings.usage_data_sharing,
             self.settings.crash_reports_sharing,
         );
-        let position = MenuPhysicalPosition::new(x as f64, y as f64).into();
-        unsafe {
-            let _ = menu
-                .root
-                .show_context_menu_for_nsview(view.cast_const(), Some(position));
+
+        #[cfg(target_os = "macos")]
+        {
+            let view = match window.window_handle() {
+                Ok(handle) => match handle.as_raw() {
+                    RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr(),
+                    _ => return,
+                },
+                Err(error) => {
+                    log_stderr!("warning: failed to access window handle for native menu: {error}");
+                    return;
+                }
+            };
+            let position = MenuPhysicalPosition::new(x as f64, y as f64).into();
+            unsafe {
+                let _ = menu
+                    .root
+                    .show_context_menu_for_nsview(view.cast_const(), Some(position));
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let hwnd = match window.window_handle() {
+                Ok(handle) => match handle.as_raw() {
+                    RawWindowHandle::Win32(handle) => handle.hwnd.get(),
+                    _ => return,
+                },
+                Err(error) => {
+                    log_stderr!("warning: failed to access window handle for native menu: {error}");
+                    return;
+                }
+            };
+            let position = MenuPhysicalPosition::new(x as f64, y as f64).into();
+            unsafe {
+                let _ = menu.root.show_context_menu_for_hwnd(hwnd, Some(position));
+            }
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn handle_native_menu_activation(&mut self, event_loop: &ActiveEventLoop, id: &str) {
         match id {
             MENU_ID_PAUSE => {
@@ -3067,7 +3169,7 @@ impl ApplicationHandler<AppEvent> for App {
             .set_usage_enabled(self.settings.usage_data_sharing);
         self.telemetry
             .set_crash_enabled(self.settings.crash_reports_sharing);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         self.reconcile_launch_at_login();
         if !settings_exist {
             if let Some(primary) = event_loop
@@ -3176,7 +3278,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             self.native_context_menu = NativeContextMenu::new(&self.settings);
         }
@@ -3333,7 +3435,7 @@ impl ApplicationHandler<AppEvent> for App {
                     self.set_update_dialog_mode_result();
                 }
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
         }
     }
@@ -3607,7 +3709,186 @@ fn spawn_instance_server(path: PathBuf, proxy: EventLoopProxy<AppEvent>) -> std:
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
+struct WindowsInstanceGuard {
+    mutex: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsInstanceGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows_sys::Win32::Foundation::CloseHandle(self.mutex);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_instance_pipe_name() -> Option<String> {
+    let executable = std::env::current_exe().ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    executable.hash(&mut hasher);
+    Some(format!(r"\\.\pipe\downshift-{:#016x}", hasher.finish()))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(target_os = "windows")]
+fn connect_to_existing_windows_instance(pipe_name: &str, command: InstanceCommand) -> bool {
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_PIPE_BUSY, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, WriteFile, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Pipes::WaitNamedPipeW;
+
+    let pipe_name = windows_wide(pipe_name);
+    for _ in 0..20 {
+        let handle = unsafe {
+            CreateFileW(
+                pipe_name.as_ptr(),
+                FILE_GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+            let bytes = command.as_bytes();
+            let mut written = 0u32;
+            let result = unsafe {
+                WriteFile(
+                    handle,
+                    bytes.as_ptr().cast(),
+                    bytes.len() as u32,
+                    &mut written,
+                    std::ptr::null_mut(),
+                )
+            };
+            unsafe {
+                let _ = windows_sys::Win32::Foundation::CloseHandle(handle);
+            }
+            return result != 0 && written == bytes.len() as u32;
+        }
+
+        if unsafe { GetLastError() } == ERROR_PIPE_BUSY {
+            let _ = unsafe { WaitNamedPipeW(pipe_name.as_ptr(), 100) };
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_windows_instance_server(
+    pipe_name: String,
+    proxy: EventLoopProxy<AppEvent>,
+) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{
+        GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::Storage::FileSystem::ReadFile;
+    use windows_sys::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_ACCESS_INBOUND,
+        PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    };
+
+    let pipe_name_wide = windows_wide(&pipe_name);
+    std::thread::Builder::new()
+        .name("downshift-instance-server".to_string())
+        .spawn(move || loop {
+            let pipe = unsafe {
+                CreateNamedPipeW(
+                    pipe_name_wide.as_ptr(),
+                    PIPE_ACCESS_INBOUND,
+                    PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                    PIPE_UNLIMITED_INSTANCES,
+                    128,
+                    128,
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            if pipe.is_null() || pipe == INVALID_HANDLE_VALUE {
+                log_stderr!("warning: failed to create Windows instance pipe");
+                return;
+            }
+
+            let connected = unsafe { ConnectNamedPipe(pipe, std::ptr::null_mut()) } != 0
+                || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
+            if connected {
+                let mut buffer = [0u8; 128];
+                let mut read = 0u32;
+                let result = unsafe {
+                    ReadFile(
+                        pipe,
+                        buffer.as_mut_ptr().cast(),
+                        buffer.len() as u32,
+                        &mut read,
+                        std::ptr::null_mut(),
+                    )
+                };
+                if result != 0 {
+                    let command = String::from_utf8_lossy(&buffer[..read as usize]);
+                    if matches!(
+                        InstanceCommand::parse(&command),
+                        Some(InstanceCommand::Activate)
+                    ) && proxy.send_event(AppEvent::InstanceActivate).is_err()
+                    {
+                        unsafe {
+                            let _ = windows_sys::Win32::Foundation::CloseHandle(pipe);
+                        }
+                        return;
+                    }
+                }
+            }
+            unsafe {
+                let _ = DisconnectNamedPipe(pipe);
+                let _ = windows_sys::Win32::Foundation::CloseHandle(pipe);
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn start_windows_instance(
+    proxy: EventLoopProxy<AppEvent>,
+) -> Result<Option<WindowsInstanceGuard>, String> {
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+
+    let pipe_name = windows_instance_pipe_name().ok_or_else(|| {
+        "failed to resolve executable path for Windows single-instance guard".to_string()
+    })?;
+    let mutex_name = format!("Local\\downshift-{:016x}", {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        pipe_name.hash(&mut hasher);
+        hasher.finish()
+    });
+    let mutex_name_wide = windows_wide(&mutex_name);
+    let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, mutex_name_wide.as_ptr()) };
+    if mutex.is_null() {
+        return Err("CreateMutexW returned a null handle".to_string());
+    }
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe {
+            let _ = windows_sys::Win32::Foundation::CloseHandle(mutex);
+        }
+        let _ = connect_to_existing_windows_instance(&pipe_name, InstanceCommand::Activate);
+        return Ok(None);
+    }
+
+    spawn_windows_instance_server(pipe_name, proxy)?;
+    Ok(Some(WindowsInstanceGuard { mutex }))
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
     match id {
         MENU_ID_SNOOZE_5 => Some(SNOOZE_PRESET_MINUTES[0]),
@@ -3619,7 +3900,7 @@ fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn size_slot_for_menu_id(id: &str) -> Option<usize> {
     match id {
         MENU_ID_SIZE_S => Some(0),
@@ -3686,13 +3967,23 @@ fn main() -> std::process::ExitCode {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    let _windows_instance_guard = match start_windows_instance(event_loop_proxy.clone()) {
+        Ok(Some(guard)) => Some(guard),
+        Ok(None) => return std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            log_stderr!("warning: failed to start Windows instance guard: {error}");
+            None
+        }
+    };
+
     let ctrlc_proxy = event_loop_proxy.clone();
     if let Err(error) = ctrlc::set_handler(move || {
         let _ = ctrlc_proxy.send_event(AppEvent::ExitRequested);
     }) {
         log_stderr!("warning: failed to install ctrl-c handler: {error}");
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         let menu_proxy = event_loop_proxy.clone();
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
@@ -4259,7 +4550,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn snooze_menu_id_maps_to_expected_minutes() {
         assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_5), Some(5));
         assert_eq!(snooze_minutes_for_menu_id(MENU_ID_SNOOZE_10), Some(10));
@@ -4270,7 +4561,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn size_menu_id_maps_to_expected_slots() {
         assert_eq!(size_slot_for_menu_id(MENU_ID_SIZE_S), Some(0));
         assert_eq!(size_slot_for_menu_id(MENU_ID_SIZE_M), Some(1));

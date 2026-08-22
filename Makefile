@@ -3,11 +3,13 @@ BIN_NAME := downshift
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 BUNDLE_ID := app.getdownshift
 MIN_MACOS := 13.0
+MACOS_TARGET ?= $(shell rustc -vV 2>/dev/null | sed -n 's/^host: //p')
 DIST_DIR := dist
 TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
 RELEASE_SUFFIX := $(if $(TAG),-v$(TAG_VERSION),)
 APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
+MACOS_RELEASE_BINARY := target/$(MACOS_TARGET)/release/$(BIN_NAME)
 DMG_STAGING_DIR := $(DIST_DIR)/$(APP_NAME)-dmg
 TEMP_DMG_PATH := $(DIST_DIR)/$(APP_NAME)-temp.dmg
 DMG_MOUNT_DIR := $(DIST_DIR)/dmg-mount
@@ -30,6 +32,7 @@ RUN_RESET := $(filter 1,$(RESET))
 
 .PHONY: all \
 	build build-no-telemetry \
+	build-macos build-macos-no-telemetry \
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
 	app app-no-telemetry \
@@ -45,7 +48,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	write-release-checksums \
 	checksums checksums-no-telemetry \
 	verify-notarized-dmg \
-	check-tag-sync require-telemetry-env package-app \
+	check-tag-sync require-macos-target require-telemetry-env package-app \
 	require-notarization-env release release-no-telemetry release-notarized clean
 
 all: app
@@ -120,6 +123,18 @@ build: require-telemetry-env
 build-no-telemetry:
 	cargo build --release
 
+require-macos-target:
+	@if [ -z "$(MACOS_TARGET)" ]; then \
+		echo "error: MACOS_TARGET is required for macOS packaging (for example MACOS_TARGET=aarch64-apple-darwin)"; \
+		exit 1; \
+	fi
+
+build-macos: require-macos-target require-telemetry-env
+	cargo build --release --target "$(MACOS_TARGET)"
+
+build-macos-no-telemetry: require-macos-target
+	cargo build --release --target "$(MACOS_TARGET)"
+
 build-debug: require-telemetry-env
 	cargo build --quiet
 
@@ -144,7 +159,7 @@ package-app: generate-app-icon
 	rm -rf "$(APP_BUNDLE)"
 	mkdir -p "$(APP_BUNDLE)/Contents/MacOS"
 	mkdir -p "$(APP_BUNDLE)/Contents/Resources"
-	cp "target/release/$(BIN_NAME)" "$(APP_BUNDLE)/Contents/MacOS/$(BIN_NAME)"
+	cp "$(MACOS_RELEASE_BINARY)" "$(APP_BUNDLE)/Contents/MacOS/$(BIN_NAME)"
 	chmod +x "$(APP_BUNDLE)/Contents/MacOS/$(BIN_NAME)"
 	cp "$(APP_ICON_SOURCE)" "$(APP_BUNDLE)/Contents/Resources/$(APP_ICON_NAME)"
 	printf '%s\n' \
@@ -184,9 +199,9 @@ stage-dmg-contents: package-app
 	mkdir -p "$(DMG_STAGING_DIR)/$(DMG_BACKGROUND_DIR)"
 	cp "$(DMG_BACKGROUND_SOURCE)" "$(DMG_STAGING_DIR)/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)"
 
-app: build package-app sign-app
+app: build-macos package-app sign-app
 
-app-no-telemetry: build-no-telemetry package-app sign-app
+app-no-telemetry: build-macos-no-telemetry package-app sign-app
 
 zip: app
 	rm -f "$(ZIP_PATH)"
@@ -248,7 +263,7 @@ release: check-tag-sync checksums
 
 release-no-telemetry: check-tag-sync checksums-no-telemetry
 
-release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-env build package-app generate-dmg-background
+release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-env build-macos package-app generate-dmg-background
 	@set -euo pipefail; \
 	KEYCHAIN_PATH="$(PWD)/$(DIST_DIR)/downshift-signing.keychain-db"; \
 	CERT_PATH="$(PWD)/$(DIST_DIR)/developer-id.p12"; \

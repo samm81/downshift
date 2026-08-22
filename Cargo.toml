@@ -17,9 +17,19 @@ uuid = { version = "1.10", features = ["v4"] }
 winit = "0.30"
 wry = { version = "0.53", features = ["transparent"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 muda = { version = "0.17.1", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.2.2", default-features = false, features = ["NSResponder", "NSView", "NSWindow"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 serial_test = "3.2"
