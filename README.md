@@ -230,7 +230,7 @@ Run the scripted Inno installer smoke test locally to exercise the interactive w
 powershell -ExecutionPolicy Bypass -File .\windows\smoke-installer.ps1
 ```
 
-It performs the wizard clicks itself and stores wizard, app, and installer logs/screenshots under `logs\installer-smoke-windows-*`. Use `-SkipInteractive` for a faster silent install/uninstall-only iteration.
+It performs the wizard clicks itself and stores wizard, app, and installer logs/screenshots under `logs\installer-smoke-windows-*`. Use `-SkipInteractive` for a faster silent install/uninstall-only iteration. Use `-SkipInstalledGui` in a non-rendering Windows session to retain wizard/install/uninstall coverage while leaving the installed-app GUI smoke for a local desktop or interactive VM.
 
 ## mac distribution (signed + notarized dmg)
 

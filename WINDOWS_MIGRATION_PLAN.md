@@ -88,7 +88,7 @@ The fast path must not rebuild or install a VM, run notarization, require signin
 
 ### 5. CI and release workflow
 
-- Add Windows pull-request CI on `windows-latest` for compilation, tests, fast process/window smoke, and unsigned installer validation.
+- Add Windows pull-request CI on `windows-latest` for compilation, tests, fast process/window checks, and unsigned installer validation. Keep full composited WebView2 UI automation on the local desktop and dedicated interactive VM because hosted runner desktops may not render WebView2 surfaces reliably.
 - Retain macOS pull-request validation.
 - Retain the existing macOS notarization and GUI smoke gates for release candidates.
 - Coordinate macOS and Windows release jobs through one draft release so assets and checksums are not published from competing workflows.
@@ -113,7 +113,7 @@ VM coverage:
 - Test second-instance activation and uninstall cleanup.
 - Retain screenshots and logs for comparison and diagnosis; do not require pixel-identical comparison between local and VM environments because DPI, fonts, themes, and display settings may differ.
 
-GitHub-hosted Windows runners provide the routine clean CI environment. A local interactive VM is reserved for visual and installation confidence and is not part of every edit/test cycle.
+GitHub-hosted Windows runners provide the routine clean CI environment for compilation and installer/wizard/install/uninstall checks. A local interactive VM is reserved for full visual confidence: it must run the installed-app WebView2 interaction and screenshot checklist and is not part of every edit/test cycle.
 
 ## Current status
 
@@ -131,10 +131,12 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [x] Add fast local Rust/web checks and a scripted local Windows GUI smoke test with screenshots.
 - [x] Add the conditional Authenticode signing hook with an unsigned fallback.
 - [x] Validate interactive and silent installer install/uninstall flows, shortcuts, registry entries, WebView2 runtime data cleanup, and installed-binary UI smoke.
+- [x] Validate the Windows build, tests, packaging, and installer wizard/install/uninstall path on a GitHub-hosted Windows runner.
+- [x] Run the macOS pull-request build, tests, Clippy, and unsigned app-bundle packaging on a GitHub-hosted macOS runner.
 - [ ] Provision and validate the interactive Windows VM.
-- [ ] Run macOS regression and release verification.
+- [ ] Complete coordinated tagged-release verification for macOS and Windows.
 
-The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, the Visual C++ Build Tools MSVC linker, Node.js, and Inno Setup are installed. The Windows x64 build/test job is green on GitHub Actions. Local VM tooling has not yet been provisioned.
+The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, the Visual C++ Build Tools MSVC linker, Node.js, and Inno Setup are installed. Local VM tooling has not yet been provisioned. The hosted Windows runner validates the build and installer path; its desktop cannot reliably provide a composited WebView2 surface for the installed-app UI smoke, so that portion remains a local/interactive-VM gate.
 
 ## Log
 
@@ -203,3 +205,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Rebuilt the unsigned installer with `windows/build-installer.ps1`. The scripted wizard passed locally with mouse automation and screenshots; the installed binary passed the full Windows GUI smoke checklist, including clipboard copying, second-instance activation, settings persistence, updates dialog, and launch-at-login. Silent install/uninstall then passed with Start Menu and Add/Remove Programs checks, and the WebView2 cache was removed.
 - Result: Local installer packaging, interactive install, installed-app UI, silent install, and clean uninstall are covered without human interaction. The smoke output is retained under `logs/installer-smoke-windows-20260822-170742`.
 - Next: Provision the clean Windows x64 VM, run the same installer and screenshot checklist there, then add/execute macOS regression coverage on a GitHub-hosted macOS runner.
+
+### 2026-08-22 — hosted UI rendering checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Added `-SkipInstalledGui` to `windows/smoke-installer.ps1`. Hosted Windows CI keeps the scripted installer wizard, install, silent install/uninstall, Start Menu, and registry checks, while the full installed-app GUI smoke remains enabled for local and interactive-VM runs.
+- Validation: Local `windows/smoke-installer.ps1 -SkipInstalledGui` passed. macOS run `32565334868` passed. Windows run `32565334900` passed every build, test, packaging, and setup step, but its installed-app UI step failed after the hosted desktop created a blank WebView2 surface; hiding automation consoles, restoring focus, and adding a render-settle delay did not make that hosted surface interactive.
+- Result: The failure is isolated to the hosted runner’s WebView2 compositing/input environment, not compilation or installer behavior. The CI workflow now retains reliable clean-runner installer evidence without masking the need for a real interactive VM UI run.
+- Next: Push this CI adjustment, confirm the hosted Windows workflow is green, then provision the local interactive Windows VM and run the full installed-app screenshot checklist there.

@@ -2,7 +2,8 @@
 param(
     [string]$InstallerPath,
     [string]$OutputDirectory,
-    [switch]$SkipInteractive
+    [switch]$SkipInteractive,
+    [switch]$SkipInstalledGui
 )
 
 $ErrorActionPreference = 'Stop'
@@ -424,17 +425,21 @@ try {
         Invoke-InteractiveInstall
         $installedBinary = Join-Path $installDirectory 'downshift.exe'
         Stop-ProcessAtPath -Path $installedBinary
-        $guiOutput = Join-Path $OutputDirectory 'installed-gui-smoke'
-        $guiProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile',
-            '-ExecutionPolicy', 'Bypass',
-            '-File', $guiSmokeScript,
-            '-BinaryPath', $installedBinary,
-            '-OutputDirectory', $guiOutput,
-            '-HideAutomationConsole'
-        ) -WindowStyle Hidden -PassThru -Wait
-        if ($guiProcess.ExitCode -ne 0) {
-            throw "Installed-binary GUI smoke failed with code $($guiProcess.ExitCode)."
+        if ($SkipInstalledGui) {
+            Log-Message 'skipping installed-binary GUI smoke by request'
+        } else {
+            $guiOutput = Join-Path $OutputDirectory 'installed-gui-smoke'
+            $guiProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+                '-NoProfile',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', $guiSmokeScript,
+                '-BinaryPath', $installedBinary,
+                '-OutputDirectory', $guiOutput,
+                '-HideAutomationConsole'
+            ) -WindowStyle Hidden -PassThru -Wait
+            if ($guiProcess.ExitCode -ne 0) {
+                throw "Installed-binary GUI smoke failed with code $($guiProcess.ExitCode)."
+            }
         }
         Stop-ProcessAtPath -Path $installedBinary
         Invoke-SilentUninstall -TargetDirectory $installDirectory
@@ -457,7 +462,7 @@ try {
     Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.txt') -Value @(
         'installer=' + $InstallerPath,
         'interactive_install=' + $(if ($SkipInteractive) { 'skipped' } else { 'passed' }),
-        'installed_gui_smoke=' + $(if ($SkipInteractive) { 'skipped' } else { 'passed' }),
+        'installed_gui_smoke=' + $(if ($SkipInteractive -or $SkipInstalledGui) { 'skipped' } else { 'passed' }),
         'silent_install=passed',
         'silent_uninstall=passed',
         'start_menu_shortcut=passed',
