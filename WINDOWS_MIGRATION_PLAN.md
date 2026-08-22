@@ -10,7 +10,8 @@ The Windows port will preserve the current user-facing behavior, including the n
 
 ### Runtime
 
-- `cargo build --release` succeeds for the existing macOS target.
+- The generic `cargo build --release` and debug build targets remain host-native and do not encode macOS as their default.
+- The macOS release/package targets build with an explicit `--target "$(MACOS_TARGET)"`, preserving the architecture currently supported by the macOS release workflow.
 - `cargo build --release --target x86_64-pc-windows-msvc` succeeds for Windows x64.
 - The Windows application launches and renders the breathing widget through WebView2.
 - The Windows widget remains transparent, always-on-top, draggable, resizable through the existing controls, and correctly positioned across monitors.
@@ -34,8 +35,8 @@ The Windows port will preserve the current user-facing behavior, including the n
 
 - Fast local Windows checks are available for repeated development iterations.
 - Pull-request CI runs the fast checks on Windows and macOS.
-- Local Windows manual interaction and screenshots cover the running application.
-- A clean interactive Windows VM repeats the interaction and screenshot checklist after installation, including WebView2 and uninstall scenarios.
+- Local Windows scripted UI interaction and screenshots cover the running application without requiring a human operator.
+- A clean Windows VM runs the same scripted interaction and screenshot checklist after installation, including WebView2 and uninstall scenarios, without requiring a human operator.
 - Test logs and screenshots are retained as artifacts when CI or release checks fail.
 
 ## Plan
@@ -45,6 +46,7 @@ The Windows port will preserve the current user-facing behavior, including the n
 - Keep all work on `codex/windows-port`; do not push implementation commits directly to `main`.
 - Keep this file current as the migration progresses.
 - Use the existing `main` commit as the compatibility baseline and preserve unrelated repository changes.
+- Keep the generic build entry points host-native; add dedicated macOS build/package entry points that pass the selected `MACOS_TARGET` explicitly to Cargo.
 - Install or provision missing local prerequisites as needed: Rust/MSVC, Node.js, Inno Setup, and an interactive Windows VM.
 
 ### 2. Platform layer
@@ -62,6 +64,7 @@ The Windows port will preserve the current user-facing behavior, including the n
 Add a PowerShell fast-check/smoke workflow that can be run repeatedly without a VM or installer:
 
 - `cargo fmt --check`
+- `cargo build --release` using the native Windows toolchain for a release-build iteration.
 - `cargo check --target x86_64-pc-windows-msvc`
 - `cargo test`
 - `cargo clippy --all-targets -- -D warnings`
@@ -69,7 +72,7 @@ Add a PowerShell fast-check/smoke workflow that can be run repeatedly without a 
 - Launch the debug application with isolated temporary settings/log paths.
 - Verify process/window startup and clean shutdown.
 - Exercise platform helpers and single-instance behavior with cleanup-safe tests.
-- Manually interact with the local Windows app and capture screenshots of the widget, dialogs, and context menu.
+- Run a scripted Windows UI smoke test that drives the local app and captures screenshots of the widget, dialogs, and context menu. No human clicks or keyboard input are required.
 
 The fast path must not rebuild or install a VM, run notarization, require signing secrets, or reinstall WebView2 on every iteration.
 
@@ -77,6 +80,7 @@ The fast path must not rebuild or install a VM, run notarization, require signin
 
 - Add a reusable Windows PowerShell packaging script.
 - Add an Inno Setup script for the per-user x64 installer.
+- Make macOS packaging consume the explicit `MACOS_TARGET` build output rather than relying on an implicit host build.
 - Detect WebView2 and invoke the Evergreen Bootstrapper only when it is missing.
 - Validate installer version against the Cargo version and release tag.
 - Sign the application and installer conditionally with SHA-256 Authenticode signing and a timestamp service.
@@ -90,14 +94,14 @@ The fast path must not rebuild or install a VM, run notarization, require signin
 - Coordinate macOS and Windows release jobs through one draft release so assets and checksums are not published from competing workflows.
 - Keep signing secrets restricted to the protected release environment.
 
-### 6. Local and VM GUI verification
+### 6. Scripted local and VM GUI verification
 
-Use the same smoke script, interaction checklist, screenshot names, and log format locally and in the VM.
+Use the same smoke script, scripted interaction checklist, screenshot names, and log format locally and in the VM. The script—not a human user—performs the clicks, keystrokes, window activation, and screenshot capture.
 
 Local Windows coverage:
 
 - Run the debug or release executable directly.
-- Manually test dragging, resizing, pause/snooze, menu actions, breathing-pattern dialogs, diagnostics copying, and launch-at-login.
+- Drive dragging, resizing, pause/snooze, menu actions, breathing-pattern dialogs, diagnostics copying, and launch-at-login through Windows UI Automation/Win32 helpers.
 - Capture screenshots and inspect logs after each meaningful UI milestone.
 
 VM coverage:
@@ -115,13 +119,8 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 
 - [x] Confirmed the repository remote is `https://github.com/samm81/downshift.git`.
 - [x] Checked out local branch `codex/windows-port` from `origin/main`.
-- [x] Baseline commit is `0ad2fe6047a6af70040174a8333567a32fc2c3ff`.
-- [x] Confirmed no existing Windows migration branch was present.
-- [x] Agreed to retain clipboard copying.
-- [x] Agreed to target Windows x64 only for the initial port.
-- [x] Agreed to use Inno Setup.
-- [x] Agreed to use conditional Windows signing.
-- [x] Agreed to test screenshots and manual interaction both locally and in the Windows VM.
+- [x] Agreed to keep generic builds host-native and make the macOS target explicit.
+- [x] Defined local and VM GUI verification as scripted UI automation, not human interaction.
 - [x] Commit this plan file locally as `1c394a5`.
 - [ ] Push `codex/windows-port` to GitHub after local GitHub CLI authentication is available.
 - [ ] Install local Rust/MSVC, Node.js, GitHub CLI, and Inno Setup prerequisites.
@@ -131,7 +130,7 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Run macOS regression and release verification.
 
-The current shell has Git, but Rust, Node.js, GitHub CLI, Inno Setup, and local VM tooling are not yet installed.
+The current shell has Git and an authenticated GitHub CLI; Rust, Node.js, Inno Setup, and local VM tooling are not yet installed.
 
 ## Log
 
@@ -152,3 +151,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: `git diff --check` passed; the local branch remains separate from `main`.
 - Result: The plan is safely recorded locally. The shell push was stopped because GitHub credentials are not configured for the bundled Git process.
 - Next: Run `gh auth login` and `gh auth setup-git`, then push this branch without touching `main`.
+
+### 2026-08-22 — build and GUI verification clarification
+
+- Branch: `codex/windows-port`
+- Change: Updated the plan to keep generic Cargo/Make builds host-native, require an explicit `MACOS_TARGET`/`--target` for macOS packaging, and replace “manual interaction” with script-driven UI automation for both the local Windows host and the Windows VM.
+- Validation: Confirmed the authenticated GitHub CLI account is `samm81`; GitHub credential setup is available to the repository’s HTTPS remote.
+- Result: Build intent and test ownership are unambiguous: the automation performs the UI actions and captures the evidence.
+- Next: Commit and push this clarification, then begin prerequisite installation and platform-layer implementation.
