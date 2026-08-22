@@ -122,8 +122,8 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [x] Agreed to keep generic builds host-native and make the macOS target explicit.
 - [x] Defined local and VM GUI verification as scripted UI automation, not human interaction.
 - [x] Commit this plan file locally as `1c394a5`.
-- [ ] Push `codex/windows-port` to GitHub after local GitHub CLI authentication is available.
-- [ ] Install local Rust/MSVC, Node.js, GitHub CLI, and Inno Setup prerequisites.
+- [x] Push `codex/windows-port` to GitHub after local GitHub CLI authentication is available.
+- [ ] Install local Rust/MSVC, Node.js, and Inno Setup prerequisites.
 - [ ] Implement the Windows platform layer.
 - [ ] Add fast local smoke checks.
 - [ ] Add Windows CI and packaging.
@@ -159,3 +159,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Confirmed the authenticated GitHub CLI account is `samm81`; GitHub credential setup is available to the repository’s HTTPS remote.
 - Result: Build intent and test ownership are unambiguous: the automation performs the UI actions and captures the evidence.
 - Next: Commit and push this clarification, then begin prerequisite installation and platform-layer implementation.
+
+### 2026-08-22 — branch publication checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Published the migration branch to GitHub with commit `5a4b9c1`.
+- Validation: `git push -u origin codex/windows-port` succeeded; the branch tracks `origin/codex/windows-port`; `main` was not modified.
+- Result: The migration plan and its clarifications are available for review on the separate branch.
+- Next: Install Rust/MSVC, Node.js, and Inno Setup, then begin the platform-layer implementation.
