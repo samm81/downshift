@@ -126,13 +126,14 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [x] Install Rust stable/MSVC tooling, Node.js, and Inno Setup prerequisites that do not require the Visual C++ workload.
 - [x] Add the initial Windows platform layer: native menus, clipboard copying, launch-at-login, and single-instance activation.
 - [x] Add an initial Windows x64 GitHub Actions build/test workflow.
-- [ ] Complete local MSVC workload installation and validate the Windows target locally and in GitHub Actions.
+- [x] Complete local MSVC workload installation and validate the Windows target locally and in GitHub Actions.
+- [x] Add the first reusable unsigned Windows x64 Inno packaging path, including WebView2 detection/bootstrapper logic and SHA-256 output.
 - [ ] Add fast local smoke checks.
-- [ ] Add Windows packaging and release signing.
+- [ ] Add conditional Authenticode signing and installer install/uninstall validation.
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Run macOS regression and release verification.
 
-The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, Node.js, and Inno Setup are installed. The Visual C++ Build Tools workload is still finishing installation; local VM tooling has not yet been provisioned.
+The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, the Visual C++ Build Tools MSVC linker, Node.js, and Inno Setup are installed. The Windows x64 build/test job is green on GitHub Actions. Local VM tooling has not yet been provisioned.
 
 ## Log
 
@@ -177,3 +178,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: `cargo fmt --check` passes. The first local Windows-target Cargo check reached compilation but was blocked by the missing `link.exe`; dependency resolution completed and the GitHub Actions run is queued.
 - Result: The first platform implementation is on the separate branch; no changes were made to `main`.
 - Next: Finish the local MSVC workload, rerun the Windows compile/tests, then add the fast scripted UI smoke path and installer.
+
+### 2026-08-22 — Windows build and initial packaging checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Finished the local MSVC workload, added `windows/installer.iss` and `windows/build-installer.ps1`, and wired the installer to detect WebView2 and run the Evergreen Bootstrapper only when the runtime is missing.
+- Validation: Local `cargo check --locked`, release build, and Rust tests pass for `x86_64-pc-windows-msvc`; the GitHub Actions run `32561631885` passed formatting, release build, and all Rust tests. The full packaging script produced `dist/windows/Downshift-Setup-0.1.28.exe` and `dist/windows/SHA256SUMS.txt` without signing credentials; Inno Setup compiled successfully and reported `NotSigned` as expected.
+- Result: The repository now has a repeatable unsigned Windows installer build and a tested conditional-signing hook. No certificate material is stored in the repository.
+- Next: Add the fast local process/UI smoke checks, then exercise the installer and WebView2 paths with scripted screenshots locally and in a clean Windows VM.

@@ -173,6 +173,41 @@ the `.dmg` now stages:
 
 so users get the standard drag-`Downshift.app`-to-`Applications` install flow when they open the disk image.
 
+## Windows distribution (x64)
+
+The generic Cargo commands are host-native. On Windows, build and test locally with:
+
+```powershell
+cargo build --release
+cargo test
+```
+
+The macOS packaging targets pass the selected target explicitly. For example, on an Apple Silicon Mac:
+
+```bash
+make MACOS_TARGET=aarch64-apple-darwin app
+make MACOS_TARGET=aarch64-apple-darwin release
+```
+
+Build the unsigned Windows x64 installer from a Windows checkout with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows\build-installer.ps1
+```
+
+The script builds `x86_64-pc-windows-msvc`, compiles `dist\windows\Downshift-Setup-<version>.exe` with Inno Setup, and writes `dist\windows\SHA256SUMS.txt`. Use `-SkipBuild` when iterating on the installer after a binary is already available. The installer uses a per-user install and runs the Microsoft Edge WebView2 Evergreen Bootstrapper only when WebView2 is not detected.
+
+For a signed build, provide all signing inputs; if the certificate path or password is omitted, the output remains unsigned:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows\build-installer.ps1 `
+  -SignCertificatePath C:\path\to\release.pfx `
+  -SignCertificatePassword $env:WINDOWS_SIGNING_PASSWORD `
+  -TimestampUrl http://timestamp.digicert.com
+```
+
+Never commit the certificate or its password. The script rejects partial signing configuration.
+
 ## mac distribution (signed + notarized dmg)
 
 required env vars:
