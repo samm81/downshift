@@ -136,7 +136,7 @@ GitHub-hosted Windows runners provide the routine clean CI environment for compi
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Complete coordinated tagged-release verification for macOS and Windows.
 
-The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, the Visual C++ Build Tools MSVC linker, Node.js, and Inno Setup are installed. Local VM tooling has not yet been provisioned. The hosted Windows runner validates the build and installer path; its desktop cannot reliably provide a composited WebView2 surface for the installed-app UI smoke, so that portion remains a local/interactive-VM gate.
+The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, the Visual C++ Build Tools MSVC linker, Node.js, and Inno Setup are installed. Local VM tooling has not yet been provisioned. The hosted Windows runner validates the build and installer actions; its desktop cannot reliably provide a composited WebView2 surface or trustworthy visual screenshots for the installed-app UI smoke, so that portion remains a local/interactive-VM gate.
 
 ## Log
 
@@ -213,3 +213,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Local `windows/smoke-installer.ps1 -SkipInstalledGui` passed. macOS run `32565334868` passed. Windows run `32565334900` passed every build, test, packaging, and setup step, but its installed-app UI step failed after the hosted desktop created a blank WebView2 surface; hiding automation consoles, restoring focus, and adding a render-settle delay did not make that hosted surface interactive.
 - Result: The failure is isolated to the hosted runner’s WebView2 compositing/input environment, not compilation or installer behavior. The CI workflow now retains reliable clean-runner installer evidence without masking the need for a real interactive VM UI run.
 - Next: Push this CI adjustment, confirm the hosted Windows workflow is green, then provision the local interactive Windows VM and run the full installed-app screenshot checklist there.
+
+### 2026-08-22 — cross-platform hosted CI green checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Pushed the hosted-runner adjustment as `65cc720`; the Windows workflow now uses `-SkipInstalledGui` while retaining the full GUI path for local and interactive-VM runs.
+- Validation: Windows run `32565568929` and macOS run `32565568971` both passed. The Windows artifact confirms scripted wizard navigation, interactive install, silent install/uninstall, Start Menu cleanup, and uninstall-registry cleanup. The hosted wizard screenshots were captured, but the runner desktop also shows blank/overlapping surfaces, so they are functional evidence rather than a visual rendering sign-off.
+- Result: Cross-platform build/test/packaging CI is green. Local full GUI screenshots remain the reliable visual baseline; a real interactive Windows VM is still required for the second visual environment.
+- Next: Provision the local Windows x64 VM, install the WebView2-present package there, run the full installed-app smoke, and then exercise the WebView2-missing/bootstrapper path.
