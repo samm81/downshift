@@ -874,6 +874,7 @@ dependencies = [
  "toml",
  "ureq 2.12.1",
  "uuid",
+ "windows-sys 0.61.2",
  "winit",
  "wry",
 ]
