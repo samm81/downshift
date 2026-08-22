@@ -6,6 +6,12 @@ Port Downshift so the repository builds and ships both the existing macOS applic
 
 The Windows port will preserve the current user-facing behavior, including the native context menu, diagnostics clipboard copying, launch at login, single-instance activation, breathing-pattern dialogs, settings persistence, update checks, and telemetry behavior.
 
+## Explicitly unsupported in this migration
+
+- Windows Virtual Desktop/workspace-wide widget visibility is not supported. The Windows build intentionally keeps one widget window on the virtual desktop where it was launched; it does not create one widget per desktop or pin the widget to every desktop.
+- This is a scope decision rather than a known defect. Implementing it would require multiple synchronized WebView2 windows and fragile Windows virtual-desktop APIs, followed by dedicated desktop-switching automation and VM coverage.
+- macOS Spaces remain unchanged: the existing macOS implementation makes one window join all Spaces rather than creating duplicate processes or independent widgets.
+
 ## Success criteria
 
 ### Runtime
@@ -130,6 +136,7 @@ GitHub-hosted Windows runners provide the routine clean CI environment for compi
 - [x] Add the first reusable unsigned Windows x64 Inno packaging path, including WebView2 detection/bootstrapper logic and SHA-256 output.
 - [x] Add fast local Rust/web checks and a scripted local Windows GUI smoke test with screenshots.
 - [x] Reproduce and fix the Windows transparent WebView2 stale-surface bug during repeated resize cycles; retain the regression screenshots in the local UI smoke test.
+- [x] Explicitly document Windows Virtual Desktop/workspace-wide widget visibility as unsupported for this migration.
 - [x] Add the conditional Authenticode signing hook with an unsigned fallback.
 - [x] Validate interactive and silent installer install/uninstall flows, shortcuts, registry entries, WebView2 runtime data cleanup, and installed-binary UI smoke.
 - [x] Validate the Windows build, tests, packaging, and installer wizard/install/uninstall path on a GitHub-hosted Windows runner.
@@ -238,3 +245,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Windows run `32567232872` passed the Windows x64 build, Rust tests, Clippy, unsigned Inno build, and hosted installer smoke. macOS run `32567232889` passed the explicit macOS-target app-bundle build, tests, Clippy, and unsigned packaging.
 - Result: The Windows-specific WebView2 host change does not regress the macOS target, and the hosted cross-platform checks remain green.
 - Next: Provision the clean interactive Windows VM and run the installed-app screenshot checklist there; retain the WebView2-missing/bootstrapper scenario as a separate VM check.
+
+### 2026-08-22 — Windows workspace visibility scope checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Documented Windows Virtual Desktop/workspace-wide widget visibility as explicitly unsupported for this migration. The current Windows behavior remains one single-instance widget on the desktop where it was launched.
+- Validation: Reviewed the platform code: macOS explicitly joins all Spaces, while Windows has no corresponding all-desktops implementation and keeps the existing single-instance guard.
+- Result: The behavior is now recorded as an intentional scope boundary rather than an open migration defect.
+- Next: Continue with the interactive VM and coordinated release verification work; revisit Windows workspace-wide visibility only as a separate feature.
