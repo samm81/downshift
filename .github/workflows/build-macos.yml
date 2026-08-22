@@ -3,7 +3,7 @@ name: build-macos
 on:
   push:
     branches:
-      - '**'
+      - "**"
   pull_request:
 
 permissions:
@@ -39,7 +39,8 @@ jobs:
 
       - name: resolve macOS target
         id: target
-        run: echo "value=$(rustc -vV | sed -n 's/^host: //p')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "value=$(rustc -vV | sed -n 's/^host: //p')" >> "$GITHUB_OUTPUT"
 
       - name: check formatting and web tooling
         run: |

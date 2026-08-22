@@ -3,7 +3,7 @@ name: build-windows
 on:
   push:
     branches:
-      - '**'
+      - "**"
   pull_request:
 
 permissions:
