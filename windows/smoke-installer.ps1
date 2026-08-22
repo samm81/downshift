@@ -430,8 +430,9 @@ try {
             '-ExecutionPolicy', 'Bypass',
             '-File', $guiSmokeScript,
             '-BinaryPath', $installedBinary,
-            '-OutputDirectory', $guiOutput
-        ) -PassThru -Wait
+            '-OutputDirectory', $guiOutput,
+            '-HideAutomationConsole'
+        ) -WindowStyle Hidden -PassThru -Wait
         if ($guiProcess.ExitCode -ne 0) {
             throw "Installed-binary GUI smoke failed with code $($guiProcess.ExitCode)."
         }

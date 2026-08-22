@@ -2,7 +2,8 @@
 param(
     [string]$BinaryPath,
     [string]$OutputDirectory,
-    [int]$StartupTimeoutSeconds = 30
+    [int]$StartupTimeoutSeconds = 30,
+    [switch]$HideAutomationConsole
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,6 +69,12 @@ public static class DownshiftSmokeNative
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int command);
+
     [DllImport("user32.dll")]
     private static extern bool SetCursorPos(int x, int y);
 
@@ -87,6 +94,7 @@ public static class DownshiftSmokeNative
     private const uint KeyUp = 0x0002;
     private const uint WmClose = 0x0010;
     private const byte Escape = 0x1B;
+    private const int SwHide = 0;
 
     private static string ReadWindowText(IntPtr hWnd)
     {
@@ -141,6 +149,15 @@ public static class DownshiftSmokeNative
         return SetForegroundWindow(hWnd);
     }
 
+    public static void HideAutomationConsole()
+    {
+        var console = GetConsoleWindow();
+        if (console != IntPtr.Zero)
+        {
+            ShowWindow(console, SwHide);
+        }
+    }
+
     public static void LeftClick(int x, int y)
     {
         SetCursorPos(x, y);
@@ -174,6 +191,10 @@ public static class DownshiftSmokeNative
 '@
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
+
+if ($HideAutomationConsole) {
+    [DownshiftSmokeNative]::HideAutomationConsole()
+}
 
 function Log-Message {
     param([Parameter(Mandatory = $true)][string]$Message)
