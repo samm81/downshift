@@ -3211,7 +3211,9 @@ impl ApplicationHandler<AppEvent> for App {
             // A transparent WebView2 child can retain the previous opaque
             // DWM redirection bitmap after the host window is resized. The
             // no-redirection path keeps the transparent surface current.
-            window_attributes = window_attributes.with_no_redirection_bitmap(true);
+            window_attributes = window_attributes
+                .with_no_redirection_bitmap(true)
+                .with_skip_taskbar(true);
         }
 
         if let Some(position) = self.choose_initial_position(event_loop, self.settings.size) {
