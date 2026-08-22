@@ -4428,6 +4428,7 @@ mod tests {
         assert_eq!(InstanceCommand::parse("nope"), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn instance_socket_path_is_scoped_to_executable_path() {
         let debug_path = instance_socket_path_for_executable(Path::new(
@@ -4445,6 +4446,16 @@ mod tests {
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with("instance-") && name.ends_with(".sock")));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_instance_pipe_name_is_scoped_to_executable_path() {
+        let pipe_name =
+            windows_instance_pipe_name().expect("current executable path should resolve");
+
+        assert!(pipe_name.starts_with(r"\\.\pipe\downshift-"));
+        assert!(pipe_name.len() > r"\\.\pipe\downshift-".len());
     }
 
     #[test]
