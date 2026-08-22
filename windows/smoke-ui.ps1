@@ -619,6 +619,8 @@ try {
     $appProcess = New-IsolatedProcess -Path $BinaryPath
     $windowHandle = Wait-ProcessWindow -Process $appProcess -TimeoutSeconds $StartupTimeoutSeconds
     Log-Message "main window detected: 0x$($windowHandle.ToString('X'))"
+    Start-Sleep -Seconds 2
+    Log-Message 'WebView2 render settle delay completed'
     Capture-Checkpoint -Name '01-widget' -WindowHandle $windowHandle
 
     $secondProcess = New-IsolatedProcess -Path $BinaryPath
