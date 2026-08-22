@@ -46,6 +46,11 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
+[UninstallDelete]
+; WebView2 creates this per-install cache beside the executable. It is
+; application runtime data, not user settings, so remove it on uninstall.
+Type: filesandordirs; Name: "{app}\{#AppExeName}.WebView2"
+
 [Code]
 const
   WebView2ClientId = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';

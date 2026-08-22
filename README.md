@@ -224,6 +224,14 @@ powershell -ExecutionPolicy Bypass -File .\windows\smoke-ui.ps1
 
 The script performs the clicks and keystrokes itself, stores screenshots and logs under `logs\gui-smoke-windows-*`, checks the clipboard and launch-at-login registry entry, and restores the pre-test settings and registry state. The same script is intended for the clean Windows VM once the installer path is added.
 
+Run the scripted Inno installer smoke test locally to exercise the interactive wizard, installed-binary GUI path, silent install/uninstall, Start Menu shortcut, Add/Remove Programs entry, and cleanup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows\smoke-installer.ps1
+```
+
+It performs the wizard clicks itself and stores wizard, app, and installer logs/screenshots under `logs\installer-smoke-windows-*`. Use `-SkipInteractive` for a faster silent install/uninstall-only iteration.
+
 ## mac distribution (signed + notarized dmg)
 
 required env vars:

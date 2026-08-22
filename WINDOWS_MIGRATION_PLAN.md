@@ -129,7 +129,8 @@ GitHub-hosted Windows runners provide the routine clean CI environment. A local 
 - [x] Complete local MSVC workload installation and validate the Windows target locally and in GitHub Actions.
 - [x] Add the first reusable unsigned Windows x64 Inno packaging path, including WebView2 detection/bootstrapper logic and SHA-256 output.
 - [x] Add fast local Rust/web checks and a scripted local Windows GUI smoke test with screenshots.
-- [ ] Add conditional Authenticode signing and installer install/uninstall validation.
+- [x] Add the conditional Authenticode signing hook with an unsigned fallback.
+- [x] Validate interactive and silent installer install/uninstall flows, shortcuts, registry entries, WebView2 runtime data cleanup, and installed-binary UI smoke.
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Run macOS regression and release verification.
 
@@ -194,3 +195,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: `windows/fast-check.ps1` passed Rust formatting, Windows-target check/tests/Clippy, and Prettier/ESLint/Stylelint/Markdownlint. `windows/smoke-ui.ps1` passed locally against the release binary and produced inspected screenshots for the widget, native menus, diagnostics clipboard, and updates dialog; it also passed second-instance, pause/resume, and launch-at-login checks.
 - Result: Windows development now has a fast repeatable path plus a scripted visual smoke path. The smoke script performs all UI input and restores the pre-test settings and Run registry value.
 - Next: Test the compiled Inno installer with scripted install/uninstall interaction, provision the clean Windows VM, and run the same smoke flow there.
+
+### 2026-08-22 — local installer smoke checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Added `windows/smoke-installer.ps1` and documented the fast silent and full interactive installer test paths. The Inno script now removes the per-install WebView2 cache on uninstall.
+- Validation: Rebuilt the unsigned installer with `windows/build-installer.ps1`. The scripted wizard passed locally with mouse automation and screenshots; the installed binary passed the full Windows GUI smoke checklist, including clipboard copying, second-instance activation, settings persistence, updates dialog, and launch-at-login. Silent install/uninstall then passed with Start Menu and Add/Remove Programs checks, and the WebView2 cache was removed.
+- Result: Local installer packaging, interactive install, installed-app UI, silent install, and clean uninstall are covered without human interaction. The smoke output is retained under `logs/installer-smoke-windows-20260822-170742`.
+- Next: Provision the clean Windows x64 VM, run the same installer and screenshot checklist there, then add/execute macOS regression coverage on a GitHub-hosted macOS runner.
