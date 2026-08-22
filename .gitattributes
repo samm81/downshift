@@ -1,0 +1,7 @@
+* text=auto
+
+# Keep formatter-checked web and Markdown files stable on Windows checkouts.
+*.css text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.md text eol=lf
