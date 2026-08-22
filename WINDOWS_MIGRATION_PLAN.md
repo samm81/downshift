@@ -253,3 +253,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Reviewed the platform code: macOS explicitly joins all Spaces, while Windows has no corresponding all-desktops implementation and keeps the existing single-instance guard.
 - Result: The behavior is now recorded as an intentional scope boundary rather than an open migration defect.
 - Next: Continue with the interactive VM and coordinated release verification work; revisit Windows workspace-wide visibility only as a separate feature.
+
+### 2026-08-22 — Windows taskbar visibility checkpoint
+
+- Branch: `codex/windows-port`
+- Change: Configured the Windows widget window with Winit's `with_skip_taskbar(true)` so the breathing widget is not represented by a taskbar button.
+- Validation: Local Windows fast checks passed. The complete scripted UI smoke passed on the rebuilt release binary; live Windows UI Automation found no `downshift` control under `Shell_TrayWnd` while the widget was running. Hosted Windows run `32580490471` and macOS run `32580490422` both passed.
+- Result: The Windows widget remains visible and interactive without appearing in the taskbar; macOS behavior is unchanged.
+- Next: Continue with the interactive VM and coordinated release verification work.
