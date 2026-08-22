@@ -20,7 +20,9 @@ use muda::{
 use objc2_app_kit::{NSView, NSWindowCollectionBehavior};
 use semver::Version;
 use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
+#[cfg(unix)]
+use std::io::Read;
+use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::PanicHookInfo;
@@ -3792,10 +3794,10 @@ fn spawn_windows_instance_server(
     use windows_sys::Win32::Foundation::{
         GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
     };
-    use windows_sys::Win32::Storage::FileSystem::ReadFile;
+    use windows_sys::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
     use windows_sys::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_ACCESS_INBOUND,
-        PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE,
+        PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
     };
 
     let pipe_name_wide = windows_wide(&pipe_name);
