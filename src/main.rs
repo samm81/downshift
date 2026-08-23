@@ -71,59 +71,47 @@ const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> = option_env!("DOWNSHIFT_DOWNL
 const COMPILED_GITHUB_ISSUES_URL: Option<&str> = option_env!("DOWNSHIFT_GITHUB_ISSUES_URL");
 const COMPILED_SUPPORT_EMAIL: Option<&str> = option_env!("DOWNSHIFT_SUPPORT_EMAIL");
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_PAUSE: &str = "pause";
+mod menu_ids {
+    pub(super) const MENU_ID_PAUSE: &str = "pause";
+    pub(super) const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
+    pub(super) const MENU_ID_SNOOZE_5: &str = "snooze_5";
+    pub(super) const MENU_ID_SNOOZE_10: &str = "snooze_10";
+    pub(super) const MENU_ID_SNOOZE_15: &str = "snooze_15";
+    pub(super) const MENU_ID_SNOOZE_30: &str = "snooze_30";
+    pub(super) const MENU_ID_SNOOZE_60: &str = "snooze_60";
+    pub(super) const MENU_ID_SNOOZE_CUSTOM: &str = "snooze_custom";
+    pub(super) const MENU_ID_SIZE_S: &str = "size_s";
+    pub(super) const MENU_ID_SIZE_M: &str = "size_m";
+    pub(super) const MENU_ID_SIZE_L: &str = "size_l";
+    pub(super) const MENU_ID_SIZE_XL: &str = "size_xl";
+    pub(super) const MENU_ID_BREATHING_PATTERN: &str = "breathing_pattern";
+    pub(super) const MENU_ID_BREATHING_COHERENT: &str = "breathing_coherent";
+    pub(super) const MENU_ID_BREATHING_BOX: &str = "breathing_box";
+    pub(super) const MENU_ID_BREATHING_479: &str = "breathing_479";
+    pub(super) const MENU_ID_BREATHING_EDIT: &str = "breathing_edit";
+    pub(super) const MENU_ID_BREATHING_DELETE_ROOT: &str = "breathing_delete_root";
+    pub(super) const MENU_ID_BREATHING_DELETE_PREFIX: &str = "breathing_delete:";
+    pub(super) const MENU_ID_BREATHING_SAVED_PREFIX: &str = "breathing_saved:";
+    pub(super) const MENU_ID_RESET: &str = "reset";
+    pub(super) const MENU_ID_QUIT: &str = "quit";
+    pub(super) const MENU_ID_ANALYTICS_ROOT: &str = "analytics_root";
+    pub(super) const MENU_ID_USAGE_ON: &str = "usage_on";
+    pub(super) const MENU_ID_USAGE_OFF: &str = "usage_off";
+    pub(super) const MENU_ID_CRASH_ON: &str = "crash_on";
+    pub(super) const MENU_ID_CRASH_OFF: &str = "crash_off";
+    pub(super) const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
+    pub(super) const MENU_ID_UPDATE_ROOT: &str = "update_root";
+    pub(super) const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
+    pub(super) const MENU_ID_UPDATE_IGNORE_CURRENT: &str = "update_ignore_current";
+    pub(super) const MENU_ID_LAUNCH_AT_LOGIN: &str = "launch_at_login";
+    pub(super) const MENU_ID_BUGS_ROOT: &str = "bugs_root";
+    pub(super) const MENU_ID_COPY_DIAGNOSTICS: &str = "copy_diagnostics";
+    pub(super) const MENU_ID_FILE_BUG_GITHUB: &str = "file_bug_github";
+    pub(super) const MENU_ID_FILE_BUG_EMAIL: &str = "file_bug_email";
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SNOOZE_5: &str = "snooze_5";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SNOOZE_10: &str = "snooze_10";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SNOOZE_15: &str = "snooze_15";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SNOOZE_30: &str = "snooze_30";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SNOOZE_60: &str = "snooze_60";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SNOOZE_CUSTOM: &str = "snooze_custom";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SIZE_S: &str = "size_s";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SIZE_M: &str = "size_m";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SIZE_L: &str = "size_l";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_SIZE_XL: &str = "size_xl";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_PATTERN: &str = "breathing_pattern";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_COHERENT: &str = "breathing_coherent";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_BOX: &str = "breathing_box";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_479: &str = "breathing_479";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_EDIT: &str = "breathing_edit";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_DELETE_ROOT: &str = "breathing_delete_root";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_DELETE_PREFIX: &str = "breathing_delete:";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BREATHING_SAVED_PREFIX: &str = "breathing_saved:";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_RESET: &str = "reset";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_QUIT: &str = "quit";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_ANALYTICS_ROOT: &str = "analytics_root";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_USAGE_ON: &str = "usage_on";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_USAGE_OFF: &str = "usage_off";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_CRASH_ON: &str = "crash_on";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_CRASH_OFF: &str = "crash_off";
+use menu_ids::*;
 
 #[cfg(target_os = "macos")]
 fn configure_window_for_all_spaces(window: &Window) {
@@ -164,25 +152,6 @@ fn configure_window_for_all_spaces(window: &Window) {
         ns_window.setCollectionBehavior(behavior);
     }
 }
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_UPDATE_ROOT: &str = "update_root";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_UPDATE_IGNORE_CURRENT: &str = "update_ignore_current";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_LAUNCH_AT_LOGIN: &str = "launch_at_login";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_BUGS_ROOT: &str = "bugs_root";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_COPY_DIAGNOSTICS: &str = "copy_diagnostics";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_FILE_BUG_GITHUB: &str = "file_bug_github";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const MENU_ID_FILE_BUG_EMAIL: &str = "file_bug_email";
-
 macro_rules! log_stderr {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
