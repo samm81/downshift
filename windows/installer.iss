@@ -1,7 +1,10 @@
 #define AppName "Downshift"
 #define AppExeName "downshift.exe"
 #ifndef AppVersion
-#define AppVersion "0.1.28"
+#define AppVersion "0.2.0-rc.1"
+#endif
+#ifndef AppProductVersion
+#define AppProductVersion "0.2.0.1"
 #endif
 
 [Setup]
@@ -30,7 +33,7 @@ RestartIfNeededByRun=no
 VersionInfoCompany=Downshift
 VersionInfoDescription=Downshift breathing companion installer
 VersionInfoProductName={#AppName}
-VersionInfoProductVersion={#AppVersion}
+VersionInfoProductVersion={#AppProductVersion}
 VersionInfoCopyright=Copyright (c) Downshift contributors
 
 [Tasks]

@@ -323,3 +323,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: The default no-probe VM run passed interactive install, installed GUI smoke, resize regression, menus, updates, silent install/uninstall, Start Menu shortcut, and uninstall-registry cleanup. The host runner returned success with no Windows Sandbox processes left running.
 - Result: A normal run now shows the installer and one installed-app GUI run, then closes automatically. The smoke verifies the launch-at-login registry value but does not reboot Windows; Windows Sandbox itself is a clean boot, not a persistent reboot test.
 - Next: Add a persistent-VM reboot scenario only if launch-at-login behavior after an actual Windows restart becomes a release requirement; otherwise integrate the branch and run the coordinated tagged release.
+
+### 2026-08-23 — `v0.2.0-rc.1` version bump
+
+- Branch: `codex/windows-port`
+- Change: Bumped the Cargo package and lockfile to `0.2.0-rc.1`, intended for a future `v0.2.0-rc.1` tag. Added a numeric Windows product-version mapping so Inno can package the prerelease as `0.2.0.1` while retaining the human-readable prerelease `AppVersion`.
+- Validation: `cargo metadata --locked` and `cargo fmt --check` passed. The Windows release build and unsigned Inno installer compiled successfully as `Downshift-Setup-0.2.0-rc.1.exe`; no signing certificate was configured, so the installer remained `NotSigned`.
+- Result: The branch now contains release-candidate version metadata suitable for a future tag. No tag, push, or release workflow was run.
+- Next: Integrate the branch into the default branch, then explicitly run coordinated tagged-release verification for `v0.2.0-rc.1`.

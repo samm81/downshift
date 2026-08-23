@@ -63,6 +63,38 @@ function Get-CargoVersion {
     return $Matches[1]
 }
 
+function Get-WindowsProductVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PackageVersion
+    )
+
+    $match = [regex]::Match(
+        $PackageVersion,
+        '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<label>[0-9A-Za-z-]+)\.(?<preNumber>\d+))?$'
+    )
+    if (-not $match.Success) {
+        throw "Package version '$PackageVersion' cannot be represented as a Windows product version."
+    }
+
+    $components = @(
+        [int]$match.Groups['major'].Value,
+        [int]$match.Groups['minor'].Value,
+        [int]$match.Groups['patch'].Value
+    )
+    if ($match.Groups['preNumber'].Success) {
+        $components += [int]$match.Groups['preNumber'].Value
+    } else {
+        $components += 0
+    }
+
+    if ($components | Where-Object { $_ -gt 65535 }) {
+        throw "Package version '$PackageVersion' contains a component larger than the Windows version limit."
+    }
+
+    return ($components -join '.')
+}
+
 function Import-VcVarsEnvironment {
     $programFilesX86 = ${env:ProgramFiles(x86)}
     $candidates = @(
@@ -174,6 +206,7 @@ function Sign-AuthenticodeFile {
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = Get-CargoVersion
 }
+$windowsProductVersion = Get-WindowsProductVersion -PackageVersion $Version
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repoRoot 'dist\windows'
@@ -245,7 +278,7 @@ $isccPath = Resolve-InnoCompiler
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 
 Write-Host "Compiling Inno installer for Downshift $Version..."
-& $isccPath "/DAppVersion=$Version" "/O$OutputDirectory" $installerScript
+& $isccPath "/DAppVersion=$Version" "/DAppProductVersion=$windowsProductVersion" "/O$OutputDirectory" $installerScript
 if ($LASTEXITCODE -ne 0) {
     throw 'Inno Setup compilation failed.'
 }
