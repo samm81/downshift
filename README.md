@@ -287,6 +287,8 @@ rust stores the app version in `Cargo.toml` under `[package].version`.
 
 to enforce that a git tag matches the cargo version, pass `TAG`:
 
+Prerelease tags use the same exact mapping, for example Cargo version `0.2.0-rc.1` uses tag `v0.2.0-rc.1`.
+
 ```bash
 make release TAG=v0.1.0
 ```

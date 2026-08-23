@@ -331,3 +331,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: `cargo metadata --locked` and `cargo fmt --check` passed. The Windows release build and unsigned Inno installer compiled successfully as `Downshift-Setup-0.2.0-rc.1.exe`; no signing certificate was configured, so the installer remained `NotSigned`.
 - Result: The branch now contains release-candidate version metadata suitable for a future tag. No tag, push, or release workflow was run.
 - Next: Integrate the branch into the default branch, then explicitly run coordinated tagged-release verification for `v0.2.0-rc.1`.
+
+### 2026-08-23 — prerelease release-workflow support
+
+- Branch: `codex/windows-port`
+- Change: Updated the unified release orchestrator and both reusable platform workflows to accept Cargo-compatible prerelease tags such as `v0.2.0-rc.1`, while continuing to require exact tag/Cargo version agreement. Documented the tag form in the README.
+- Validation: The exact `make verify-release` target passed in a clean LF-normalized verification checkout: Rust formatting, 70 Rust tests, Clippy, Prettier, shfmt, ESLint, Stylelint, ShellCheck, and Markdownlint all passed. Workflow YAML passed Prettier validation, and the prerelease regex accepted `v0.2.0-rc.1`.
+- Result: The planned RC tag will now reach the coordinated macOS/Windows release jobs instead of being rejected by the stable-version-only validation.
+- Next: Commit these workflow changes, synchronize the release branch, push the branch and `v0.2.0-rc.1` tag, then inspect the GitHub release run and artifacts.
