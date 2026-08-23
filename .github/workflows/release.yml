@@ -167,7 +167,8 @@ jobs:
             "$MACOS_ASSET" \
             "$WINDOWS_ASSET" \
             "$CHECKSUMS_PATH" \
-            --clobber
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"
 
           RELEASE_ID="$(
             gh api "/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \

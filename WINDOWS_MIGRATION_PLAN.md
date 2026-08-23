@@ -410,3 +410,10 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: PowerShell and Bash syntax checks passed; Windows `npm run check:windows`, Cargo formatting, local RC2 installer build, and the complete `-SkipInstalledGui` installer smoke passed, including interactive and silent uninstall cleanup.
 - Result: The two RC2 rerun failures are addressed without changing application behavior.
 - Next: Run `make verify-release`, bump to `0.2.0-rc.3`, and rerun the unified release workflow.
+
+### 2026-08-23 — RC3 release publish-job diagnosis
+
+- Branch/tag: `codex/windows-port`, `v0.2.0-rc.3`; workflow run `32645990068`
+- Validation: macOS repository verification, signed build, Apple notarization, stapling, DMG validation, artifact upload, and GUI smoke all passed. Windows formatting, x64 build, Rust tests, Clippy, conditional signing path, Inno packaging, checksum verification, installer smoke, and artifact upload all passed.
+- Result: The final publish job failed before uploading assets because `gh release upload` was invoked in a job without a checkout and without an explicit repository, so GitHub CLI reported `fatal: not a git repository`. No release assets were published.
+- Next: Make the upload command pass `--repo "$GITHUB_REPOSITORY"`, verify the workflow change, and issue the next immutable Cargo-version-matching RC tag.
