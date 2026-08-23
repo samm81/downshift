@@ -345,5 +345,13 @@ Append one entry for each meaningful migration action. Each entry should include
 - Branch: `codex/windows-port`, tag `v0.2.0-rc.1`, workflow run `32636338161`
 - Change: Pushed the rebased release branch and tag. The unified orchestrator created the draft release and entered both platform jobs.
 - Validation: Tag resolution and draft creation passed. Windows formatting, x64 build, 70 Rust tests, and Clippy passed, but installer packaging stopped because the workflow passed the release version through a positional PowerShell argument array and `0.2.0-rc.1` was interpreted as the `Configuration` parameter. macOS built through the unsigned app/package preparation, then stopped before signing because the configured `MACOS_CERT_P12_B64` and password did not decode to a valid PKCS#12 certificate.
-- Result: The draft was not published. The Windows argument-binding defect is fixed in the working branch; macOS signing remains blocked on correcting the GitHub `release` environment certificate secret/password.
-- Next: Commit and push the Windows workflow fix, then rerun using a new Cargo-version-matching prerelease tag after the macOS signing secret is corrected (or explicitly retag the failed RC for a retry).
+- Result: The draft was not published. The Windows argument-binding defect is fixed in the working branch. The macOS signing error was initially attributed to the stored certificate/password, but the secret metadata shows they have not changed since the successful `v0.1.28` release.
+- Next: Make macOS certificate validation compatible with the newer `macos-latest` OpenSSL 3 runner, then rerun the RC workflow.
+
+### 2026-08-23 — macOS release signing regression diagnosis
+
+- Branch: `codex/windows-port`
+- Change: Compared the successful `v0.1.28` macOS release with RC run `32636338161`. The certificate validation recipe was unchanged, but `macos-latest` now resolves to the macOS 26 arm64 image, whereas the April release ran on the earlier macOS 15 arm64 image. The hosted image moved from OpenSSL 1.1.1 to OpenSSL 3.x, which requires the legacy provider for older PKCS#12 encryption formats.
+- Validation: The current run received non-empty masked `MACOS_CERT_P12_B64` and `MACOS_CERT_P12_PASSWORD` environment values and failed specifically at `openssl pkcs12`; the GitHub secret update timestamps remain March 6–7, before the successful April release. The Makefile now retries PKCS#12 validation with `openssl pkcs12 -legacy` and preserves a safe OpenSSL diagnostic if both validations fail.
+- Result: The likely regression is runner-image/OpenSSL compatibility, not automatic GitHub secret expiry. The certificate bytes and password remain protected; no secret values are logged.
+- Next: Push the compatibility fix and rerun the coordinated RC workflow. If it still fails, use the emitted OpenSSL diagnostic to distinguish a malformed bundle from a password mismatch.

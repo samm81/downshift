@@ -278,13 +278,15 @@ release: check-tag-sync checksums
 
 release-no-telemetry: check-tag-sync checksums-no-telemetry
 
+# Newer macOS runner images ship OpenSSL 3, which needs the legacy provider for older .p12 bundles.
 release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-env build-macos package-app generate-dmg-background
 	@set -euo pipefail; \
 	KEYCHAIN_PATH="$(PWD)/$(DIST_DIR)/downshift-signing.keychain-db"; \
 	CERT_PATH="$(PWD)/$(DIST_DIR)/developer-id.p12"; \
+	PKCS12_ERROR_PATH="$(DIST_DIR)/pkcs12-validation.error"; \
 	cleanup() { \
 		security delete-keychain "$$KEYCHAIN_PATH" >/dev/null 2>&1 || true; \
-		rm -f "$$CERT_PATH"; \
+		rm -f "$$CERT_PATH" "$$PKCS12_ERROR_PATH"; \
 	}; \
 	trap cleanup EXIT; \
 	mkdir -p "$(DIST_DIR)"; \
@@ -293,11 +295,18 @@ release-pre-notarize: check-tag-sync require-telemetry-env require-notarization-
 		echo "error: decoded signing certificate is empty; check MACOS_CERT_P12_B64 secret"; \
 		exit 1; \
 	fi; \
-	if ! openssl pkcs12 -in "$$CERT_PATH" -passin "pass:$$MACOS_CERT_P12_PASSWORD" -noout >/dev/null 2>&1; then \
-		echo "error: decoded signing certificate is not a valid PKCS#12 bundle or password is incorrect"; \
-		echo "hint: re-export the Developer ID certificate as .p12, base64 it, and update MACOS_CERT_P12_B64 + MACOS_CERT_P12_PASSWORD"; \
-		exit 1; \
+	if ! openssl pkcs12 -in "$$CERT_PATH" -passin "pass:$$MACOS_CERT_P12_PASSWORD" -noout >/dev/null 2>"$$PKCS12_ERROR_PATH"; then \
+		if ! openssl pkcs12 -legacy -in "$$CERT_PATH" -passin "pass:$$MACOS_CERT_P12_PASSWORD" -noout >/dev/null 2>"$$PKCS12_ERROR_PATH"; then \
+			echo "error: decoded signing certificate is not a valid PKCS#12 bundle or password is incorrect"; \
+			echo "hint: re-export the Developer ID certificate as .p12, base64 it, and update MACOS_CERT_P12_B64 + MACOS_CERT_P12_PASSWORD"; \
+			echo "OpenSSL: $$(openssl version)"; \
+			ERROR_TEXT="$$(tr '\n' ' ' < "$$PKCS12_ERROR_PATH")"; \
+			if [ -n "$$ERROR_TEXT" ]; then echo "OpenSSL reported: $$ERROR_TEXT"; fi; \
+			exit 1; \
+		fi; \
+		echo "validated PKCS#12 bundle with OpenSSL legacy provider"; \
 	fi; \
+	rm -f "$$PKCS12_ERROR_PATH"; \
 	security delete-keychain "$$KEYCHAIN_PATH" >/dev/null 2>&1 || true; \
 	security create-keychain -p "$$MACOS_KEYCHAIN_PASSWORD" "$$KEYCHAIN_PATH"; \
 	security set-keychain-settings -lut 21600 "$$KEYCHAIN_PATH"; \
