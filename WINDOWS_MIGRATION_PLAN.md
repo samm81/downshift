@@ -355,3 +355,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: The current run received non-empty masked `MACOS_CERT_P12_B64` and `MACOS_CERT_P12_PASSWORD` environment values and failed specifically at `openssl pkcs12`; the GitHub secret update timestamps remain March 6–7, before the successful April release. The Makefile now retries PKCS#12 validation with `openssl pkcs12 -legacy` and preserves a safe OpenSSL diagnostic if both validations fail.
 - Result: The likely regression is runner-image/OpenSSL compatibility, not automatic GitHub secret expiry. The certificate bytes and password remain protected; no secret values are logged.
 - Next: Push the compatibility fix and rerun the coordinated RC workflow. If it still fails, use the emitted OpenSSL diagnostic to distinguish a malformed bundle from a password mismatch.
+
+### 2026-08-23 — prerelease installer smoke path correction
+
+- Branch: `codex/windows-port`
+- Change: Updated `windows/smoke-installer.ps1` to derive its default installer filename from the root `Cargo.toml` version instead of retaining the historical `0.1.28` filename.
+- Validation: The hosted Windows CI run `32638610808` built the current RC installer successfully, then exposed the stale default path when invoking the smoke script. The failure occurred before installer execution and was unrelated to the macOS signing change.
+- Result: Local and branch installer smoke now remain aligned with prerelease and future version bumps when no explicit installer path is supplied.
+- Next: Push this small CI correction and confirm the branch Windows workflow is green alongside the macOS checks.

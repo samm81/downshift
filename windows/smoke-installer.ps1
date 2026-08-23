@@ -9,7 +9,17 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$defaultInstallerPath = Join-Path $repoRoot 'dist\windows\Downshift-Setup-0.1.28.exe'
+$cargoVersion = $null
+foreach ($line in Get-Content (Join-Path $repoRoot 'Cargo.toml')) {
+    if ($line -match '^\s*version\s*=\s*"([^"]+)"') {
+        $cargoVersion = $Matches[1]
+        break
+    }
+}
+if ([string]::IsNullOrWhiteSpace($cargoVersion)) {
+    throw 'Could not resolve the package version from Cargo.toml.'
+}
+$defaultInstallerPath = Join-Path $repoRoot "dist\windows\Downshift-Setup-$cargoVersion.exe"
 if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
     $InstallerPath = $defaultInstallerPath
 } elseif (-not [IO.Path]::IsPathRooted($InstallerPath)) {
