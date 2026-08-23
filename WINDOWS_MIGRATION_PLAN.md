@@ -362,4 +362,12 @@ Append one entry for each meaningful migration action. Each entry should include
 - Change: Updated `windows/smoke-installer.ps1` to derive its default installer filename from the root `Cargo.toml` version instead of retaining the historical `0.1.28` filename.
 - Validation: The hosted Windows CI run `32638610808` built the current RC installer successfully, then exposed the stale default path when invoking the smoke script. The failure occurred before installer execution and was unrelated to the macOS signing change.
 - Result: Local and branch installer smoke now remain aligned with prerelease and future version bumps when no explicit installer path is supplied.
-- Next: Push this small CI correction and confirm the branch Windows workflow is green alongside the macOS checks.
+- Next: Record the green branch checks, then run the coordinated release again with a new Cargo-version-matching tag; the existing `v0.2.0-rc.1` tag remains on the pre-fix commit.
+
+### 2026-08-23 — release regression fixes verified by branch CI
+
+- Branch: `codex/windows-port`, commit `a50edb0`
+- Change: Published the OpenSSL 3 PKCS#12 compatibility fix and the prerelease installer-smoke path correction.
+- Validation: macOS run `32639036444` passed the target build, tests, Clippy, and unsigned app packaging. Windows run `32639036441` passed formatting, Windows x64 build, Rust tests, Clippy, Inno packaging, and scripted installer smoke.
+- Result: The branch is green after both release-workflow-adjacent regressions were corrected. No release was published and the old RC tag was not moved.
+- Next: Create a new version-matching release-candidate tag and run the unified signed macOS/Windows release workflow.
