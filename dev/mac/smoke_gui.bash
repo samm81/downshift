@@ -241,7 +241,8 @@ main() {
         2>"$metric_file"
     )" || true
     diff_pixels="$(awk '{ print $1 }' "$metric_file")"
-    if ! [[ "$diff_pixels" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    # ImageMagick may format large pixel counts using scientific notation.
+    if ! [[ "$diff_pixels" =~ ^[0-9]+([.][0-9]+)?([eE][+-]?[0-9]+)?$ ]]; then
       die "failed to read image diff metric from $metric_file"
     fi
     if awk "BEGIN { exit !($diff_pixels > 0) }"; then

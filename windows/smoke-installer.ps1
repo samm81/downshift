@@ -380,13 +380,16 @@ function Invoke-SilentUninstall {
         throw "Silent Inno uninstall exited with code $($process.ExitCode)."
     }
 
-    # Inno can finish the uninstaller process before its final directory
-    # cleanup has become visible to the filesystem. Give that cleanup a
-    # bounded grace period, while stopping only a Downshift process installed
-    # in this test directory if one was left behind by the GUI smoke.
+    # Stop the app and any WebView2 descendants before uninstalling. Inno can
+    # finish the uninstaller process before its final directory cleanup has
+    # become visible to the filesystem, so give that cleanup a bounded grace
+    # period as well.
+    Stop-ProcessesAtPathAndWait -Path (Join-Path $TargetDirectory 'downshift.exe') -TimeoutSeconds 10
+    Stop-InstallerProcessesForDirectory -Directory $TargetDirectory
     $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(15)
     while ((Test-Path -LiteralPath $TargetDirectory) -and [DateTime]::UtcNow -lt $cleanupDeadline) {
         Stop-ProcessAtPath -Path (Join-Path $TargetDirectory 'downshift.exe')
+        Stop-InstallerProcessesForDirectory -Directory $TargetDirectory
         Start-Sleep -Milliseconds 250
     }
     if (Test-Path -LiteralPath $TargetDirectory) {

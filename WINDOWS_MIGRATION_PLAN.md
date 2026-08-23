@@ -394,3 +394,19 @@ Append one entry for each meaningful migration action. Each entry should include
 - Change: Set `HOMEBREW_NO_REQUIRE_TAP_TRUST=1` on macOS build, release, and GUI-smoke jobs so hosted-runner tap-trust policy changes do not interrupt tool installation.
 - Validation: The setting is scoped to the macOS CI jobs that invoke Homebrew; RC2’s actual release blocker remained Apple notarization HTTP 403.
 - Result: The next tagged candidate will carry the Homebrew CI hardening, while the Apple agreement remains the prerequisite for a publishable release.
+
+### 2026-08-23 — RC2 rerun after Apple agreement acceptance
+
+- Branch/tag: `codex/windows-port`, `v0.2.0-rc.2`; rerun of workflow `32641523105`
+- Change: Reran the immutable RC2 tag after the Apple Developer agreement was accepted.
+- Validation: Apple notarization submission, wait, stapling, DMG validation, and macOS artifact upload all passed. The Windows installer built and checksum/signature checks passed, but installer smoke failed during interactive uninstall cleanup because the test directory remained. The macOS GUI smoke launched the notarized app, found a visible window, captured screenshots, then rejected ImageMagick’s scientific-notation diff metric (`7.97426e+06`) as invalid.
+- Result: The Apple account gate is resolved. The candidate still did not publish because both platform smoke gates failed; evidence artifacts were retained by the workflow.
+- Next: Make the Windows process cleanup and macOS diff parser accept these hosted-runner conditions, verify locally, then issue a new Cargo-version-matching RC tag.
+
+### 2026-08-23 — hosted smoke harness fixes
+
+- Branch: `codex/windows-port`
+- Change: Windows installer smoke now stops the installed app and directory-scoped WebView2 descendants before and during Inno uninstall cleanup. macOS GUI smoke now accepts ImageMagick diff metrics in either decimal or scientific notation.
+- Validation: PowerShell and Bash syntax checks passed; Windows `npm run check:windows`, Cargo formatting, local RC2 installer build, and the complete `-SkipInstalledGui` installer smoke passed, including interactive and silent uninstall cleanup.
+- Result: The two RC2 rerun failures are addressed without changing application behavior.
+- Next: Run `make verify-release`, bump to `0.2.0-rc.3`, and rerun the unified release workflow.
