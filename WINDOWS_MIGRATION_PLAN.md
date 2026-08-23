@@ -97,7 +97,9 @@ The fast path must not rebuild or install a VM, run notarization, require signin
 - Add Windows pull-request CI on `windows-latest` for compilation, tests, fast process/window checks, and unsigned installer validation. Keep full composited WebView2 UI automation on the local desktop and dedicated interactive VM because hosted runner desktops may not render WebView2 surfaces reliably.
 - Retain macOS pull-request validation.
 - Retain the existing macOS notarization and GUI smoke gates for release candidates.
-- Coordinate macOS and Windows release jobs through one draft release so assets and checksums are not published from competing workflows.
+- Add one cross-platform tagged-release orchestrator that owns the release tag, creates or updates one draft GitHub release, and coordinates the macOS and Windows build jobs.
+- Keep platform-specific work reusable: macOS performs signing/notarization and its GUI smoke gate; Windows performs conditional Authenticode signing, Inno packaging, checksums, and installer smoke validation.
+- Make the orchestrator publish only after both platform asset sets and all required release gates pass. The macOS finalize workflow must become subordinate to this gate or be folded into it so macOS cannot publish a release before Windows has contributed its assets.
 - Keep signing secrets restricted to the protected release environment.
 
 ### 6. Scripted local and VM GUI verification
@@ -261,3 +263,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Local Windows fast checks passed. The complete scripted UI smoke passed on the rebuilt release binary; live Windows UI Automation found no `downshift` control under `Shell_TrayWnd` while the widget was running. Hosted Windows run `32580490471` and macOS run `32580490422` both passed.
 - Result: The Windows widget remains visible and interactive without appearing in the taskbar; macOS behavior is unchanged.
 - Next: Continue with the interactive VM and coordinated release verification work.
+
+### 2026-08-23 — coordinated release orchestrator decision
+
+- Branch: `codex/windows-port`
+- Change: Confirmed that macOS and Windows should be released by one cross-platform tagged-release orchestrator rather than by independent workflows racing to update or publish the same draft release.
+- Validation: Reviewed the existing workflow split: `release-macos` owns macOS signing/notarization and currently performs the final publication, while `build-windows` only runs branch/PR CI and unsigned installer smoke. The migration plan still has coordinated tagged-release verification pending.
+- Result: The intended design is now explicit: one draft release, platform-specific build/sign/validation jobs, and one final publish gate requiring both platforms.
+- Next: Implement the reusable Windows release job and cross-platform orchestration after the interactive VM gate is available.
