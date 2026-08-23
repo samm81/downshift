@@ -119,6 +119,7 @@ VM coverage:
 - Repeat the local interaction and screenshot checklist.
 - Test WebView2-present and WebView2-missing states where practical.
 - Test second-instance activation and uninstall cleanup.
+- Treat launch-at-login as a registry/configuration assertion for now; the disposable Sandbox boots cleanly for each run but does not perform an in-guest Windows reboot. A persistent-VM reboot test is a separate follow-up.
 - Retain screenshots and logs for comparison and diagnosis; do not require pixel-identical comparison between local and VM environments because DPI, fonts, themes, and display settings may differ.
 
 GitHub-hosted Windows runners provide the routine clean CI environment for compilation and installer/wizard/install/uninstall checks. A local interactive VM is reserved for full visual confidence: it must run the installed-app WebView2 interaction and screenshot checklist and is not part of every edit/test cycle.
@@ -145,10 +146,10 @@ GitHub-hosted Windows runners provide the routine clean CI environment for compi
 - [x] Run the macOS pull-request build, tests, Clippy, and unsigned app-bundle packaging on a GitHub-hosted macOS runner.
 - [x] Add the unified tagged-release orchestrator with reusable macOS and Windows release jobs, one draft release, and one final publish gate.
 - [x] Validate the release workflow/docs locally and run the branch macOS/Windows CI checks for the orchestrator change.
-- [ ] Provision and validate the interactive Windows VM.
+- [x] Provision and validate the interactive Windows VM.
 - [ ] Complete coordinated tagged-release verification for macOS and Windows.
 
-The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, the Visual C++ Build Tools MSVC linker, Node.js, and Inno Setup are installed. Local VM tooling has not yet been provisioned. The hosted Windows runner validates the build and installer actions; its desktop cannot reliably provide a composited WebView2 surface or trustworthy visual screenshots for the installed-app UI smoke, so that portion remains a local/interactive-VM gate.
+The current shell has Git and an authenticated GitHub CLI. Rust stable, rustfmt, the Visual C++ Build Tools MSVC linker, Node.js, and Inno Setup are installed. Windows Sandbox is enabled and provides a disposable clean Windows x64 desktop backed by Hyper-V for the full interactive installer and WebView2 UI smoke. The hosted Windows runner continues to validate the build and installer actions; its desktop cannot reliably provide a composited WebView2 surface or trustworthy visual screenshots for the installed-app UI smoke.
 
 ## Log
 
@@ -289,3 +290,36 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: The new release YAML files passed Prettier parsing; the README and migration plan passed Markdownlint; the local Windows installer fallback produced `NotSigned` with no certificate; branch macOS run `32618373928` and Windows run `32618373929` both passed. A safe manual-dispatch probe confirmed GitHub will not dispatch a workflow that exists only on this non-default branch, and it created no release or draft.
 - Result: The branch is ready for integration. The existing published `v0.1.28` tag must not be reused, and coordinated release verification remains pending for a new Cargo-version-matching tag after the workflow is available from the default branch.
 - Next: Complete the interactive Windows VM gate, integrate the branch, then create and run the next version tag through `release`.
+
+### 2026-08-23 — Windows startup console fix and VM host setup
+
+- Branch: `codex/windows-port`
+- Change: Added the Windows GUI-subsystem attribute so the per-user launch-at-login entry can start `downshift.exe` without opening a console window. Enabled the Hyper-V and Windows Sandbox Windows features on the local Windows 10 Pro host.
+- Validation: Rebuilt `target\\release\\downshift.exe`; PE inspection reports Windows GUI subsystem value `2`, `cargo test --locked` passed all 70 tests, and a fresh launch produced no child `conhost.exe` process. The Hyper-V management tools and Windows Sandbox feature are enabled; a final reboot is required before launching the disposable test desktop.
+- Result: The release binary should no longer produce the startup command prompt shown during login. The VM path is now Windows Sandbox, avoiding the impractical throttled 21.7 GB evaluation-image download.
+- Next: Launch Windows Sandbox, run the full installer/UI screenshot smoke, exercise the WebView2-missing path, and record the artifacts.
+
+### 2026-08-23 — Windows Sandbox qualification
+
+- Branch: `codex/windows-port`
+- Change: Provisioned a disposable Windows Sandbox test desktop with mapped installer/UI-smoke tooling and host WebView2 runtime staging. A clean guest exposed the need to statically link the MSVC runtime, so the Windows target now uses `-C target-feature=+crt-static` through `.cargo/config.toml`.
+- Validation: The final Sandbox run passed the interactive Inno wizard with screenshots, installed-binary GUI smoke with scripted mouse/keyboard/UI Automation, resize regression (`large → small → large`), menu and updates interaction, silent install/uninstall, Start Menu shortcut, and uninstall-registry cleanup. The result is retained under `C:\Users\BBG\Documents\ChatGPT\downshift-vm\sandbox\logs\vm-installer-smoke-clientstate`. The release executable's PE dependency list contains no MSVC CRT or `WebView2Loader.dll` dependency.
+- WebView2 note: The clean guest had no WebView2 runtime. The installer reached the Microsoft bootstrapper-download path, but the download did not complete in the disposable Sandbox network environment. The WebView2-present path was then validated by copying a known runtime into the guest and registering both the EdgeUpdate and ClientState metadata; the installed app passed the complete UI smoke.
+- Result: The interactive Windows VM gate is complete. Windows Sandbox is retained for future local visual regression runs; it is disposable rather than a persistent development VM. Coordinated tagged-release verification remains the only migration checklist item still open.
+- Next: Integrate the branch, create a new Cargo-version-matching tag (not the existing `v0.1.28`), and run the unified macOS/Windows release orchestrator.
+
+### 2026-08-23 — one-command Windows Sandbox smoke
+
+- Branch: `codex/windows-port`
+- Change: Added the `smoke-windows-vm` Make target plus reusable host and guest PowerShell runners. The host runner builds and stages the current installer, generates a machine-specific Windows Sandbox configuration, launches the disposable guest, waits for the result, and reports the screenshot/log directory.
+- Validation: The new host runner passed a complete Sandbox run: interactive installer, installed GUI smoke, resize regression, menus, updates, silent install/uninstall, Start Menu shortcut, and uninstall-registry cleanup.
+- Result: The VM test can now be run with `make smoke-windows-vm` from the repository when GNU Make is available; the underlying command is `windows\smoke-vm.ps1`.
+- Next: Integrate the branch, create a new Cargo-version-matching tag (not the existing `v0.1.28`), and run the unified macOS/Windows release orchestrator.
+
+### 2026-08-23 — Windows Sandbox lifecycle and launch cleanup
+
+- Branch: `codex/windows-port`
+- Change: Made the Sandbox host runner close the disposable guest after pass or failure. The normal run now skips the visible pre-install WebView2 diagnostic probe; `-ProbeRuntime` keeps that probe available when diagnosing runtime startup. The installer smoke now waits for and stops the Inno post-install launch before starting the installed-app GUI smoke, and captures GUI-smoke PowerShell output for diagnosis.
+- Validation: The default no-probe VM run passed interactive install, installed GUI smoke, resize regression, menus, updates, silent install/uninstall, Start Menu shortcut, and uninstall-registry cleanup. The host runner returned success with no Windows Sandbox processes left running.
+- Result: A normal run now shows the installer and one installed-app GUI run, then closes automatically. The smoke verifies the launch-at-login registry value but does not reboot Windows; Windows Sandbox itself is a clean boot, not a persistent reboot test.
+- Next: Add a persistent-VM reboot scenario only if launch-at-login behavior after an actual Windows restart becomes a release requirement; otherwise integrate the branch and run the coordinated tagged release.

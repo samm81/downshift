@@ -182,6 +182,17 @@ cargo build --release
 cargo test
 ```
 
+With GNU Make available on Windows or through WSL, the recurring Windows workflows can be run as:
+
+```bash
+make verify-windows
+make build-windows-installer
+make smoke-windows
+make smoke-windows-vm
+```
+
+The VM target requires Windows Sandbox and automatically closes the disposable guest after the test completes. The PowerShell scripts below remain available when their individual options are needed.
+
 The macOS packaging targets pass the selected target explicitly. For example, on an Apple Silicon Mac:
 
 ```bash

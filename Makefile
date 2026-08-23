@@ -4,6 +4,7 @@ VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 BUNDLE_ID := app.getdownshift
 MIN_MACOS := 13.0
 MACOS_TARGET ?= $(shell rustc -vV 2>/dev/null | sed -n 's/^host: //p')
+WINDOWS_VM_ROOT ?= ../downshift-vm
 DIST_DIR := dist
 TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
@@ -33,8 +34,10 @@ RUN_RESET := $(filter 1,$(RESET))
 .PHONY: all \
 	build build-no-telemetry \
 	build-macos build-macos-no-telemetry \
+	verify-windows build-windows-installer smoke-windows \
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
+	smoke-windows-vm \
 	app app-no-telemetry \
 	verify-rust verify-release \
 	sign-app \
@@ -135,11 +138,23 @@ build-macos: require-macos-target require-telemetry-env
 build-macos-no-telemetry: require-macos-target
 	cargo build --release --target "$(MACOS_TARGET)"
 
+verify-windows:
+	powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows/fast-check.ps1 -Release
+
+build-windows-installer:
+	powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows/build-installer.ps1
+
+smoke-windows: build-windows-installer
+	powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows/smoke-installer.ps1 -InstallerPath "$(DIST_DIR)/windows/$(APP_NAME)-Setup-$(VERSION).exe"
+
 build-debug: require-telemetry-env
 	cargo build --quiet
 
 build-debug-no-telemetry:
 	cargo build --quiet
+
+smoke-windows-vm:
+	powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows/smoke-vm.ps1 -VmRoot "$(WINDOWS_VM_ROOT)"
 
 run: build-debug
 ifneq ($(RUN_RESET),)

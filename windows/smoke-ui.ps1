@@ -810,7 +810,7 @@ try {
         }
     }
 
-    if ($settingsExisted) {
+    if ($settingsExisted -and (Test-Path -LiteralPath $settingsBackup -PathType Leaf)) {
         Copy-Item -LiteralPath $settingsBackup -Destination $settingsPath -Force
     } else {
         Remove-Item -LiteralPath $settingsPath -Force -ErrorAction SilentlyContinue

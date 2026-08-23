@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use downshift::telemetry::{
     menu_action_size_target, telemetry_state, ActivityState, ActivityTrigger, EventName,
     MenuAction, RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,

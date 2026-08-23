@@ -390,13 +390,61 @@ function Invoke-SilentUninstall {
 
 function Stop-ProcessAtPath {
     param([Parameter(Mandatory = $true)][string]$Path)
-    $processes = Get-Process -Name downshift -ErrorAction SilentlyContinue |
-        Where-Object {
-            try { $_.Path -eq $Path } catch { $false }
-        }
-    foreach ($process in $processes) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    foreach ($processId in @(Get-ProcessIdsAtPath -Path $Path)) {
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Get-ProcessIdsAtPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $processIds = @(
+        Get-Process -Name downshift -ErrorAction SilentlyContinue |
+            Where-Object {
+                try { $_.Path -eq $Path } catch { $false }
+            } |
+            Select-Object -ExpandProperty Id
+        Get-CimInstance Win32_Process -Filter "Name = 'downshift.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.ExecutablePath -eq $Path } |
+            Select-Object -ExpandProperty ProcessId
+    ) | Sort-Object -Unique
+    return $processIds
+}
+
+function Stop-ProcessesAtPathAndWait {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [int]$TimeoutSeconds = 30
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $processIds = @(Get-ProcessIdsAtPath -Path $Path)
+        foreach ($processId in $processIds) {
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        }
+        if ($processIds.Count -eq 0) {
+            Start-Sleep -Milliseconds 250
+            if (@(Get-ProcessIdsAtPath -Path $Path).Count -eq 0) {
+                return
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+}
+
+function Wait-ForProcessAtPathAndStop {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [int]$TimeoutSeconds = 10
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $processIds = @(Get-ProcessIdsAtPath -Path $Path)
+        if ($processIds.Count -gt 0) {
+            Stop-ProcessesAtPathAndWait -Path $Path -TimeoutSeconds 5
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
 }
 
 function Stop-InstallerProcessesForDirectory {
@@ -424,11 +472,14 @@ try {
     if (-not $SkipInteractive) {
         Invoke-InteractiveInstall
         $installedBinary = Join-Path $installDirectory 'downshift.exe'
-        Stop-ProcessAtPath -Path $installedBinary
+        Wait-ForProcessAtPathAndStop -Path $installedBinary -TimeoutSeconds 30
         if ($SkipInstalledGui) {
             Log-Message 'skipping installed-binary GUI smoke by request'
         } else {
             $guiOutput = Join-Path $OutputDirectory 'installed-gui-smoke'
+            New-Item -ItemType Directory -Force -Path $guiOutput | Out-Null
+            $guiStdout = Join-Path $guiOutput 'powershell.stdout.log'
+            $guiStderr = Join-Path $guiOutput 'powershell.stderr.log'
             $guiProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
                 '-NoProfile',
                 '-ExecutionPolicy', 'Bypass',
@@ -436,7 +487,7 @@ try {
                 '-BinaryPath', $installedBinary,
                 '-OutputDirectory', $guiOutput,
                 '-HideAutomationConsole'
-            ) -WindowStyle Hidden -PassThru -Wait
+            ) -WindowStyle Hidden -RedirectStandardOutput $guiStdout -RedirectStandardError $guiStderr -PassThru -Wait
             if ($guiProcess.ExitCode -ne 0) {
                 throw "Installed-binary GUI smoke failed with code $($guiProcess.ExitCode)."
             }
