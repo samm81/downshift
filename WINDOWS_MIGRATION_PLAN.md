@@ -417,3 +417,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: macOS repository verification, signed build, Apple notarization, stapling, DMG validation, artifact upload, and GUI smoke all passed. Windows formatting, x64 build, Rust tests, Clippy, conditional signing path, Inno packaging, checksum verification, installer smoke, and artifact upload all passed.
 - Result: The final publish job failed before uploading assets because `gh release upload` was invoked in a job without a checkout and without an explicit repository, so GitHub CLI reported `fatal: not a git repository`. No release assets were published.
 - Next: Make the upload command pass `--repo "$GITHUB_REPOSITORY"`, verify the workflow change, and issue the next immutable Cargo-version-matching RC tag.
+
+### 2026-08-23 — RC4 unified release success
+
+- Branch/tag: `codex/windows-port`, `v0.2.0-rc.4`; workflow run `32646811291`
+- Change: Issued the next immutable RC tag after fixing the publish job’s explicit repository targeting.
+- Validation: The unified workflow passed tag resolution, draft preparation, macOS repository verification, signed build, Apple notarization, stapling, DMG validation, macOS GUI smoke, Windows formatting, x64 build, Rust tests, Clippy, conditional signing, Inno packaging, checksum/signature verification, installer smoke, artifact upload, combined checksums, and final release publication.
+- Result: GitHub release `v0.2.0-rc.4` is published with the notarized macOS DMG, Windows installer, and `SHA256SUMS.txt`. The release was initially published without GitHub’s prerelease flag; it was corrected immediately, and the orchestrator now derives the flag from prerelease tag suffixes while leaving stable tags unchanged.
+- Next: Keep the release branch on the current stable green state; the Windows migration release workflow is now end-to-end verified.

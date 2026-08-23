@@ -26,6 +26,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       ref: ${{ steps.release.outputs.ref }}
       version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
     env:
       GH_TOKEN: ${{ github.token }}
 
@@ -51,6 +52,11 @@ jobs:
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
   prepare-release:
     needs: resolve
@@ -58,6 +64,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      RELEASE_PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
 
     steps:
       - name: create or update draft release
@@ -78,7 +85,8 @@ jobs:
               -X PATCH \
               "/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
               -f name="$RELEASE_TAG" \
-              -F draft=true >/dev/null
+              -F draft=true \
+              -F prerelease="$RELEASE_PRERELEASE" >/dev/null
             echo "updated existing draft release $RELEASE_TAG"
           else
             gh api \
@@ -87,6 +95,7 @@ jobs:
               -f tag_name="$RELEASE_TAG" \
               -f name="$RELEASE_TAG" \
               -F draft=true \
+              -F prerelease="$RELEASE_PRERELEASE" \
               -F generate_release_notes=true >/dev/null
             echo "created draft release $RELEASE_TAG"
           fi
@@ -120,6 +129,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      RELEASE_PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
 
     steps:
       - name: download macOS release artifact
@@ -182,7 +192,8 @@ jobs:
           gh api \
             -X PATCH \
             "/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
-            -F draft=false >/dev/null
+            -F draft=false \
+            -F prerelease="$RELEASE_PRERELEASE" >/dev/null
           echo "published release $RELEASE_TAG with macOS, Windows, and checksum assets"
 
   release-result:
