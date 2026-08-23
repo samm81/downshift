@@ -339,3 +339,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: The exact `make verify-release` target passed in a clean LF-normalized verification checkout: Rust formatting, 70 Rust tests, Clippy, Prettier, shfmt, ESLint, Stylelint, ShellCheck, and Markdownlint all passed. Workflow YAML passed Prettier validation, and the prerelease regex accepted `v0.2.0-rc.1`.
 - Result: The planned RC tag will now reach the coordinated macOS/Windows release jobs instead of being rejected by the stable-version-only validation.
 - Next: Commit these workflow changes, synchronize the release branch, push the branch and `v0.2.0-rc.1` tag, then inspect the GitHub release run and artifacts.
+
+### 2026-08-23 — first tagged RC workflow test
+
+- Branch: `codex/windows-port`, tag `v0.2.0-rc.1`, workflow run `32636338161`
+- Change: Pushed the rebased release branch and tag. The unified orchestrator created the draft release and entered both platform jobs.
+- Validation: Tag resolution and draft creation passed. Windows formatting, x64 build, 70 Rust tests, and Clippy passed, but installer packaging stopped because the workflow passed the release version through a positional PowerShell argument array and `0.2.0-rc.1` was interpreted as the `Configuration` parameter. macOS built through the unsigned app/package preparation, then stopped before signing because the configured `MACOS_CERT_P12_B64` and password did not decode to a valid PKCS#12 certificate.
+- Result: The draft was not published. The Windows argument-binding defect is fixed in the working branch; macOS signing remains blocked on correcting the GitHub `release` environment certificate secret/password.
+- Next: Commit and push the Windows workflow fix, then rerun using a new Cargo-version-matching prerelease tag after the macOS signing secret is corrected (or explicitly retag the failed RC for a retry).

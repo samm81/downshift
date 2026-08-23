@@ -133,21 +133,19 @@ jobs:
           SIGNING_CERTIFICATE_PATH: ${{ steps.signing.outputs.certificate_path }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $scriptArguments = @(
-              '-Version', $env:RELEASE_VERSION,
-              '-SkipBuild'
-          )
+          $scriptArguments = @{
+              Version = $env:RELEASE_VERSION
+              SkipBuild = $true
+          }
 
           if ($env:SIGNING_ENABLED -eq 'true') {
               $timestampUrl = $env:WINDOWS_SIGNING_TIMESTAMP_URL
               if ([string]::IsNullOrWhiteSpace($timestampUrl)) {
                   $timestampUrl = 'http://timestamp.digicert.com'
               }
-              $scriptArguments += @(
-                  '-SignCertificatePath', $env:SIGNING_CERTIFICATE_PATH,
-                  '-SignCertificatePassword', $env:WINDOWS_SIGNING_CERT_PASSWORD,
-                  '-TimestampUrl', $timestampUrl
-              )
+              $scriptArguments['SignCertificatePath'] = $env:SIGNING_CERTIFICATE_PATH
+              $scriptArguments['SignCertificatePassword'] = $env:WINDOWS_SIGNING_CERT_PASSWORD
+              $scriptArguments['TimestampUrl'] = $timestampUrl
           }
 
           & .\windows\build-installer.ps1 @scriptArguments
