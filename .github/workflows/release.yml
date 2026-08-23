@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       ref: ${{ steps.release.outputs.ref }}
@@ -54,7 +54,7 @@ jobs:
 
   prepare-release:
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
@@ -116,7 +116,7 @@ jobs:
   publish:
     needs: [resolve, prepare-release, build-macos, build-windows]
     if: ${{ always() && needs.resolve.result == 'success' && needs.prepare-release.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
@@ -187,7 +187,7 @@ jobs:
   release-result:
     needs: [resolve, prepare-release, build-macos, build-windows, publish]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: summarize release gate
         env:

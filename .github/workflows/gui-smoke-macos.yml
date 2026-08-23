@@ -47,7 +47,7 @@ permissions:
 
 jobs:
   gui-smoke:
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 15
     env:
       DOWNSHIFT_RELEASE_TAG: ${{ inputs.release_tag }}

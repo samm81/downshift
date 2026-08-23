@@ -371,3 +371,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: macOS run `32639036444` passed the target build, tests, Clippy, and unsigned app packaging. Windows run `32639036441` passed formatting, Windows x64 build, Rust tests, Clippy, Inno packaging, and scripted installer smoke.
 - Result: The branch is green after both release-workflow-adjacent regressions were corrected. No release was published and the old RC tag was not moved.
 - Next: Create a new version-matching release-candidate tag and run the unified signed macOS/Windows release workflow.
+
+### 2026-08-23 — release runner pinning
+
+- Branch: `codex/windows-port`
+- Change: Pinned macOS build, release, and GUI-smoke jobs to `macos-15` and pinned unified-release orchestration jobs to `ubuntu-24.04`. Windows jobs were already pinned to `windows-2022`.
+- Validation: Workflow labels were reviewed across build, release, and GUI-smoke workflows. The macOS 15 pin preserves the Apple Silicon/OpenSSL environment used by the successful `v0.1.28` release while the `-legacy` compatibility fallback remains in place for future migrations.
+- Result: Major hosted-runner migrations will now require an intentional workflow change rather than silently changing the release environment.
+- Next: Run the full release verification, bump the version to `0.2.0-rc.2`, and execute the coordinated RC release.
