@@ -50,6 +50,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 15
     env:
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
       DOWNSHIFT_RELEASE_TAG: ${{ inputs.release_tag }}
       GH_TOKEN: ${{ github.token }}
     steps:

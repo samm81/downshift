@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 30
+    env:
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
 
     steps:
       - name: checkout

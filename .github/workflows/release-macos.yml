@@ -23,6 +23,7 @@ jobs:
     environment: release
     env:
       APP_NAME: Downshift
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
       DOWNSHIFT_ENV: ${{ vars.DOWNSHIFT_ENV }}
       DOWNSHIFT_DOWNLOAD_RELEASE_URL: ${{ vars.DOWNSHIFT_DOWNLOAD_RELEASE_URL }}
       DOWNSHIFT_GITHUB_ISSUES_URL: ${{ vars.DOWNSHIFT_GITHUB_ISSUES_URL }}

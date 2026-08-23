@@ -379,3 +379,18 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Workflow labels were reviewed across build, release, and GUI-smoke workflows. The macOS 15 pin preserves the Apple Silicon/OpenSSL environment used by the successful `v0.1.28` release while the `-legacy` compatibility fallback remains in place for future migrations.
 - Result: Major hosted-runner migrations will now require an intentional workflow change rather than silently changing the release environment.
 - Next: Run the full release verification, bump the version to `0.2.0-rc.2`, and execute the coordinated RC release.
+
+### 2026-08-23 — `v0.2.0-rc.2` unified release attempt
+
+- Branch: `codex/windows-port`, tag `v0.2.0-rc.2`, workflow run `32641523105`
+- Change: Ran the tagged unified release orchestrator after the runner pinning and release-regression fixes.
+- Validation: Tag resolution and draft creation passed. The Windows platform job passed x64 build, Rust tests, Clippy, Inno packaging, conditional unsigned-signing path, checksum verification, and scripted installer smoke. macOS passed repository verification, signed app/DMG creation, and certificate validation, then Apple notarization submission returned HTTP 403 because a required Apple Developer agreement is missing or expired.
+- Result: The draft release was not published; the immutable RC2 tag has no release assets. This is an external Apple-account gate, not a repository or certificate-secret failure.
+- Next: Accept the required Apple Developer agreement, then create the next Cargo-version-matching RC tag. The existing RC2 tag must remain unchanged.
+
+### 2026-08-23 — macOS Homebrew trust hardening
+
+- Branch: `codex/windows-port`
+- Change: Set `HOMEBREW_NO_REQUIRE_TAP_TRUST=1` on macOS build, release, and GUI-smoke jobs so hosted-runner tap-trust policy changes do not interrupt tool installation.
+- Validation: The setting is scoped to the macOS CI jobs that invoke Homebrew; RC2’s actual release blocker remained Apple notarization HTTP 403.
+- Result: The next tagged candidate will carry the Homebrew CI hardening, while the Apple agreement remains the prerequisite for a publishable release.
