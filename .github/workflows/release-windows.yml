@@ -1,0 +1,214 @@
+name: release-windows-platform
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: release tag to build
+        required: true
+        type: string
+      ref:
+        description: git ref to check out
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    environment: release
+    env:
+      WINDOWS_SIGNING_CERT_PFX_B64: ${{ secrets.WINDOWS_SIGNING_CERT_PFX_B64 }}
+      WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+      WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: verify release tag and checkout
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+              throw 'Release tag must be a semantic version beginning with v.'
+          }
+
+          $checkedOutTag = (git describe --tags --exact-match HEAD 2>$null | Select-Object -First 1).Trim()
+          if ($checkedOutTag -ne $env:RELEASE_TAG) {
+              throw "Checked out '$checkedOutTag' instead of '$($env:RELEASE_TAG)'."
+          }
+
+      - name: resolve Cargo version
+        id: release
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $versionLine = Get-Content -LiteralPath Cargo.toml |
+              Where-Object { $_ -match '^\s*version\s*=\s*"([^"]+)"' } |
+              Select-Object -First 1
+          if ($versionLine -notmatch '^\s*version\s*=\s*"([^"]+)"') {
+              throw 'Could not read the package version from Cargo.toml.'
+          }
+
+          $cargoVersion = $Matches[1]
+          $tagVersion = $env:RELEASE_TAG.Substring(1)
+          if ($cargoVersion -ne $tagVersion) {
+              throw "Release tag '$($env:RELEASE_TAG)' does not match Cargo version '$cargoVersion'."
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$cargoVersion"
+
+      - name: install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: check formatting
+        run: cargo fmt --check
+
+      - name: build Windows x64
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc
+
+      - name: run Rust tests
+        run: cargo test --locked --target x86_64-pc-windows-msvc
+
+      - name: run Rust Clippy
+        run: cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings
+
+      - name: install Inno Setup
+        run: choco install innosetup --no-progress --yes
+
+      - name: prepare optional Windows signing
+        id: signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERT_PFX_B64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERT_PASSWORD)
+
+          if ($hasCertificate -ne $hasPassword) {
+              throw 'Windows signing requires both WINDOWS_SIGNING_CERT_PFX_B64 and WINDOWS_SIGNING_CERT_PASSWORD.'
+          }
+
+          if (-not $hasCertificate) {
+              Add-Content -Path $env:GITHUB_OUTPUT -Value 'enabled=false'
+              Write-Host 'No Windows signing certificate configured; release installer will be unsigned.'
+              exit 0
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'downshift-release-signing.pfx'
+          $normalizedCertificate = $env:WINDOWS_SIGNING_CERT_PFX_B64 -replace '\s', ''
+          try {
+              $certificateBytes = [Convert]::FromBase64String($normalizedCertificate)
+          } catch {
+              throw 'WINDOWS_SIGNING_CERT_PFX_B64 is not valid base64.'
+          }
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value 'enabled=true'
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "certificate_path=$certificatePath"
+          Write-Host 'Windows signing certificate prepared for this release.'
+
+      - name: build signed or unsigned Windows installer
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          SIGNING_ENABLED: ${{ steps.signing.outputs.enabled }}
+          SIGNING_CERTIFICATE_PATH: ${{ steps.signing.outputs.certificate_path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scriptArguments = @(
+              '-Version', $env:RELEASE_VERSION,
+              '-SkipBuild'
+          )
+
+          if ($env:SIGNING_ENABLED -eq 'true') {
+              $timestampUrl = $env:WINDOWS_SIGNING_TIMESTAMP_URL
+              if ([string]::IsNullOrWhiteSpace($timestampUrl)) {
+                  $timestampUrl = 'http://timestamp.digicert.com'
+              }
+              $scriptArguments += @(
+                  '-SignCertificatePath', $env:SIGNING_CERTIFICATE_PATH,
+                  '-SignCertificatePassword', $env:WINDOWS_SIGNING_CERT_PASSWORD,
+                  '-TimestampUrl', $timestampUrl
+              )
+          }
+
+          & .\windows\build-installer.ps1 @scriptArguments
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+
+      - name: verify installer signature and checksum
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          SIGNING_ENABLED: ${{ steps.signing.outputs.enabled }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installerPath = Join-Path $PWD "dist\windows\Downshift-Setup-$($env:RELEASE_VERSION).exe"
+          $binaryPath = Join-Path $PWD 'dist\windows\stage\downshift.exe'
+          $checksumsPath = Join-Path $PWD 'dist\windows\SHA256SUMS.txt'
+
+          $installerSignature = Get-AuthenticodeSignature -LiteralPath $installerPath
+          $binarySignature = Get-AuthenticodeSignature -LiteralPath $binaryPath
+          Write-Host "Installer signature status: $($installerSignature.Status)"
+          Write-Host "Application signature status: $($binarySignature.Status)"
+          if ($env:SIGNING_ENABLED -eq 'true') {
+              if ($installerSignature.Status -ne 'Valid' -or $binarySignature.Status -ne 'Valid') {
+                  throw 'The release was configured for signing, but the application or installer signature is not Valid.'
+              }
+          }
+
+          $checksumFields = (Get-Content -LiteralPath $checksumsPath -Raw).Trim() -split '\s+'
+          $actualHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($checksumFields[0] -ne $actualHash) {
+              throw 'SHA256SUMS.txt does not match the generated installer.'
+          }
+
+      - name: run scripted installer smoke
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installerPath = Join-Path $PWD "dist\windows\Downshift-Setup-$($env:RELEASE_VERSION).exe"
+          & .\windows\smoke-installer.ps1 -InstallerPath $installerPath -SkipInstalledGui
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+
+      - name: upload Windows release artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-windows-assets
+          path: dist/windows/Downshift-Setup-${{ steps.release.outputs.version }}.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload Windows release evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-windows-evidence
+          path: |
+            logs/installer-smoke-windows-*
+            dist/windows/SHA256SUMS.txt
+          if-no-files-found: warn
+          retention-days: 14

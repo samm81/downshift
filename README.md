@@ -140,7 +140,7 @@ it:
 
 the job summary includes the parsed smoke result, and the artifacts contain the screenshots plus `run.log` for manual review.
 
-`release-macos` now runs `gui-smoke-macos` as a required gate against the notarized dmg artifact from the same workflow run before it dispatches `release-macos-finalize`. the release stays in draft until that smoke job passes.
+the `release` workflow is the single tagged-release entry point. it creates one draft release, runs the reusable macos and windows release jobs, requires mac gui smoke plus windows installer smoke, and publishes only after both platform gates pass. macos notarization, stapling, and validation are completed inside the macos platform job; windows signing is conditional on the release environment having a certificate.
 
 ## mac distribution (unsigned)
 
@@ -207,6 +207,14 @@ powershell -ExecutionPolicy Bypass -File .\windows\build-installer.ps1 `
 ```
 
 Never commit the certificate or its password. The script rejects partial signing configuration.
+
+For the unified GitHub release, configure these optional values in the protected `release` environment:
+
+- `WINDOWS_SIGNING_CERT_PFX_B64`: base64-encoded Authenticode `.pfx` certificate
+- `WINDOWS_SIGNING_CERT_PASSWORD`: password for that certificate
+- `WINDOWS_SIGNING_TIMESTAMP_URL`: optional Actions variable; defaults to `http://timestamp.digicert.com`
+
+When both Windows signing secrets are absent, the release produces an unsigned installer. If both are present, the workflow signs and verifies both the application and installer. Supplying only one fails the release clearly.
 
 For quick Windows iteration, run the host-native checks without packaging:
 
@@ -295,20 +303,17 @@ recommended release sequence:
 # 2) verify repo state
 make verify-release
 
-# 3) build and notarize the tagged draft assets
-make release-notarized TAG=v0.1.0
-
-# 4) push the tag so github actions can build the draft release
+# 3) commit and push the version tag; the unified workflow builds both platforms
 git add Cargo.toml Cargo.lock Makefile README.md
 git commit -m "release v0.1.0"
 git tag -a v0.1.0 -m "release v0.1.0"
 git push origin <branch>
 git push origin v0.1.0
 
-# 5) wait for github actions verification
-# release-macos dispatches release-macos-finalize only after gui-smoke-macos passes for that tag
+# 4) wait for the unified release workflow
+# or run the `release` workflow manually with an existing tag from the Actions tab
 ```
 
-when the tag-triggered github actions release workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published only after notarization finalize succeeds and `gui-smoke-macos` passes for that tag from the same workflow run.
+when the tag-triggered `release` workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published only after the macos build, notarization, stapling, mac gui smoke, windows build, conditional signing, installer packaging, and installer smoke gates all pass.
 
-the published github release only includes the notarized dmg plus `SHA256SUMS.txt`. the signed zip and notarization submission id stay workflow-internal and are not uploaded as release assets.
+the published github release includes the notarized dmg, the windows installer, and one combined `SHA256SUMS.txt`. the signed macos zip, intermediate workflow artifacts, and notarization submission id stay workflow-internal.

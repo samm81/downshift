@@ -143,6 +143,7 @@ GitHub-hosted Windows runners provide the routine clean CI environment for compi
 - [x] Validate interactive and silent installer install/uninstall flows, shortcuts, registry entries, WebView2 runtime data cleanup, and installed-binary UI smoke.
 - [x] Validate the Windows build, tests, packaging, and installer wizard/install/uninstall path on a GitHub-hosted Windows runner.
 - [x] Run the macOS pull-request build, tests, Clippy, and unsigned app-bundle packaging on a GitHub-hosted macOS runner.
+- [x] Add the unified tagged-release orchestrator with reusable macOS and Windows release jobs, one draft release, and one final publish gate.
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Complete coordinated tagged-release verification for macOS and Windows.
 
@@ -271,3 +272,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: Reviewed the existing workflow split: `release-macos` owns macOS signing/notarization and currently performs the final publication, while `build-windows` only runs branch/PR CI and unsigned installer smoke. The migration plan still has coordinated tagged-release verification pending.
 - Result: The intended design is now explicit: one draft release, platform-specific build/sign/validation jobs, and one final publish gate requiring both platforms.
 - Next: Implement the reusable Windows release job and cross-platform orchestration after the interactive VM gate is available.
+
+### 2026-08-23 — unified release orchestrator implementation
+
+- Branch: `codex/windows-port`
+- Change: Converted the macOS release workflow into a reusable build/notarize/staple/verify/GUI-smoke job, added a reusable Windows release job with conditional Authenticode signing and installer smoke, added the top-level `release` orchestrator, and removed the independent macOS finalizer.
+- Validation: The workflow structure and release asset contract are ready for static validation and a hosted dry run. No release tag was published during implementation.
+- Result: Tagged releases now have one owner for draft creation and publication; the final gate requires both macOS and Windows artifacts and checksums. Windows signing is optional when both protected certificate secrets are absent and fails clearly on partial configuration.
+- Next: Validate the workflow syntax, push the branch, and run a coordinated tagged-release verification before marking the release gate complete.

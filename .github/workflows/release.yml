@@ -1,0 +1,219 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: release tag to build and publish (for example v0.1.28)
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      ref: ${{ steps.release.outputs.ref }}
+      version: ${{ steps.release.outputs.version }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: resolve and validate release tag
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            RELEASE_TAG="$INPUT_TAG"
+          else
+            RELEASE_TAG="$GITHUB_REF_NAME"
+          fi
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "error: release tag must match v<major>.<minor>.<patch>"
+            exit 1
+          fi
+
+          gh api "/repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+  prepare-release:
+    needs: resolve
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+
+    steps:
+      - name: create or update draft release
+        run: |
+          set -euo pipefail
+          RELEASE_ROW="$(
+            gh api "/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | [.id, .draft] | @tsv"
+          )"
+
+          if [ -n "$RELEASE_ROW" ]; then
+            IFS=$'\t' read -r RELEASE_ID RELEASE_DRAFT <<< "$RELEASE_ROW"
+            if [ "$RELEASE_DRAFT" != "true" ]; then
+              echo "error: release $RELEASE_TAG is already published; refusing to overwrite it"
+              exit 1
+            fi
+            gh api \
+              -X PATCH \
+              "/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+              -f name="$RELEASE_TAG" \
+              -F draft=true >/dev/null
+            echo "updated existing draft release $RELEASE_TAG"
+          else
+            gh api \
+              -X POST \
+              "/repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="$RELEASE_TAG" \
+              -f name="$RELEASE_TAG" \
+              -F draft=true \
+              -F generate_release_notes=true >/dev/null
+            echo "created draft release $RELEASE_TAG"
+          fi
+
+  build-macos:
+    needs: [resolve, prepare-release]
+    uses: ./.github/workflows/release-macos.yml
+    permissions:
+      actions: read
+      contents: read
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+      ref: ${{ needs.resolve.outputs.ref }}
+    secrets: inherit
+
+  build-windows:
+    needs: [resolve, prepare-release]
+    uses: ./.github/workflows/release-windows.yml
+    permissions:
+      actions: read
+      contents: read
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+      ref: ${{ needs.resolve.outputs.ref }}
+    secrets: inherit
+
+  publish:
+    needs: [resolve, prepare-release, build-macos, build-windows]
+    if: ${{ always() && needs.resolve.result == 'success' && needs.prepare-release.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+
+    steps:
+      - name: download macOS release artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: release-macos-assets
+          path: release-assets/macos
+
+      - name: download Windows release artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: release-windows-assets
+          path: release-assets/windows
+
+      - name: build combined release checksums
+        id: assets
+        run: |
+          set -euo pipefail
+          MACOS_ASSET="$(find release-assets/macos -type f -name 'Downshift-notarized-*.dmg' -print -quit)"
+          WINDOWS_ASSET="$(find release-assets/windows -type f -name 'Downshift-Setup-*.exe' -print -quit)"
+          if [ -z "$MACOS_ASSET" ] || [ -z "$WINDOWS_ASSET" ]; then
+            echo "error: expected macOS DMG and Windows installer artifacts were not found"
+            exit 1
+          fi
+
+          CHECKSUMS_PATH="release-assets/SHA256SUMS.txt"
+          {
+            sha256sum "$MACOS_ASSET" | awk -v name="$(basename "$MACOS_ASSET")" '{print $1 "  " name}'
+            sha256sum "$WINDOWS_ASSET" | awk -v name="$(basename "$WINDOWS_ASSET")" '{print $1 "  " name}'
+          } > "$CHECKSUMS_PATH"
+
+          echo "macos_asset=$MACOS_ASSET" >> "$GITHUB_OUTPUT"
+          echo "windows_asset=$WINDOWS_ASSET" >> "$GITHUB_OUTPUT"
+          echo "checksums=$CHECKSUMS_PATH" >> "$GITHUB_OUTPUT"
+          cat "$CHECKSUMS_PATH"
+
+      - name: upload release assets and publish
+        env:
+          MACOS_ASSET: ${{ steps.assets.outputs.macos_asset }}
+          WINDOWS_ASSET: ${{ steps.assets.outputs.windows_asset }}
+          CHECKSUMS_PATH: ${{ steps.assets.outputs.checksums }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            "$MACOS_ASSET" \
+            "$WINDOWS_ASSET" \
+            "$CHECKSUMS_PATH" \
+            --clobber
+
+          RELEASE_ID="$(
+            gh api "/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id"
+          )"
+          if [ -z "$RELEASE_ID" ]; then
+            echo "error: could not find draft release $RELEASE_TAG after uploading assets"
+            exit 1
+          fi
+
+          gh api \
+            -X PATCH \
+            "/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false >/dev/null
+          echo "published release $RELEASE_TAG with macOS, Windows, and checksum assets"
+
+  release-result:
+    needs: [resolve, prepare-release, build-macos, build-windows, publish]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: summarize release gate
+        env:
+          RESOLVE_RESULT: ${{ needs.resolve.result }}
+          PREPARE_RESULT: ${{ needs.prepare-release.result }}
+          MACOS_RESULT: ${{ needs.build-macos.result }}
+          WINDOWS_RESULT: ${{ needs.build-windows.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        run: |
+          {
+            echo "## unified release"
+            echo
+            echo "| gate | result |"
+            echo "| --- | --- |"
+            echo "| resolve | $RESOLVE_RESULT |"
+            echo "| draft release | $PREPARE_RESULT |"
+            echo "| macOS build, notarization, and GUI smoke | $MACOS_RESULT |"
+            echo "| Windows build, signing, packaging, and installer smoke | $WINDOWS_RESULT |"
+            echo "| publish | $PUBLISH_RESULT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$RESOLVE_RESULT" != "success" ] || \
+             [ "$PREPARE_RESULT" != "success" ] || \
+             [ "$MACOS_RESULT" != "success" ] || \
+             [ "$WINDOWS_RESULT" != "success" ] || \
+             [ "$PUBLISH_RESULT" != "success" ]; then
+            echo 'error: unified release did not pass every gate'
+            exit 1
+          fi
