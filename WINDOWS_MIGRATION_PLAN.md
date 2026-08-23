@@ -144,6 +144,7 @@ GitHub-hosted Windows runners provide the routine clean CI environment for compi
 - [x] Validate the Windows build, tests, packaging, and installer wizard/install/uninstall path on a GitHub-hosted Windows runner.
 - [x] Run the macOS pull-request build, tests, Clippy, and unsigned app-bundle packaging on a GitHub-hosted macOS runner.
 - [x] Add the unified tagged-release orchestrator with reusable macOS and Windows release jobs, one draft release, and one final publish gate.
+- [x] Validate the release workflow/docs locally and run the branch macOS/Windows CI checks for the orchestrator change.
 - [ ] Provision and validate the interactive Windows VM.
 - [ ] Complete coordinated tagged-release verification for macOS and Windows.
 
@@ -280,3 +281,11 @@ Append one entry for each meaningful migration action. Each entry should include
 - Validation: The workflow structure and release asset contract are ready for static validation and a hosted dry run. No release tag was published during implementation.
 - Result: Tagged releases now have one owner for draft creation and publication; the final gate requires both macOS and Windows artifacts and checksums. Windows signing is optional when both protected certificate secrets are absent and fails clearly on partial configuration.
 - Next: Validate the workflow syntax, push the branch, and run a coordinated tagged-release verification before marking the release gate complete.
+
+### 2026-08-23 — unified release branch verification
+
+- Branch: `codex/windows-port`
+- Change: Published the unified release implementation as commit `0a66c40`, including the reusable platform workflows, single draft/publish orchestrator, optional Windows signing, release documentation, and removal of the independent macOS finalizer.
+- Validation: The new release YAML files passed Prettier parsing; the README and migration plan passed Markdownlint; the local Windows installer fallback produced `NotSigned` with no certificate; branch macOS run `32618373928` and Windows run `32618373929` both passed. A safe manual-dispatch probe confirmed GitHub will not dispatch a workflow that exists only on this non-default branch, and it created no release or draft.
+- Result: The branch is ready for integration. The existing published `v0.1.28` tag must not be reused, and coordinated release verification remains pending for a new Cargo-version-matching tag after the workflow is available from the default branch.
+- Next: Complete the interactive Windows VM gate, integrate the branch, then create and run the next version tag through `release`.
