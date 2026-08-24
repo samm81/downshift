@@ -48,6 +48,15 @@ run the app locally:
 make run
 ```
 
+preview the GitHub Pages site locally:
+
+```bash
+wsl make pages-preview
+```
+
+then open <http://127.0.0.1:4173/>. The target serves the exact `/docs` directory used by GitHub
+Pages; press `Ctrl-C` to stop it. Set `PAGES_PREVIEW_PORT=4174` to use another port.
+
 enable launch at login:
 
 - open the widget context menu and toggle `start at login`

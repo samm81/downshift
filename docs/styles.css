@@ -308,7 +308,7 @@ h1 {
 .faq-card,
 .updates-card {
   margin: 14px auto 0;
-  max-width: 510px;
+  max-width: 660px;
   border-radius: 12px;
 }
 
@@ -316,7 +316,7 @@ h1 {
   background: var(--card);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-md);
-  padding: 12px;
+  padding: 14px;
 }
 
 .download-meta {
@@ -334,33 +334,55 @@ h1 {
   text-align: center;
 }
 
-.button-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 12px;
-  margin-top: 11px;
-  justify-content: center;
+.download-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
 }
 
-.download-main {
+.download-grid.single-platform {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.download-option {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgb(248 251 255 / 78%);
 }
 
-#platform-note {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 0.78rem;
+.download-option[hidden] {
+  display: none;
+}
+
+.download-option .button {
+  width: 100%;
+  min-height: 42px;
+  text-align: center;
+}
+
+.download-grid.single-platform .download-option .button {
+  width: 100%;
+  max-width: 360px;
+  align-self: center;
 }
 
 .checksum-link {
-  margin-top: 6px;
   color: var(--muted);
   font-size: 0.78rem;
   text-decoration: underline;
   text-underline-offset: 0.15em;
+}
+
+.download-links {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 11px;
 }
 
 .faq-card {
@@ -450,13 +472,6 @@ details p {
   padding: 6px 10px;
 }
 
-.privacy-note {
-  margin: 11px auto 3px;
-  max-width: 540px;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
 #contact-line {
   color: var(--muted);
   font-size: 0.8rem;
@@ -503,5 +518,9 @@ details p {
   .faq-card,
   .updates-card {
     max-width: 100%;
+  }
+
+  .download-grid {
+    grid-template-columns: 1fr;
   }
 }

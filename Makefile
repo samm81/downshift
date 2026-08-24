@@ -5,6 +5,10 @@ BUNDLE_ID := app.getdownshift
 MIN_MACOS := 13.0
 MACOS_TARGET ?= $(shell rustc -vV 2>/dev/null | sed -n 's/^host: //p')
 WINDOWS_VM_ROOT ?= ../downshift-vm
+PAGES_DIR := docs
+PAGES_PREVIEW_HOST ?= 127.0.0.1
+PAGES_PREVIEW_BIND ?= 0.0.0.0
+PAGES_PREVIEW_PORT ?= 4173
 DIST_DIR := dist
 TAG ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
@@ -38,6 +42,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
 	smoke-windows-vm \
+	pages-preview \
 	app app-no-telemetry \
 	verify-rust verify-release \
 	sign-app \
@@ -155,6 +160,12 @@ build-debug-no-telemetry:
 
 smoke-windows-vm:
 	powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows/smoke-vm.ps1 -VmRoot "$(WINDOWS_VM_ROOT)"
+
+pages-preview:
+	@command -v python3 >/dev/null 2>&1 || { echo "error: python3 is required for the local GitHub Pages preview"; exit 1; }
+	@echo "GitHub Pages preview: http://$(PAGES_PREVIEW_HOST):$(PAGES_PREVIEW_PORT)/"
+	@echo "Serving $(PWD)/$(PAGES_DIR); press Ctrl-C to stop."
+	python3 -m http.server "$(PAGES_PREVIEW_PORT)" --bind "$(PAGES_PREVIEW_BIND)" --directory "$(PAGES_DIR)"
 
 run: build-debug
 ifneq ($(RUN_RESET),)

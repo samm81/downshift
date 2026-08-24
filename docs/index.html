@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Downshift | macOS breathing orb</title>
+    <title>Downshift | breathing companion for macOS and Windows</title>
     <meta
       name="description"
-      content="Downshift is an ambient coherent-breathing cue for Apple Silicon knowledge workers who want to remember to breathe during focused screen work."
+      content="Downshift is an ambient coherent-breathing cue for macOS and Windows knowledge workers who want to remember to breathe during focused screen work."
     />
     <script type="application/ld+json">
       {
@@ -14,8 +14,8 @@
         "@type": "SoftwareApplication",
         "name": "Downshift",
         "applicationCategory": "HealthApplication",
-        "operatingSystem": "macOS",
-        "description": "Downshift is an always-on breathing orb for macOS that expands and contracts at a steady 5.5s inhale / 5.5s exhale rhythm to help you keep your breathing steady while you work.",
+        "operatingSystem": ["macOS", "Windows"],
+        "description": "Downshift is an always-on breathing cue for macOS and Windows that expands and contracts at a steady 5.5s inhale / 5.5s exhale rhythm to help you keep your breathing steady while you work.",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -37,7 +37,7 @@
         "@type": "WebSite",
         "name": "Downshift",
         "url": "https://getdownshift.app/",
-        "description": "Downshift is an always-on breathing orb for calmer work sessions on macOS.",
+        "description": "Downshift is an always-on breathing cue for calmer work sessions on macOS and Windows.",
         "publisher": {
           "@id": "https://getdownshift.app/#organization"
         },
@@ -114,13 +114,10 @@
     <main class="canvas">
       <section class="hero" id="top">
         <h2>Keep your breathing steady while you work.</h2>
-        <a
-          id="hero-download"
-          class="button button-primary"
-          href="#download"
-          >Download for macOS (Apple Silicon)</a
+        <a id="hero-download" class="button button-primary" href="#download"
+          >Download for macOS and Windows</a
         >
-        <p class="trust-line">open source . no camera/mic . no account</p>
+        <p class="trust-line">open source . no account</p>
       </section>
 
       <section class="demo-block" id="demo">
@@ -130,7 +127,7 @@
           <div class="demo-stage">
             <img
               src="./assets/mac-desktop-generic.svg"
-              alt="Generic Mac desktop background with Downshift breathing orb"
+              alt="Generic desktop background with Downshift breathing cue"
               class="demo-media"
             />
             <div class="demo-ball" aria-hidden="true"></div>
@@ -164,7 +161,7 @@
           </article>
         </div>
         <p class="best-use-line">
-          Best during deep work: writing, coding, reading—when you forget to
+          Best during deep work: writing, coding, reading, when you forget to
           breathe.
         </p>
       </section>
@@ -188,10 +185,10 @@
           >.
         </p>
 
-        <div class="button-row">
-          <div class="download-main">
+        <div class="download-grid single-platform" id="download-grid">
+          <div class="download-option">
             <a
-              id="download-button"
+              id="macos-download-button"
               class="button button-primary is-disabled"
               href="#download"
               target="_blank"
@@ -199,19 +196,29 @@
               aria-disabled="true"
               >Download for macOS (Apple Silicon)</a
             >
-            <p class="download-meta" id="platform-note">
-              Apple Silicon only (M-series).
-            </p>
+          </div>
+          <div class="download-option" id="windows-download-option" hidden>
             <a
-              id="checksum-link"
-              class="checksum-link is-hidden"
-              href="https://github.com/samm81/downshift/releases/latest"
+              id="windows-download-button"
+              class="button button-primary is-disabled"
+              href="#download"
               target="_blank"
               rel="noopener noreferrer"
-              aria-hidden="true"
-              >Checksum</a
+              aria-disabled="true"
+              >Download for Windows (x64)</a
             >
           </div>
+        </div>
+        <div class="download-links">
+          <a
+            id="checksum-link"
+            class="checksum-link is-hidden"
+            href="https://github.com/samm81/downshift/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-hidden="true"
+            >Checksums</a
+          >
           <a
             id="release-notes-link"
             class="button button-subtle"
@@ -224,13 +231,6 @@
       </section>
 
       <section class="faq-card" id="faq">
-        <details>
-          <summary>Why macOS only?</summary>
-          <p>
-            This alpha is Apple Silicon-only for now. Releases for other
-            platforms are coming soon.
-          </p>
-        </details>
         <details>
           <summary>Is it free?</summary>
           <p>Yes, this alpha is free.</p>
@@ -245,7 +245,7 @@
       </section>
 
       <section class="updates-card" id="updates">
-        <p class="updates-title">Get updates when new alpha builds ship</p>
+        <p class="updates-title">Get updates</p>
         <form
           class="updates-row"
           action="https://formspree.io/f/mbdaqyer"
@@ -279,9 +279,8 @@
           rel="noopener noreferrer"
           >GitHub</a
         >
-        <a class="footer-pill" href="#top">Built for Mac</a>
+        <a class="footer-pill" href="#top">Built for Mac + Windows</a>
       </div>
-      <p class="privacy-note">Privacy: absolutely no audio/video capture.</p>
       <span id="contact-line">Contact: samwmaynard@gmail.com</span>
     </footer>
 

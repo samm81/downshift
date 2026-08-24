@@ -3,8 +3,11 @@ const dom = {
   section: document.getElementById("download"),
   versionLabel: document.getElementById("release-version"),
   downloadHelp: document.getElementById("download-help"),
+  downloadGrid: document.getElementById("download-grid"),
   heroDownload: document.getElementById("hero-download"),
-  downloadButton: document.getElementById("download-button"),
+  macosDownloadButton: document.getElementById("macos-download-button"),
+  windowsDownloadOption: document.getElementById("windows-download-option"),
+  windowsDownloadButton: document.getElementById("windows-download-button"),
   releaseNotesLink: document.getElementById("release-notes-link"),
   checksumLink: document.getElementById("checksum-link"),
 };
@@ -80,24 +83,66 @@ function findAssetByExtension(assets, ext) {
   return assets.find((asset) => asset.name.toLowerCase().endsWith(ext));
 }
 
-function applyDownloadLabel(version) {
-  const label = `Download ${version} for macOS (Apple Silicon)`;
-  dom.heroDownload.textContent = label;
-  dom.downloadButton.textContent = label;
+function findChecksumAsset(assets) {
+  return (
+    assets.find((asset) => asset.name.toLowerCase() === "sha256sums.txt") ||
+    findAssetByExtension(assets, ".sha256") ||
+    findAssetByExtension(assets, ".sha256.txt")
+  );
 }
 
-function applyReadyState({ version, dmgUrl, releaseNotesUrl, checksumUrl }) {
+function setDownloadButton(button, url, available, label) {
+  button.textContent = label;
+  button.href = url || "#download";
+  button.setAttribute("aria-disabled", String(!available));
+  button.classList.toggle("is-disabled", !available);
+}
+
+function setDownloadHelp(message) {
+  dom.downloadHelp.textContent = message;
+  dom.downloadHelp.classList.toggle("is-hidden", !message);
+}
+
+function applyHeroLabel(version, hasMacos, hasWindows) {
+  const platform =
+    hasMacos && hasWindows
+      ? "macOS and Windows"
+      : hasMacos
+        ? "macOS"
+        : "Windows";
+  dom.heroDownload.textContent = `Download ${version} for ${platform}`;
+  dom.heroDownload.href = "#download";
+  dom.heroDownload.removeAttribute("target");
+  dom.heroDownload.removeAttribute("rel");
+}
+
+function applyReadyState({
+  version,
+  dmgUrl,
+  exeUrl,
+  releaseNotesUrl,
+  checksumUrl,
+}) {
+  const hasMacos = Boolean(dmgUrl);
+  const hasWindows = Boolean(exeUrl);
   dom.versionLabel.textContent = `Version: ${version}`;
-  dom.downloadHelp.textContent = "";
-  applyDownloadLabel(version);
+  setDownloadHelp(hasMacos && hasWindows ? "Choose your platform below." : "");
+  dom.downloadGrid.classList.toggle("single-platform", !hasWindows);
+  dom.windowsDownloadOption.hidden = !hasWindows;
+  applyHeroLabel(version, hasMacos, hasWindows);
 
-  dom.heroDownload.href = dmgUrl;
-  dom.heroDownload.target = "_blank";
-  dom.heroDownload.rel = "noopener noreferrer";
-
-  dom.downloadButton.href = dmgUrl;
-  dom.downloadButton.removeAttribute("aria-disabled");
-  dom.downloadButton.classList.remove("is-disabled");
+  setDownloadButton(
+    dom.macosDownloadButton,
+    dmgUrl,
+    hasMacos,
+    `Download ${version} for macOS (Apple Silicon)`,
+  );
+  setDownloadButton(
+    dom.windowsDownloadButton,
+    exeUrl,
+    hasWindows,
+    `Download ${version} for Windows (x64)`,
+  );
   dom.releaseNotesLink.href = releaseNotesUrl;
 
   if (checksumUrl) {
@@ -116,9 +161,21 @@ function applyErrorState(message) {
   dom.heroDownload.href = "#download";
   dom.heroDownload.removeAttribute("target");
   dom.heroDownload.removeAttribute("rel");
-  dom.downloadButton.href = "#download";
-  dom.downloadButton.setAttribute("aria-disabled", "true");
-  dom.downloadButton.classList.add("is-disabled");
+  dom.downloadGrid.classList.add("single-platform");
+  dom.windowsDownloadOption.hidden = true;
+  setDownloadButton(
+    dom.macosDownloadButton,
+    "#download",
+    false,
+    "Download for macOS (Apple Silicon)",
+  );
+  setDownloadButton(
+    dom.windowsDownloadButton,
+    "#download",
+    false,
+    "Download for Windows (x64)",
+  );
+  setDownloadHelp("");
 }
 
 async function loadLatestRelease() {
@@ -141,25 +198,32 @@ async function loadLatestRelease() {
     const assets = Array.isArray(data.assets) ? data.assets : [];
 
     const dmgAsset = findAssetByExtension(assets, ".dmg");
-    const checksumAsset =
-      findAssetByExtension(assets, ".sha256") ||
-      findAssetByExtension(assets, ".sha256.txt") ||
-      findAssetByExtension(assets, ".txt");
+    const exeAsset = findAssetByExtension(assets, ".exe");
+    const checksumAsset = findChecksumAsset(assets);
 
-    if (!dmgAsset?.browser_download_url || !data.tag_name || !data.html_url) {
-      applyErrorState("download info unavailable right now. use latest releases.");
+    if (
+      (!dmgAsset?.browser_download_url && !exeAsset?.browser_download_url) ||
+      !data.tag_name ||
+      !data.html_url
+    ) {
+      applyErrorState(
+        "download info unavailable right now. use latest releases.",
+      );
       return;
     }
 
-    const dmgUrl = dmgAsset.browser_download_url;
+    const dmgUrl = dmgAsset?.browser_download_url || "";
+    const exeUrl = exeAsset?.browser_download_url || "";
     const version = data.tag_name;
     const releaseNotesUrl = data.html_url;
     const checksumUrl = checksumAsset?.browser_download_url || "";
 
-    applyReadyState({ version, dmgUrl, releaseNotesUrl, checksumUrl });
+    applyReadyState({ version, dmgUrl, exeUrl, releaseNotesUrl, checksumUrl });
   } catch (error) {
     console.warn("failed to load latest release", error);
-    applyErrorState("download info unavailable right now. use latest releases.");
+    applyErrorState(
+      "download info unavailable right now. use latest releases.",
+    );
   }
 }
 

@@ -32,6 +32,19 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
    - **Folder**: `/docs`
 4. save. GitHub will publish the site URL.
 
+## preview locally
+
+GitHub Pages serves this folder as a no-build static site, so the local preview can use the same
+files directly:
+
+```bash
+wsl make pages-preview
+```
+
+Open <http://127.0.0.1:4173/> in a browser and press `Ctrl-C` in the terminal to stop the server. Use
+`PAGES_PREVIEW_PORT=4174` if another local service is already using port 4173. The preview serves
+the exact `/docs` directory that GitHub Pages publishes; it does not alter or build the site.
+
 ## release sync approach (implemented): runtime fetch from GitHub Releases API
 
 this page uses `script.js` to fetch:
@@ -41,12 +54,15 @@ this page uses `script.js` to fetch:
 and then auto-fills:
 
 - latest version tag
-- `.dmg` download link
+- `.dmg` macOS download link
+- `.exe` Windows x64 download link
 - release notes link
 - optional checksum link
 
-there is no fallback DMG link/version in static html. if release fetch fails, the page keeps direct
-download disabled and tells users to use the latest releases page.
+there is no fallback download link/version in static html. if release fetch fails, the page keeps
+direct downloads disabled and tells users to use the latest releases page. if a stable release is
+missing a platform artifact, that platform's download card stays hidden. prereleases are not used
+for the automatic download links.
 
 ### update placeholders
 
@@ -66,4 +82,7 @@ edit `index.html` data attributes for JS enhancement:
 ## notes
 
 - all external links open in a new tab.
-- this page explicitly states Apple Silicon only and that there is no intensity feature.
+- the supported release targets are macOS Apple Silicon and Windows x64.
+- Windows ARM64 is not currently supported.
+- the website follows the latest stable release and does not automatically serve release candidates.
+- this page explicitly states that there is no intensity feature.
