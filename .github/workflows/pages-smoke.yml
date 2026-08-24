@@ -3,7 +3,7 @@ name: pages-smoke
 on:
   push:
     branches:
-      - main
+      - "**"
     paths:
       - "docs/**"
       - "dev/pages/**"
