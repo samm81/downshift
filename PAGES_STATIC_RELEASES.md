@@ -178,7 +178,8 @@ Hosted verification:
 
 ## Current status
 
-- Status: implementation complete locally; hosted workflow verification is pending.
+- Status: implementation complete; local and hosted branch verification passed. Live deployed-site
+  verification remains pending until this reaches `main`.
 - Working branch: `codex/pages-static-releases`.
 - The website now fetches same-origin `docs/release.json`; it no longer calls GitHub's
   unauthenticated Releases API.
@@ -190,7 +191,11 @@ Hosted verification:
   `make pages-release-manifest` recovery target are available.
 - Local manifest validation and browser smoke pass on macOS-plus-Windows, macOS-only, malformed,
   missing, and JavaScript-disabled cases.
-- The new hosted Pages smoke workflow has not yet been run on GitHub from this branch.
+- Hosted Pages smoke passed on GitHub run `32729625828` for commit `75d6108`.
+- The macOS build workflow passed on run `32729625780`; the Windows build, installer, and scripted
+  smoke workflow passed on run `32729625726`.
+- The hosted workflow's live `https://getdownshift.app` check was correctly skipped on this branch;
+  it runs only for pushes to `main` after Pages deployment.
 
 ## Change log
 
@@ -210,3 +215,9 @@ Hosted verification:
   update gate.
 - Added local Playwright smoke coverage and a hosted Pages smoke workflow, including live deployed
   manifest checks on pushes to `main`.
+
+### 2026-08-24: hosted verification
+
+- Ran the Pages smoke workflow on GitHub for the branch; manifest validation, Chromium setup, and
+  all browser fixture cases passed.
+- Confirmed the existing macOS and Windows build workflows still pass on the implementation branch.
