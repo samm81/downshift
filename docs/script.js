@@ -126,7 +126,6 @@ function applyReadyState({
   const hasMacos = Boolean(dmgUrl);
   const hasWindows = Boolean(exeUrl);
   dom.versionLabel.textContent = `Version: ${version}`;
-  setDownloadHelp(hasMacos && hasWindows ? "Choose your platform below." : "");
   dom.downloadGrid.classList.toggle("single-platform", !hasWindows);
   dom.windowsDownloadOption.hidden = !hasWindows;
   applyHeroLabel(version, hasMacos, hasWindows);
