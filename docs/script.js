@@ -128,7 +128,39 @@ function pathData(points) {
     .join(" L")} Z`;
 }
 
-function renderDemoBreathing(polygonNodes, progress, cache) {
+function updateDemoBreathingHitTarget(hitTarget, artwork, progress) {
+  const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
+  const hitTargetActive =
+    progress < terminalShapeFraction && terminalProgress <= 0.55;
+  if (hitTargetActive) {
+    hitTarget.removeAttribute("hidden");
+  } else {
+    hitTarget.setAttribute("hidden", "");
+  }
+  if (!hitTargetActive) {
+    return;
+  }
+
+  const artworkWidth = artwork.getBoundingClientRect().width;
+  const viewBoxUnitsPerPixel = 100 / Math.max(artworkWidth, 1);
+  const targetHeight = 56 * viewBoxUnitsPerPixel;
+  const lineWidth = polygonSideLength + 24 * viewBoxUnitsPerPixel;
+  const dotToLineProgress = clamp(terminalProgress / 0.5, 0, 1);
+  const targetWidth =
+    targetHeight +
+    (lineWidth - targetHeight) * easeInOut(dotToLineProgress);
+
+  hitTarget.setAttribute("x", (polygonCenterX - targetWidth / 2).toFixed(3));
+  hitTarget.setAttribute(
+    "y",
+    (polygonBaseline - targetHeight / 2).toFixed(3),
+  );
+  hitTarget.setAttribute("width", targetWidth.toFixed(3));
+  hitTarget.setAttribute("height", targetHeight.toFixed(3));
+  hitTarget.setAttribute("rx", (targetHeight / 2).toFixed(3));
+}
+
+function renderDemoBreathing(polygonNodes, hitTarget, artwork, progress, cache) {
   const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
   const polygonProgress = clamp(
     (progress - terminalShapeFraction) / (1 - terminalShapeFraction),
@@ -159,6 +191,7 @@ function renderDemoBreathing(polygonNodes, progress, cache) {
     }
     polygon.setAttribute("d", pathData(points));
   });
+  updateDemoBreathingHitTarget(hitTarget, artwork, progress);
 }
 
 function wireDemoBreathing() {
@@ -169,6 +202,8 @@ function wireDemoBreathing() {
     return;
   }
 
+  const hitTarget = document.getElementById("demo-breath-hit-target");
+  const artwork = document.querySelector(".demo-breath-artwork");
   const cache = new Map();
   let elapsedMs = 0;
   let previousTimestamp = null;
@@ -183,12 +218,12 @@ function wireDemoBreathing() {
       cyclePosition < 5500
         ? easeInOut(cyclePosition / 5500)
         : 1 - easeInOut((cyclePosition - 5500) / 5500);
-    renderDemoBreathing(polygonNodes, progress, cache);
+    renderDemoBreathing(polygonNodes, hitTarget, artwork, progress, cache);
     previousTimestamp = timestamp;
     window.requestAnimationFrame(animate);
   }
 
-  renderDemoBreathing(polygonNodes, 0, cache);
+  renderDemoBreathing(polygonNodes, hitTarget, artwork, 0, cache);
   window.requestAnimationFrame(animate);
 }
 

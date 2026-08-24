@@ -4,6 +4,8 @@
   const breathPolygons = Array.from(
     breathArt.querySelectorAll(".breath-polygon"),
   );
+  const breathArtwork = document.querySelector(".breath-artwork");
+  const breathHitTarget = document.getElementById("breath-hit-target");
   const menu = document.getElementById("menu");
   const pauseButton = document.getElementById("menu-pause");
   const resetButton = document.getElementById("menu-reset");
@@ -97,6 +99,9 @@
   const polygonBaseline = 97;
   const polygonCenterX = 50;
   const terminalShapeFraction = 0.2;
+  const terminalHitTargetSizePx = 56;
+  const terminalHitTargetPaddingPx = 12;
+  const terminalHitTargetMaxProgress = 0.55;
   const regularPolygonStartIndices = new Map([
     [3, 0],
     [4, 0],
@@ -211,6 +216,42 @@
       .join(" L")} Z`;
   }
 
+  function updateBreathingHitTarget(progress) {
+    const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
+    const hitTargetActive =
+      progress < terminalShapeFraction &&
+      terminalProgress <= terminalHitTargetMaxProgress;
+    if (hitTargetActive) {
+      breathHitTarget.removeAttribute("hidden");
+    } else {
+      breathHitTarget.setAttribute("hidden", "");
+    }
+    if (!hitTargetActive) {
+      return;
+    }
+
+    const artworkWidth = breathArtwork.getBoundingClientRect().width;
+    const viewBoxUnitsPerPixel = 100 / Math.max(artworkWidth, 1);
+    const targetHeight = terminalHitTargetSizePx * viewBoxUnitsPerPixel;
+    const lineWidth =
+      polygonSideLength + terminalHitTargetPaddingPx * 2 * viewBoxUnitsPerPixel;
+    const dotToLineProgress = clamp(terminalProgress / 0.5, 0, 1);
+    const targetWidth =
+      targetHeight + (lineWidth - targetHeight) * easeInOut(dotToLineProgress);
+
+    breathHitTarget.setAttribute(
+      "x",
+      (polygonCenterX - targetWidth / 2).toFixed(3),
+    );
+    breathHitTarget.setAttribute(
+      "y",
+      (polygonBaseline - targetHeight / 2).toFixed(3),
+    );
+    breathHitTarget.setAttribute("width", targetWidth.toFixed(3));
+    breathHitTarget.setAttribute("height", targetHeight.toFixed(3));
+    breathHitTarget.setAttribute("rx", (targetHeight / 2).toFixed(3));
+  }
+
   function polygonPointsForProgress(layerIndex, vertexCount, progress) {
     const stagePosition = clamp(progress, 0, 1) * 5;
     const stage = Math.min(Math.floor(stagePosition), 4);
@@ -241,6 +282,7 @@
           : polygonPointsForProgress(layerIndex, vertexCount, polygonProgress);
       polygon.setAttribute("d", pathData(points));
     });
+    updateBreathingHitTarget(progress);
   }
 
   function breathingProgressAt(elapsedMs) {

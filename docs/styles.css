@@ -223,7 +223,7 @@ h1 {
   overflow: visible;
   cursor: -webkit-grab;
   cursor: grab;
-  pointer-events: auto;
+  pointer-events: none;
   touch-action: none;
 }
 
@@ -232,10 +232,12 @@ h1 {
   width: 100%;
   height: 100%;
   overflow: visible;
+  pointer-events: none;
 }
 
 .demo-breath-polygon {
   fill: rgba(239, 247, 255, 0.42);
+  pointer-events: visiblepainted;
   stroke: rgba(67, 122, 187, 0.78);
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -250,6 +252,16 @@ h1 {
 
 .demo-breath-ring-core {
   fill: rgba(124, 182, 255, 0.3);
+}
+
+.demo-breath-hit-target {
+  display: none;
+  fill: transparent;
+  pointer-events: all;
+}
+
+.demo-breath-hit-target:not([hidden]) {
+  display: block;
 }
 
 .demo-ball.is-dragging {

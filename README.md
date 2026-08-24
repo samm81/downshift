@@ -116,6 +116,10 @@ breathing animation sync note:
 - the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
 - keep them aligned conceptually: the app now drives a four-phase pattern (`expand / expanded_hold / compress / compressed_hold`) from javascript, while the docs preview still shows the default coherent-breathing loop.
 
+pending visual follow-ups:
+
+- anchor the info/update marker to the bottom center, just below the breathing shapes; its current offset is too far from the cue.
+
 ## capture short demo webm (mac)
 
 capture a short motion clip of the running app and export a cropped webm:
