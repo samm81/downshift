@@ -196,8 +196,45 @@ jobs:
             -F prerelease="$RELEASE_PRERELEASE" >/dev/null
           echo "published release $RELEASE_TAG with macOS, Windows, and checksum assets"
 
+  update-pages-manifest:
+    needs: [resolve, publish]
+    if: ${{ needs.resolve.outputs.prerelease == 'false' && needs.publish.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: pages-release-manifest
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+
+    steps:
+      - name: checkout main for GitHub Pages
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: configure manifest commit identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: update and publish Pages release manifest
+        run: bash dev/pages/update-release-manifest.bash "$RELEASE_TAG" --commit --push
+
   release-result:
-    needs: [resolve, prepare-release, build-macos, build-windows, publish]
+    needs:
+      [
+        resolve,
+        prepare-release,
+        build-macos,
+        build-windows,
+        publish,
+        update-pages-manifest,
+      ]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -208,6 +245,8 @@ jobs:
           MACOS_RESULT: ${{ needs.build-macos.result }}
           WINDOWS_RESULT: ${{ needs.build-windows.result }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
+          MANIFEST_RESULT: ${{ needs.update-pages-manifest.result }}
+          RELEASE_PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
         run: |
           {
             echo "## unified release"
@@ -219,13 +258,19 @@ jobs:
             echo "| macOS build, notarization, and GUI smoke | $MACOS_RESULT |"
             echo "| Windows build, signing, packaging, and installer smoke | $WINDOWS_RESULT |"
             echo "| publish | $PUBLISH_RESULT |"
+            if [ "$RELEASE_PRERELEASE" = "true" ]; then
+              echo "| Pages release manifest | skipped for prerelease |"
+            else
+              echo "| Pages release manifest | $MANIFEST_RESULT |"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$RESOLVE_RESULT" != "success" ] || \
              [ "$PREPARE_RESULT" != "success" ] || \
              [ "$MACOS_RESULT" != "success" ] || \
              [ "$WINDOWS_RESULT" != "success" ] || \
-             [ "$PUBLISH_RESULT" != "success" ]; then
+             [ "$PUBLISH_RESULT" != "success" ] || \
+             { [ "$RELEASE_PRERELEASE" != "true" ] && [ "$MANIFEST_RESULT" != "success" ]; }; then
             echo 'error: unified release did not pass every gate'
             exit 1
           fi

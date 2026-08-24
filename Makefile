@@ -42,7 +42,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
 	smoke-windows-vm \
-	pages-preview \
+	pages-preview pages-check pages-smoke pages-release-manifest \
 	app app-no-telemetry \
 	verify-rust verify-release \
 	sign-app \
@@ -166,6 +166,23 @@ pages-preview:
 	@echo "GitHub Pages preview: http://$(PAGES_PREVIEW_HOST):$(PAGES_PREVIEW_PORT)/"
 	@echo "Serving $(PWD)/$(PAGES_DIR); press Ctrl-C to stop."
 	python3 -m http.server "$(PAGES_PREVIEW_PORT)" --bind "$(PAGES_PREVIEW_BIND)" --directory "$(PAGES_DIR)"
+
+pages-check:
+	node dev/pages/release-manifest.mjs validate docs/release.json
+
+pages-smoke: pages-check
+	npm run smoke:pages
+
+pages-release-manifest:
+	@if [ -z "$(TAG)" ]; then \
+		echo "error: TAG is required (for example TAG=v0.2.0)"; \
+		exit 1; \
+	fi
+	@if [ "$(PUSH)" = "1" ]; then \
+		bash dev/pages/update-release-manifest.bash "$(TAG)" --commit --push; \
+	else \
+		bash dev/pages/update-release-manifest.bash "$(TAG)"; \
+	fi
 
 run: build-debug
 ifneq ($(RUN_RESET),)

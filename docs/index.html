@@ -169,7 +169,7 @@
       <section
         class="download-card"
         id="download"
-        data-github-api-latest-release="https://api.github.com/repos/samm81/downshift/releases/latest"
+        data-release-manifest="./release.json"
       >
         <noscript>
           <p class="download-meta">
@@ -182,9 +182,18 @@
             >.
           </p>
         </noscript>
+        <p class="download-meta" id="download-error" hidden>
+          Release downloads are temporarily unavailable. See the
+          <a
+            href="https://github.com/samm81/downshift/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            >latest releases</a
+          >.
+        </p>
 
-        <div class="download-grid single-platform" id="download-grid">
-          <div class="download-option">
+        <div class="download-grid" id="download-grid">
+          <div class="download-option" id="macos-download-option">
             <a
               id="macos-download-button"
               class="button button-primary is-disabled"

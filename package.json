@@ -12,15 +12,18 @@
     "lint:web:css": "stylelint 'src/ui/**/*.css'",
     "lint:shell": "find dev -type f -name '*.bash' -print0 | xargs -0 shellcheck --external-sources",
     "lint:md": "markdownlint-cli2",
-    "check:windows": "prettier --check src/ui && eslint src/ui && stylelint src/ui/**/*.css && markdownlint-cli2",
+    "check:windows": "prettier --check src/ui && eslint src/ui && stylelint src/ui/**/*.css && markdownlint-cli2 && npm run check:pages",
     "lint": "npm run lint:web:js && npm run lint:web:css && npm run lint:shell && npm run lint:md",
-    "check": "npm run fmt:check:web && npm run fmt:check:shell && npm run lint"
+    "check": "npm run fmt:check:web && npm run fmt:check:shell && npm run lint && npm run check:pages",
+    "check:pages": "node dev/pages/release-manifest.mjs validate docs/release.json",
+    "smoke:pages": "node dev/pages/pages-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
     "eslint": "^9.23.0",
     "globals": "^16.0.0",
     "markdownlint-cli2": "^0.21.0",
+    "playwright": "^1.62.1",
     "prettier": "^3.6.2",
     "stylelint": "^16.24.0",
     "stylelint-config-standard": "^39.0.0"

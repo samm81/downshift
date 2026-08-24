@@ -6,7 +6,8 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 
 - `index.html`: single-page landing structure and content
 - `styles.css`: desktop-first styling
-- `script.js`: release sync enhancement (no product-copy overrides)
+- `script.js`: static release manifest enhancement (no product-copy overrides)
+- `release.json`: generated manifest for the latest stable release
 - `assets/icon.png`: placeholder app icon (locally generated)
 - `assets/mac-desktop-generic.svg`: placeholder desktop preview backdrop (locally generated)
 
@@ -14,7 +15,7 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 
 - `index.html` is the source of truth for all user-visible product narrative and baseline links.
 - the page must remain coherent and usable with JavaScript disabled.
-- `script.js` may only enhance behavior that cannot be done statically (latest release fetch).
+- `script.js` may only enhance behavior that cannot be done statically (release manifest loading).
 - do not add JS-driven overrides for brand/product copy like app name, tagline, hero text, or trust claims.
 
 ## placeholder asset source/license
@@ -38,46 +39,77 @@ GitHub Pages serves this folder as a no-build static site, so the local preview 
 files directly:
 
 ```bash
-wsl make pages-preview
+make pages-preview
 ```
 
 Open <http://127.0.0.1:4173/> in a browser and press `Ctrl-C` in the terminal to stop the server. Use
 `PAGES_PREVIEW_PORT=4174` if another local service is already using port 4173. The preview serves
 the exact `/docs` directory that GitHub Pages publishes; it does not alter or build the site.
 
-## release sync approach (implemented): runtime fetch from GitHub Releases API
+For fast validation, run:
 
-this page uses `script.js` to fetch:
+```bash
+make pages-check
+```
 
-- `https://api.github.com/repos/<owner>/<repo>/releases/latest`
+The browser smoke test exercises the real `/docs` directory with macOS-only, macOS-plus-Windows,
+malformed, missing, and JavaScript-disabled cases:
 
-and then auto-fills:
+```bash
+npm ci
+npx playwright install chromium
+make pages-smoke
+```
 
-- latest version tag
-- `.dmg` macOS download link
-- `.exe` Windows x64 download link
+## release sync approach (implemented): static release manifest
+
+this page uses `script.js` to fetch `./release.json` from the same GitHub Pages origin. The manifest
+contains:
+
+- stable version tag
+- `.dmg` macOS download link, when present
+- `.exe` Windows x64 download link, when present
 - release notes link
 - optional checksum link
 
-static HTML has no platform-specific download links or version text. A `<noscript>` block links to
-the latest releases page when JavaScript is disabled. If release fetch fails, the page keeps direct
-downloads disabled. If a stable release is missing a platform artifact, that platform's download
-card stays hidden. Prereleases are not used for the automatic download links.
+The manifest is deliberately small and is validated in both Node-based tooling and the browser.
+Only stable tags and HTTPS URLs for `samm81/downshift` are accepted. Static HTML has no
+platform-specific direct download links or version text. A `<noscript>` block links to the latest
+releases page when JavaScript is disabled. If manifest loading fails, the page shows a concise
+latest-releases fallback and hides direct download buttons. If a stable release is missing a
+platform artifact, that platform's download card stays hidden. Prereleases never update the
+manifest.
 
-### update placeholders
+After a stable release is published, the unified release workflow uses its authenticated
+`GITHUB_TOKEN` to regenerate `docs/release.json`, commit it to `main`, and push it for GitHub Pages
+to deploy. The committed manifest never contains credentials or private release data. The update is
+idempotent and exact-tag based.
 
-edit `index.html` and set:
+`release.json` uses these fields:
 
-- `REPO_URL`
-- release notes URL (`#release-notes-link`)
-- optional checksum URL (`#checksum-link`)
-- contact email text
-- email capture URL (`#email-capture-link`)
-- no-JavaScript fallback releases link in the `<noscript>` block inside `#download`
+- `version`: required stable tag, such as `v0.2.0`.
+- `release_url`: required matching GitHub release-notes URL.
+- `published_at`: release publication timestamp.
+- `macos_url`: nullable notarized `.dmg` asset URL.
+- `windows_url`: nullable Windows `.exe` asset URL.
+- `checksums_url`: nullable `SHA256SUMS.txt` asset URL.
 
-edit `index.html` data attributes for JS enhancement:
+To repair or deliberately move the manifest to an existing stable release without rebuilding
+artifacts, run this from `main`:
 
-- `#download[data-github-api-latest-release]`
+```bash
+make pages-release-manifest TAG=v0.2.0
+```
+
+That updates the working tree only. Add `PUSH=1` to create the bot-style manifest commit and push
+it to `main` after verifying the result.
+
+### update content and release metadata
+
+Edit `index.html` for product narrative, contact details, the email capture URL, and the
+no-JavaScript fallback releases link. Platform download URLs, checksums, release notes, and the
+version are not edited in `index.html`; update `release.json` through the release workflow or the
+explicit tag-based recovery target above.
 
 ## notes
 

@@ -2,10 +2,12 @@ const dom = {
   page: document.body,
   section: document.getElementById("download"),
   downloadGrid: document.getElementById("download-grid"),
+  macosDownloadOption: document.getElementById("macos-download-option"),
   heroDownload: document.getElementById("hero-download"),
   macosDownloadButton: document.getElementById("macos-download-button"),
   windowsDownloadOption: document.getElementById("windows-download-option"),
   windowsDownloadButton: document.getElementById("windows-download-button"),
+  downloadError: document.getElementById("download-error"),
   releaseNotesLink: document.getElementById("release-notes-link"),
   checksumLink: document.getElementById("checksum-link"),
 };
@@ -77,18 +79,6 @@ function wireDraggableDemoBall() {
   ball.addEventListener("pointercancel", stopDragging);
 }
 
-function findAssetByExtension(assets, ext) {
-  return assets.find((asset) => asset.name.toLowerCase().endsWith(ext));
-}
-
-function findChecksumAsset(assets) {
-  return (
-    assets.find((asset) => asset.name.toLowerCase() === "sha256sums.txt") ||
-    findAssetByExtension(assets, ".sha256") ||
-    findAssetByExtension(assets, ".sha256.txt")
-  );
-}
-
 function setDownloadButton(button, url, available, label) {
   button.textContent = label;
   button.href = url || "#download";
@@ -111,26 +101,28 @@ function applyHeroLabel(version, hasMacos, hasWindows) {
 
 function applyReadyState({
   version,
-  dmgUrl,
-  exeUrl,
-  releaseNotesUrl,
-  checksumUrl,
+  macos_url: macosUrl,
+  windows_url: windowsUrl,
+  release_url: releaseNotesUrl,
+  checksums_url: checksumUrl,
 }) {
-  const hasMacos = Boolean(dmgUrl);
-  const hasWindows = Boolean(exeUrl);
-  dom.downloadGrid.classList.toggle("single-platform", !hasWindows);
+  const hasMacos = Boolean(macosUrl);
+  const hasWindows = Boolean(windowsUrl);
+  dom.downloadGrid.hidden = false;
+  dom.macosDownloadOption.hidden = !hasMacos;
   dom.windowsDownloadOption.hidden = !hasWindows;
+  dom.downloadError.hidden = true;
   applyHeroLabel(version, hasMacos, hasWindows);
 
   setDownloadButton(
     dom.macosDownloadButton,
-    dmgUrl,
+    macosUrl,
     hasMacos,
     `Download ${version} for macOS (Apple Silicon)`,
   );
   setDownloadButton(
     dom.windowsDownloadButton,
-    exeUrl,
+    windowsUrl,
     hasWindows,
     `Download ${version} for Windows (x64)`,
   );
@@ -151,8 +143,10 @@ function applyErrorState() {
   dom.heroDownload.href = "#download";
   dom.heroDownload.removeAttribute("target");
   dom.heroDownload.removeAttribute("rel");
-  dom.downloadGrid.classList.add("single-platform");
+  dom.downloadGrid.hidden = true;
+  dom.macosDownloadOption.hidden = true;
   dom.windowsDownloadOption.hidden = true;
+  dom.downloadError.hidden = false;
   setDownloadButton(
     dom.macosDownloadButton,
     "#download",
@@ -167,50 +161,117 @@ function applyErrorState() {
   );
 }
 
-async function loadLatestRelease() {
-  const apiUrl = dom.section?.dataset?.githubApiLatestRelease || "";
-  if (!apiUrl) {
-    applyErrorState();
-    return;
+function validateReleaseManifest(manifest) {
+  const errors = [];
+  const repository = "samm81/downshift";
+  const stableVersionPattern = /^v\d+\.\d+\.\d+$/;
+  const version = manifest?.version;
+
+  if (
+    manifest === null ||
+    typeof manifest !== "object" ||
+    Array.isArray(manifest)
+  ) {
+    return ["manifest must be a JSON object"];
+  }
+  if (typeof version !== "string" || !stableVersionPattern.test(version)) {
+    errors.push("version must be a stable release tag");
   }
 
+  const expectedReleaseUrl =
+    typeof version === "string" && stableVersionPattern.test(version)
+      ? `https://github.com/${repository}/releases/tag/${version}`
+      : "";
+  if (manifest.release_url !== expectedReleaseUrl) {
+    errors.push("release_url does not match the release tag");
+  }
+  if (
+    manifest.published_at !== undefined &&
+    (typeof manifest.published_at !== "string" ||
+      !Number.isFinite(Date.parse(manifest.published_at)))
+  ) {
+    errors.push("published_at is invalid");
+  }
+
+  const assetPrefix =
+    typeof version === "string" && stableVersionPattern.test(version)
+      ? `/${repository}/releases/download/${version}/`
+      : "/";
+  const validateAsset = (field, extension) => {
+    const value = manifest[field];
+    if (value === null || value === undefined) {
+      return false;
+    }
+    if (typeof value !== "string" || value.length === 0) {
+      errors.push(`${field} must be a non-empty string or null`);
+      return false;
+    }
+    let parsed;
+    try {
+      parsed = new URL(value);
+    } catch {
+      errors.push(`${field} is not a valid URL`);
+      return false;
+    }
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !== "github.com" ||
+      parsed.port ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash ||
+      !parsed.pathname.startsWith(assetPrefix) ||
+      !parsed.pathname.slice(assetPrefix.length) ||
+      parsed.pathname.slice(assetPrefix.length).includes("/") ||
+      !parsed.pathname.toLowerCase().endsWith(extension)
+    ) {
+      errors.push(`${field} is not an expected GitHub release asset URL`);
+      return false;
+    }
+    return true;
+  };
+
+  const hasMacos = validateAsset("macos_url", ".dmg");
+  const hasWindows = validateAsset("windows_url", ".exe");
+  if (!hasMacos && !hasWindows) {
+    errors.push("at least one platform asset is required");
+  }
+  if (manifest.checksums_url !== null && manifest.checksums_url !== undefined) {
+    validateAsset("checksums_url", "");
+    if (
+      typeof manifest.checksums_url === "string" &&
+      !/\.(txt|sha256)$/i.test(manifest.checksums_url)
+    ) {
+      errors.push("checksums_url is not a checksum text asset");
+    }
+  }
+
+  return errors;
+}
+
+async function loadReleaseManifest() {
+  const manifestUrl = dom.section?.dataset?.releaseManifest || "./release.json";
+
   try {
-    const response = await fetch(apiUrl, {
-      headers: { Accept: "application/vnd.github+json" },
-    });
+    const response = await fetch(manifestUrl, { cache: "no-store" });
 
     if (!response.ok) {
-      throw new Error(`GitHub API status ${response.status}`);
+      throw new Error(`manifest request status ${response.status}`);
     }
 
-    const data = await response.json();
-    const assets = Array.isArray(data.assets) ? data.assets : [];
-
-    const dmgAsset = findAssetByExtension(assets, ".dmg");
-    const exeAsset = findAssetByExtension(assets, ".exe");
-    const checksumAsset = findChecksumAsset(assets);
-
-    if (
-      (!dmgAsset?.browser_download_url && !exeAsset?.browser_download_url) ||
-      !data.tag_name ||
-      !data.html_url
-    ) {
-      applyErrorState();
-      return;
+    const manifest = await response.json();
+    const errors = validateReleaseManifest(manifest);
+    if (errors.length > 0) {
+      throw new Error(`invalid release manifest: ${errors.join(", ")}`);
     }
 
-    const dmgUrl = dmgAsset?.browser_download_url || "";
-    const exeUrl = exeAsset?.browser_download_url || "";
-    const version = data.tag_name;
-    const releaseNotesUrl = data.html_url;
-    const checksumUrl = checksumAsset?.browser_download_url || "";
-
-    applyReadyState({ version, dmgUrl, exeUrl, releaseNotesUrl, checksumUrl });
+    applyReadyState(manifest);
   } catch (error) {
-    console.warn("failed to load latest release", error);
+    console.warn("failed to load release manifest", error);
     applyErrorState();
   }
 }
 
 wireDraggableDemoBall();
-loadLatestRelease();
+loadReleaseManifest();
