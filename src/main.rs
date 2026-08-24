@@ -112,6 +112,10 @@ mod menu_ids {
     pub(super) const MENU_ID_COPY_DIAGNOSTICS: &str = "copy_diagnostics";
     pub(super) const MENU_ID_FILE_BUG_GITHUB: &str = "file_bug_github";
     pub(super) const MENU_ID_FILE_BUG_EMAIL: &str = "file_bug_email";
+    #[cfg(debug_assertions)]
+    pub(super) const MENU_ID_DEVELOPER_PREVIEWS_ROOT: &str = "developer_previews_root";
+    #[cfg(debug_assertions)]
+    pub(super) const MENU_ID_PREVIEW_UPDATE_BADGE: &str = "preview_update_badge";
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -894,6 +898,8 @@ struct NativeContextMenu {
     crash_on: CheckMenuItem,
     crash_off: CheckMenuItem,
     analytics_info: MenuItem,
+    #[cfg(debug_assertions)]
+    preview_update_badge: CheckMenuItem,
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -1081,6 +1087,27 @@ impl NativeContextMenu {
         );
         let analytics_info =
             MenuItem::with_id(MENU_ID_ANALYTICS_INFO, "what we collect…", true, None);
+        #[cfg(debug_assertions)]
+        let preview_update_badge = CheckMenuItem::with_id(
+            MENU_ID_PREVIEW_UPDATE_BADGE,
+            "notification badge",
+            true,
+            false,
+            None,
+        );
+        #[cfg(debug_assertions)]
+        let developer_previews_menu = match Submenu::with_id_and_items(
+            MENU_ID_DEVELOPER_PREVIEWS_ROOT,
+            "developer previews",
+            true,
+            &[&preview_update_badge],
+        ) {
+            Ok(menu) => menu,
+            Err(error) => {
+                log_stderr!("warning: failed to build developer previews submenu: {error}");
+                return None;
+            }
+        };
         let analytics_separator_one = PredefinedMenuItem::separator();
         let analytics_separator_two = PredefinedMenuItem::separator();
         let snooze_submenu = match Submenu::with_id_and_items(
@@ -1212,30 +1239,35 @@ impl NativeContextMenu {
         let separator_six = PredefinedMenuItem::separator();
         let separator_seven = PredefinedMenuItem::separator();
         let separator_pattern = PredefinedMenuItem::separator();
-        let root = match Submenu::with_items(
-            "menu",
-            true,
-            &[
-                &pause,
-                &separator_one,
-                &snooze_submenu,
-                &separator_two,
-                &size_submenu,
-                &separator_three,
-                &breathing_menu,
-                &separator_pattern,
-                &reset,
-                &launch_at_login,
-                &separator_four,
-                &quit,
-                &separator_five,
-                &update_menu,
-                &separator_six,
-                &bugs_menu,
-                &separator_seven,
-                &analytics_menu,
-            ],
-        ) {
+        #[cfg(debug_assertions)]
+        let separator_developer_previews = PredefinedMenuItem::separator();
+        #[allow(unused_mut)]
+        let mut root_items: Vec<&dyn IsMenuItem> = vec![
+            &pause,
+            &separator_one,
+            &snooze_submenu,
+            &separator_two,
+            &size_submenu,
+            &separator_three,
+            &breathing_menu,
+            &separator_pattern,
+            &reset,
+            &launch_at_login,
+            &separator_four,
+            &quit,
+            &separator_five,
+            &update_menu,
+            &separator_six,
+            &bugs_menu,
+            &separator_seven,
+            &analytics_menu,
+        ];
+        #[cfg(debug_assertions)]
+        {
+            root_items.push(&separator_developer_previews);
+            root_items.push(&developer_previews_menu);
+        }
+        let root = match Submenu::with_items("menu", true, &root_items) {
             Ok(menu) => menu,
             Err(error) => {
                 log_stderr!("warning: failed to build native context menu: {error}");
@@ -1281,6 +1313,8 @@ impl NativeContextMenu {
             crash_on,
             crash_off,
             analytics_info,
+            #[cfg(debug_assertions)]
+            preview_update_badge,
         })
     }
 
@@ -1388,6 +1422,8 @@ struct App {
     startup_provenance: String,
     updates: UpdateUiState,
     manual_update_check_in_flight: bool,
+    #[cfg(debug_assertions)]
+    developer_preview_update_badge: bool,
 }
 
 impl App {
@@ -1427,6 +1463,8 @@ impl App {
             startup_provenance: "unknown".to_string(),
             updates: UpdateUiState::default(),
             manual_update_check_in_flight: false,
+            #[cfg(debug_assertions)]
+            developer_preview_update_badge: false,
         }
     }
 }
@@ -1905,10 +1943,22 @@ impl App {
         self.apply_main_webview_state(serde_json::json!({
             "update_menu_label": self.updates.menu_label(),
             "update_has_new_version": self.updates.has_update_available(),
-            "update_show_badge": self.updates.should_show_badge(),
+            "update_show_badge": self.should_show_update_badge(),
             "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
             "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
         }));
+    }
+
+    fn should_show_update_badge(&self) -> bool {
+        let should_show = self.updates.should_show_badge();
+        #[cfg(debug_assertions)]
+        {
+            return should_show || self.developer_preview_update_badge;
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            should_show
+        }
     }
 
     fn sync_update_surfaces(&self) {
@@ -2448,7 +2498,7 @@ impl App {
           "crash_reports_sharing": self.settings.crash_reports_sharing,
           "update_menu_label": self.updates.menu_label(),
           "update_has_new_version": self.updates.has_update_available(),
-          "update_show_badge": self.updates.should_show_badge(),
+          "update_show_badge": self.should_show_update_badge(),
           "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "update_tooltip": UPDATE_TOOLTIP,
@@ -2995,6 +3045,9 @@ impl App {
         let Some(menu) = self.native_context_menu.as_ref() else {
             return;
         };
+        #[cfg(debug_assertions)]
+        menu.preview_update_badge
+            .set_checked(self.developer_preview_update_badge);
         let Some(window) = self.window.as_ref() else {
             return;
         };
@@ -3121,6 +3174,11 @@ impl App {
             MENU_ID_UPDATE_IGNORE_CURRENT => {
                 let ignored = !self.updates.is_ignoring_current_update();
                 self.apply_ignore_current_update(ignored);
+            }
+            #[cfg(debug_assertions)]
+            MENU_ID_PREVIEW_UPDATE_BADGE => {
+                self.developer_preview_update_badge = !self.developer_preview_update_badge;
+                self.sync_update_state_to_webview();
             }
             MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
             MENU_ID_FILE_BUG_GITHUB => match github_issues_url() {

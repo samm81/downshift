@@ -473,11 +473,18 @@
     if (updateBadge.hidden) {
       return;
     }
-    const rect = ball.getBoundingClientRect();
+    const shape = breathPolygons[0] || breathArtwork || ball;
+    const rect = shape.getBoundingClientRect();
     const badgeSize = 16;
-    const inset = 1;
-    const x = Math.round(rect.right - badgeSize - inset);
-    const y = Math.round(rect.top + inset);
+    const gap = 3;
+    const maxX = Math.max(0, window.innerWidth - badgeSize);
+    const maxY = Math.max(0, window.innerHeight - badgeSize);
+    const x = clamp(
+      Math.round(rect.left + rect.width / 2 - badgeSize / 2),
+      0,
+      maxX,
+    );
+    const y = clamp(Math.round(rect.bottom + gap), 0, maxY);
     updateBadge.style.left = `${x}px`;
     updateBadge.style.top = `${y}px`;
   }
