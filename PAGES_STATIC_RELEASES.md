@@ -178,9 +178,10 @@ Hosted verification:
 
 ## Current status
 
-- Status: implementation complete; local and hosted branch verification passed. Live deployed-site
-  verification remains pending until this reaches `main`.
+- Status: implementation complete; local and hosted branch verification passed on the final branch
+  tip. Live deployed-site verification remains pending until this reaches `main`.
 - Working branch: `codex/pages-static-releases`.
+- Final validation commit: `96e93a4`.
 - The website now fetches same-origin `docs/release.json`; it no longer calls GitHub's
   unauthenticated Releases API.
 - The checked-in manifest describes the current stable `v0.2.0` release, with macOS and Windows
@@ -194,6 +195,9 @@ Hosted verification:
 - Hosted Pages smoke passed on GitHub run `32729625828` for commit `75d6108`.
 - The macOS build workflow passed on run `32729625780`; the Windows build, installer, and scripted
   smoke workflow passed on run `32729625726`.
+- Final-tip macOS build passed on run `32731641555`, and the final-tip Windows build, installer, and
+  scripted smoke workflow passed on run `32731641535`.
+- Final-tip Pages browser smoke passed on run `32731950482`.
 - The hosted workflow's live `https://getdownshift.app` check was correctly skipped on this branch;
   it runs only for pushes to `main` after Pages deployment.
 
@@ -221,3 +225,12 @@ Hosted verification:
 - Ran the Pages smoke workflow on GitHub for the branch; manifest validation, Chromium setup, and
   all browser fixture cases passed.
 - Confirmed the existing macOS and Windows build workflows still pass on the implementation branch.
+
+### 2026-08-24: final branch validation
+
+- The first final-tip Windows run exposed an installer-smoke cleanup race: WebView2
+  child processes could outlive `downshift.exe` and leave the temporary install directory locked.
+- Updated `windows/smoke-installer.ps1` to terminate the full process tree before uninstall and to
+  allow bounded filesystem cleanup. The exact CI-style and full local installer smokes passed.
+- Re-ran macOS, Windows, and Pages smoke on `96e93a4`; all passed. The live hosted-site check remains
+  intentionally deferred to the first push on `main`.
