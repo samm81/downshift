@@ -61,6 +61,7 @@ const UPDATE_BADGE_REMINDER_INTERVAL_SEC: i64 = 24 * 60 * 60;
 const UPDATE_RELEASE_API_URL: &str =
     "https://api.github.com/repos/samm81/downshift/releases/latest";
 const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
+const MAX_SNOOZE_MINUTES: u64 = 7 * 24 * 60;
 const DEFAULT_GITHUB_ISSUES_URL: &str = "github-issues-url-not-set";
 const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
 const UPDATE_TOOLTIP: &str = "new version available";
@@ -2678,12 +2679,13 @@ impl App {
     }
 
     fn apply_snooze(&mut self, minutes: u64) -> Option<u64> {
-        let minutes = minutes.max(1);
+        let minutes = minutes.clamp(1, MAX_SNOOZE_MINUTES);
         let duration = Duration::from_secs(minutes.saturating_mul(60));
+        let deadline = SystemTime::now().checked_add(duration)?;
         self.close_custom_snooze_window();
         self.settings.paused = false;
         self.activity_mode = ActivityMode::Snoozed;
-        self.snooze_deadline = Some(SystemTime::now() + duration);
+        self.snooze_deadline = Some(deadline);
         self.snooze_generation = self.snooze_generation.wrapping_add(1);
         let generation = self.snooze_generation;
         self.sync_window_visibility();
@@ -4160,6 +4162,18 @@ mod tests {
         second_client.shutdown(Duration::from_millis(200));
         std::fs::remove_dir_all(root).ok();
         std::env::remove_var("DOWNSHIFT_TELEMETRY_DIR");
+    }
+
+    #[test]
+    fn apply_snooze_clamps_oversized_inputs() {
+        let mut app = App::default();
+
+        let requested_duration = app
+            .apply_snooze(u64::MAX)
+            .expect("bounded snooze deadline should be representable");
+
+        assert_eq!(requested_duration, MAX_SNOOZE_MINUTES * 60);
+        assert_eq!(app.activity_mode, ActivityMode::Snoozed);
     }
 
     #[test]

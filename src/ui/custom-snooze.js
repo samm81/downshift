@@ -1,4 +1,5 @@
 (() => {
+  const MAX_SNOOZE_MINUTES = 7 * 24 * 60;
   const input = document.getElementById("minutes");
   const cancelButton = document.getElementById("cancel");
   const confirmButton = document.getElementById("confirm");
@@ -11,7 +12,11 @@
 
   function submit() {
     const minutes = Number(input.value);
-    if (!Number.isFinite(minutes) || minutes < 1) {
+    if (
+      !Number.isFinite(minutes) ||
+      minutes < 1 ||
+      minutes > MAX_SNOOZE_MINUTES
+    ) {
       input.focus();
       input.select();
       return;
