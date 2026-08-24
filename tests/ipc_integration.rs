@@ -143,6 +143,10 @@ fn ipc_json_deserializes_supported_commands() {
         IpcCommand::UpdatePrimaryAction
     ));
 
+    let show_update_dialog: IpcCommand = serde_json::from_str(r#"{"cmd":"show_update_dialog"}"#)
+        .expect("show_update_dialog should parse");
+    assert!(matches!(show_update_dialog, IpcCommand::ShowUpdateDialog));
+
     let dismiss_update_badge: IpcCommand =
         serde_json::from_str(r#"{"cmd":"dismiss_update_badge"}"#)
             .expect("dismiss_update_badge should parse");

@@ -366,6 +366,7 @@ pub enum IpcCommand {
     ShowCustomSnooze,
     CloseCustomSnooze,
     UpdatePrimaryAction,
+    ShowUpdateDialog,
     DismissUpdateBadge,
     SetIgnoreCurrentUpdate {
         ignored: bool,

@@ -476,7 +476,7 @@
     const shape = breathPolygons[0] || breathArtwork || ball;
     const rect = shape.getBoundingClientRect();
     const badgeSize = 16;
-    const gap = 3;
+    const gap = 8;
     const maxX = Math.max(0, window.innerWidth - badgeSize);
     const maxY = Math.max(0, window.innerHeight - badgeSize);
     const x = clamp(
@@ -716,15 +716,7 @@
     state.updateShowBadge = false;
     dismissBadge(true);
     post({ cmd: "dismiss_update_badge" });
-    if (useNativeMenu) {
-      post({
-        cmd: "show_context_menu",
-        x: Math.round(event.clientX),
-        y: Math.round(event.clientY),
-      });
-    } else {
-      showMenu(event.clientX, event.clientY);
-    }
+    post({ cmd: "show_update_dialog" });
   });
 
   analyticsToggleButton.addEventListener("click", () => {

@@ -47,6 +47,9 @@ use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 use wry::{Rect, WebView, WebViewBuilder};
 
+mod update_check;
+use update_check::{UpdateCheckResult, UpdateCheckService, UpdateCheckSource};
+
 const DEFAULT_SIZE_SHORT_SIDE_RATIO: f64 = 0.10;
 const DEFAULT_EDGE_MARGIN_RATIO: f64 = 0.05;
 const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
@@ -56,15 +59,12 @@ const MIN_HEARTBEAT_INTERVAL_SEC: u64 = 5;
 const MAX_HEARTBEAT_INTERVAL_SEC: u64 = 3600;
 const UPDATE_CHECK_STARTUP_DELAY_SEC: u64 = 8;
 const UPDATE_CHECK_BACKGROUND_INTERVAL_SEC: u64 = 6 * 60 * 60;
-const UPDATE_CHECK_TIMEOUT_SEC: u64 = 10;
 const UPDATE_BADGE_REMINDER_INTERVAL_SEC: i64 = 24 * 60 * 60;
-const UPDATE_RELEASE_API_URL: &str =
-    "https://api.github.com/repos/samm81/downshift/releases/latest";
 const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
-const MAX_SNOOZE_MINUTES: u64 = 7 * 24 * 60;
 const DEFAULT_GITHUB_ISSUES_URL: &str = "github-issues-url-not-set";
 const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
 const UPDATE_TOOLTIP: &str = "new version available";
+const UPDATE_BADGE_WINDOW_RESERVE_PX: f64 = 32.0;
 const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
 const COMPILED_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
 const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
@@ -115,7 +115,12 @@ mod menu_ids {
     #[cfg(debug_assertions)]
     pub(super) const MENU_ID_DEVELOPER_PREVIEWS_ROOT: &str = "developer_previews_root";
     #[cfg(debug_assertions)]
-    pub(super) const MENU_ID_PREVIEW_UPDATE_BADGE: &str = "preview_update_badge";
+    pub(super) const MENU_ID_SIMULATE_PENDING_UPDATE: &str = "simulate_pending_update";
+    #[cfg(debug_assertions)]
+    pub(super) const MENU_ID_FORCE_BACKGROUND_UPDATE_CHECK: &str = "force_background_update_check";
+    #[cfg(debug_assertions)]
+    pub(super) const MENU_ID_CLEAR_UPDATE_NOTIFICATION_DISMISSED: &str =
+        "clear_update_notification_dismissed";
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -407,34 +412,6 @@ impl InstanceCommand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UpdateCheckSource {
-    Background,
-    Manual,
-}
-
-impl UpdateCheckSource {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Background => "background",
-            Self::Manual => "manual",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct UpdateCheckResult {
-    latest_version: Option<String>,
-    download_url: String,
-    status: UpdateCheckStatus,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UpdateCheckStatus {
-    Success,
-    Failed,
-}
-
 #[derive(Debug, Clone)]
 struct UpdateUiState {
     latest_version: Option<String>,
@@ -708,62 +685,17 @@ fn now_epoch_seconds() -> i64 {
         .unwrap_or_default()
 }
 
-fn failed_update_check_result() -> UpdateCheckResult {
-    UpdateCheckResult {
-        latest_version: None,
-        download_url: download_release_url()
-            .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
-        status: UpdateCheckStatus::Failed,
-    }
-}
-
-fn parse_update_release(body: &str) -> Option<(String, Option<String>)> {
-    let data: serde_json::Value = serde_json::from_str(body).ok()?;
-    let latest_version = data
-        .get("tag_name")
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .filter(|value| parse_version(value).is_some())?;
-    let download_url = data
-        .get("html_url")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    Some((latest_version, download_url))
-}
-
-fn check_latest_release() -> UpdateCheckResult {
-    let response = ureq::get(UPDATE_RELEASE_API_URL)
-        .set("User-Agent", "downshift")
-        .timeout(Duration::from_secs(UPDATE_CHECK_TIMEOUT_SEC))
-        .call();
-    let Ok(response) = response else {
-        return failed_update_check_result();
-    };
-    let Ok(body) = response.into_string() else {
-        return failed_update_check_result();
-    };
-    let Some((latest_version, release_url)) = parse_update_release(&body) else {
-        return failed_update_check_result();
-    };
-    let download_url = release_url.unwrap_or_else(|| {
-        download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string())
-    });
-    UpdateCheckResult {
-        latest_version: Some(latest_version),
-        download_url,
-        status: UpdateCheckStatus::Success,
-    }
-}
-
-fn spawn_update_check(proxy: EventLoopProxy<AppEvent>, source: UpdateCheckSource, delay_sec: u64) {
+fn spawn_update_check(
+    proxy: EventLoopProxy<AppEvent>,
+    update_check: UpdateCheckService,
+    source: UpdateCheckSource,
+    delay_sec: u64,
+) {
     std::thread::spawn(move || {
         if delay_sec > 0 {
             std::thread::sleep(Duration::from_secs(delay_sec));
         }
-        let result = check_latest_release();
+        let result = update_check.check();
         let _ = proxy.send_event(AppEvent::UpdateCheckFinished(result, source));
     });
 }
@@ -899,7 +831,11 @@ struct NativeContextMenu {
     crash_off: CheckMenuItem,
     analytics_info: MenuItem,
     #[cfg(debug_assertions)]
-    preview_update_badge: CheckMenuItem,
+    simulate_pending_update: CheckMenuItem,
+    #[cfg(debug_assertions)]
+    force_background_update_check: MenuItem,
+    #[cfg(debug_assertions)]
+    clear_update_notification_dismissed: MenuItem,
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -1088,11 +1024,25 @@ impl NativeContextMenu {
         let analytics_info =
             MenuItem::with_id(MENU_ID_ANALYTICS_INFO, "what we collect…", true, None);
         #[cfg(debug_assertions)]
-        let preview_update_badge = CheckMenuItem::with_id(
-            MENU_ID_PREVIEW_UPDATE_BADGE,
-            "notification badge",
+        let simulate_pending_update = CheckMenuItem::with_id(
+            MENU_ID_SIMULATE_PENDING_UPDATE,
+            "simulate pending update",
             true,
             false,
+            None,
+        );
+        #[cfg(debug_assertions)]
+        let force_background_update_check = MenuItem::with_id(
+            MENU_ID_FORCE_BACKGROUND_UPDATE_CHECK,
+            "force background update check",
+            true,
+            None,
+        );
+        #[cfg(debug_assertions)]
+        let clear_update_notification_dismissed = MenuItem::with_id(
+            MENU_ID_CLEAR_UPDATE_NOTIFICATION_DISMISSED,
+            "clear update notification dismissed",
+            true,
             None,
         );
         #[cfg(debug_assertions)]
@@ -1100,7 +1050,11 @@ impl NativeContextMenu {
             MENU_ID_DEVELOPER_PREVIEWS_ROOT,
             "developer previews",
             true,
-            &[&preview_update_badge],
+            &[
+                &simulate_pending_update,
+                &force_background_update_check,
+                &clear_update_notification_dismissed,
+            ],
         ) {
             Ok(menu) => menu,
             Err(error) => {
@@ -1314,7 +1268,11 @@ impl NativeContextMenu {
             crash_off,
             analytics_info,
             #[cfg(debug_assertions)]
-            preview_update_badge,
+            simulate_pending_update,
+            #[cfg(debug_assertions)]
+            force_background_update_check,
+            #[cfg(debug_assertions)]
+            clear_update_notification_dismissed,
         })
     }
 
@@ -1371,6 +1329,11 @@ impl NativeContextMenu {
             .set_enabled(update_ignore_enabled);
         self.update_ignore_current
             .set_checked(update_ignore_checked);
+        #[cfg(debug_assertions)]
+        {
+            self.force_background_update_check.set_enabled(true);
+            self.clear_update_notification_dismissed.set_enabled(true);
+        }
         self.bugs_menu.set_enabled(true);
         self.copy_diagnostics.set_enabled(true);
         self.file_bug_github.set_enabled(true);
@@ -1421,13 +1384,15 @@ struct App {
     settings_backup_pending: bool,
     startup_provenance: String,
     updates: UpdateUiState,
+    update_check: UpdateCheckService,
     manual_update_check_in_flight: bool,
-    #[cfg(debug_assertions)]
-    developer_preview_update_badge: bool,
 }
 
-impl App {
-    fn new(telemetry: RuntimeTelemetryClient, telemetry_install_first_run: bool) -> Self {
+impl Default for App {
+    fn default() -> Self {
+        let telemetry_state = telemetry_state();
+        let telemetry_install_first_run = telemetry_state.install_first_run;
+        let telemetry = RuntimeTelemetryClient::from_state(telemetry_state);
         Self {
             window: None,
             window_id: None,
@@ -1462,18 +1427,11 @@ impl App {
             settings_backup_pending: false,
             startup_provenance: "unknown".to_string(),
             updates: UpdateUiState::default(),
+            update_check: UpdateCheckService::new(
+                download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
+            ),
             manual_update_check_in_flight: false,
-            #[cfg(debug_assertions)]
-            developer_preview_update_badge: false,
         }
-    }
-}
-
-#[cfg(test)]
-impl Default for App {
-    fn default() -> Self {
-        let (telemetry, telemetry_install_first_run) = bootstrap_telemetry();
-        Self::new(telemetry, telemetry_install_first_run)
     }
 }
 
@@ -1742,10 +1700,15 @@ impl App {
     fn widget_dimensions_px(&self) -> (u32, u32) {
         if let Some(window) = self.window.as_ref() {
             let size = window.inner_size();
-            return (size.width, size.height);
+            let reserve = (UPDATE_BADGE_WINDOW_RESERVE_PX * window.scale_factor()).round() as u32;
+            return (size.width, size.height.saturating_sub(reserve));
         }
         let size = self.settings.size.round().max(0.0) as u32;
         (size, size)
+    }
+
+    fn widget_window_dimensions(&self, size: f64) -> LogicalSize<f64> {
+        LogicalSize::new(size, size + UPDATE_BADGE_WINDOW_RESERVE_PX)
     }
 
     fn telemetry_heartbeat(&self) {
@@ -1802,20 +1765,21 @@ impl App {
         self.drag_anchor_pointer_pos = None;
     }
 
-    fn enforce_fixed_square_size(&self) {
+    fn enforce_fixed_widget_size(&self) {
         let Some(window) = self.window.as_ref() else {
             return;
         };
         let target = clamp_size(self.settings.size);
+        let target_dimensions = self.widget_window_dimensions(target);
         let current = window.inner_size().to_logical::<f64>(window.scale_factor());
-        let width_mismatch = (current.width - target).abs() > 0.5;
-        let height_mismatch = (current.height - target).abs() > 0.5;
+        let width_mismatch = (current.width - target_dimensions.width).abs() > 0.5;
+        let height_mismatch = (current.height - target_dimensions.height).abs() > 0.5;
 
         window.set_resizable(false);
-        window.set_min_inner_size(Some(LogicalSize::new(target, target)));
-        window.set_max_inner_size(Some(LogicalSize::new(target, target)));
+        window.set_min_inner_size(Some(target_dimensions));
+        window.set_max_inner_size(Some(target_dimensions));
         if width_mismatch || height_mismatch {
-            let _ = window.request_inner_size(LogicalSize::new(target, target));
+            let _ = window.request_inner_size(target_dimensions);
         }
     }
 
@@ -1943,25 +1907,14 @@ impl App {
         self.apply_main_webview_state(serde_json::json!({
             "update_menu_label": self.updates.menu_label(),
             "update_has_new_version": self.updates.has_update_available(),
-            "update_show_badge": self.should_show_update_badge(),
+            "update_show_badge": self.updates.should_show_badge(),
             "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
             "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
         }));
     }
 
-    fn should_show_update_badge(&self) -> bool {
-        let should_show = self.updates.should_show_badge();
-        #[cfg(debug_assertions)]
-        {
-            return should_show || self.developer_preview_update_badge;
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            should_show
-        }
-    }
-
     fn sync_update_surfaces(&self) {
+        self.enforce_fixed_widget_size();
         self.sync_update_menu_state();
         self.sync_update_state_to_webview();
     }
@@ -2033,10 +1986,13 @@ impl App {
     }
 
     fn apply_update_check_result(&mut self, result: UpdateCheckResult) {
+        let should_persist_latest_version = result.should_persist_latest_version();
         if let Some(latest) = result.latest_version {
             self.updates.latest_version = Some(latest.clone());
-            self.settings.cached_latest_update_version = Some(latest);
-            self.save_settings();
+            if should_persist_latest_version {
+                self.settings.cached_latest_update_version = Some(latest);
+                self.save_settings();
+            }
         }
         self.updates.download_url = result.download_url;
         self.updates.checked_once = true;
@@ -2148,16 +2104,15 @@ impl App {
         }
     }
 
-    fn set_update_dialog_mode_result(&self, status: UpdateCheckStatus) {
+    fn set_update_dialog_mode_result(&self) {
         let Some(webview) = self.update_dialog_webview.as_ref() else {
             return;
         };
-        let js = if status == UpdateCheckStatus::Failed {
-            "window.updateDialogApplyState({ mode: 'error' });".to_string()
-        } else if self.updates.has_update_available() {
+        let js = if self.updates.has_update_available() {
+            let latest_version = self.updates.latest_version.as_deref().unwrap_or("latest");
             format!(
                 "window.updateDialogApplyState({{ mode: 'available', latest_version: {} }});",
-                serde_json::json!(self.updates.latest_version)
+                serde_json::json!(latest_version)
             )
         } else {
             "window.updateDialogApplyState({ mode: 'latest' });".to_string()
@@ -2179,7 +2134,35 @@ impl App {
             self.updates.checking = false;
             return;
         };
-        spawn_update_check(proxy, UpdateCheckSource::Manual, 0);
+        spawn_update_check(
+            proxy,
+            self.update_check.clone(),
+            UpdateCheckSource::Manual,
+            0,
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    fn run_forced_background_update_check(&mut self) {
+        let Some(proxy) = self.event_loop_proxy.as_ref().cloned() else {
+            return;
+        };
+        spawn_update_check(
+            proxy,
+            self.update_check.clone(),
+            UpdateCheckSource::Background,
+            0,
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    fn clear_update_notification_dismissed(&mut self) {
+        self.settings.update_badge_snoozed_version = None;
+        self.settings.update_badge_snoozed_at_epoch_seconds = None;
+        self.updates.badge_snoozed_version = None;
+        self.updates.badge_snoozed_at_epoch_seconds = None;
+        self.save_settings();
+        self.sync_update_surfaces();
     }
 
     fn handle_update_primary_action(&mut self, event_loop: &ActiveEventLoop) {
@@ -2498,7 +2481,7 @@ impl App {
           "crash_reports_sharing": self.settings.crash_reports_sharing,
           "update_menu_label": self.updates.menu_label(),
           "update_has_new_version": self.updates.has_update_available(),
-          "update_show_badge": self.should_show_update_badge(),
+          "update_show_badge": self.updates.should_show_badge(),
           "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "update_tooltip": UPDATE_TOOLTIP,
@@ -2525,17 +2508,18 @@ impl App {
             None => return,
         };
         let size = clamp_size(size);
-        let old_size = self.settings.size;
         self.settings.size = size;
-        window.set_min_inner_size(Some(LogicalSize::new(size, size)));
-        window.set_max_inner_size(Some(LogicalSize::new(size, size)));
-        let _ = window.request_inner_size(LogicalSize::new(size, size));
+        let target_dimensions = self.widget_window_dimensions(size);
+        let old_dimensions = window.inner_size().to_logical::<f64>(window.scale_factor());
+        window.set_min_inner_size(Some(target_dimensions));
+        window.set_max_inner_size(Some(target_dimensions));
+        let _ = window.request_inner_size(target_dimensions);
 
         if let Some(current_pos) = self.current_window_logical_position() {
-            let center_x = current_pos.x + old_size / 2.0;
-            let center_y = current_pos.y + old_size / 2.0;
-            let next_x = (center_x - size / 2.0).round() as i32;
-            let next_y = (center_y - size / 2.0).round() as i32;
+            let center_x = current_pos.x + old_dimensions.width / 2.0;
+            let center_y = current_pos.y + old_dimensions.height / 2.0;
+            let next_x = (center_x - target_dimensions.width / 2.0).round() as i32;
+            let next_y = (center_y - target_dimensions.height / 2.0).round() as i32;
             window.set_outer_position(LogicalPosition::new(next_x, next_y));
             if let Some(physical) = self.current_window_physical_position() {
                 self.settings.physical_x = Some(physical.x);
@@ -2729,13 +2713,12 @@ impl App {
     }
 
     fn apply_snooze(&mut self, minutes: u64) -> Option<u64> {
-        let minutes = minutes.clamp(1, MAX_SNOOZE_MINUTES);
+        let minutes = minutes.max(1);
         let duration = Duration::from_secs(minutes.saturating_mul(60));
-        let deadline = SystemTime::now().checked_add(duration)?;
         self.close_custom_snooze_window();
         self.settings.paused = false;
         self.activity_mode = ActivityMode::Snoozed;
-        self.snooze_deadline = Some(deadline);
+        self.snooze_deadline = Some(SystemTime::now() + duration);
         self.snooze_generation = self.snooze_generation.wrapping_add(1);
         let generation = self.snooze_generation;
         self.sync_window_visibility();
@@ -2958,6 +2941,10 @@ impl App {
             IpcCommand::UpdatePrimaryAction => {
                 self.handle_update_primary_action(event_loop);
             }
+            IpcCommand::ShowUpdateDialog => {
+                self.open_update_dialog_window(event_loop);
+                self.set_update_dialog_mode_result();
+            }
             IpcCommand::DismissUpdateBadge => {
                 self.dismiss_current_update_badge();
             }
@@ -3046,8 +3033,8 @@ impl App {
             return;
         };
         #[cfg(debug_assertions)]
-        menu.preview_update_badge
-            .set_checked(self.developer_preview_update_badge);
+        menu.simulate_pending_update
+            .set_checked(self.update_check.simulate_pending_update());
         let Some(window) = self.window.as_ref() else {
             return;
         };
@@ -3176,9 +3163,15 @@ impl App {
                 self.apply_ignore_current_update(ignored);
             }
             #[cfg(debug_assertions)]
-            MENU_ID_PREVIEW_UPDATE_BADGE => {
-                self.developer_preview_update_badge = !self.developer_preview_update_badge;
-                self.sync_update_state_to_webview();
+            MENU_ID_SIMULATE_PENDING_UPDATE => {
+                self.update_check
+                    .set_simulate_pending_update(!self.update_check.simulate_pending_update());
+            }
+            #[cfg(debug_assertions)]
+            MENU_ID_FORCE_BACKGROUND_UPDATE_CHECK => self.run_forced_background_update_check(),
+            #[cfg(debug_assertions)]
+            MENU_ID_CLEAR_UPDATE_NOTIFICATION_DISMISSED => {
+                self.clear_update_notification_dismissed();
             }
             MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
             MENU_ID_FILE_BUG_GITHUB => match github_issues_url() {
@@ -3261,15 +3254,16 @@ impl ApplicationHandler<AppEvent> for App {
         };
         self.snooze_deadline = None;
 
+        let initial_window_size = self.widget_window_dimensions(self.settings.size);
         let mut window_attributes = Window::default_attributes()
             .with_title("downshift")
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
-            .with_min_inner_size(LogicalSize::new(self.settings.size, self.settings.size))
-            .with_max_inner_size(LogicalSize::new(self.settings.size, self.settings.size))
+            .with_min_inner_size(initial_window_size)
+            .with_max_inner_size(initial_window_size)
             .with_window_level(WindowLevel::AlwaysOnTop)
-            .with_inner_size(LogicalSize::new(self.settings.size, self.settings.size));
+            .with_inner_size(initial_window_size);
 
         #[cfg(target_os = "windows")]
         {
@@ -3387,17 +3381,18 @@ impl ApplicationHandler<AppEvent> for App {
             );
             self.telemetry_install_first_run = false;
         }
-        self.enforce_fixed_square_size();
+        self.enforce_fixed_widget_size();
         self.sync_webview_bounds();
         if self.settings_load_error.is_none() {
             self.save_settings();
         }
 
+        let update_check = self.update_check.clone();
         if let Some(proxy) = self.event_loop_proxy.as_ref().cloned() {
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_secs(UPDATE_CHECK_STARTUP_DELAY_SEC));
                 loop {
-                    let result = check_latest_release();
+                    let result = update_check.check();
                     let _ = proxy.send_event(AppEvent::UpdateCheckFinished(
                         result,
                         UpdateCheckSource::Background,
@@ -3444,7 +3439,7 @@ impl ApplicationHandler<AppEvent> for App {
                 event_loop.exit();
             }
             WindowEvent::Moved(position) => {
-                self.enforce_fixed_square_size();
+                self.enforce_fixed_widget_size();
                 self.update_position_from_physical(position);
                 self.save_settings();
             }
@@ -3459,7 +3454,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.save_settings();
             }
             WindowEvent::Resized(_) => {
-                self.enforce_fixed_square_size();
+                self.enforce_fixed_widget_size();
                 self.sync_webview_bounds();
                 if let Some(window) = self.window.as_ref() {
                     if let Some(monitor) = window.current_monitor() {
@@ -3504,7 +3499,6 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::TelemetryHeartbeat => self.telemetry_heartbeat(),
             AppEvent::SnoozeExpired(generation) => self.expire_snooze(generation),
             AppEvent::UpdateCheckFinished(result, source) => {
-                let check_status = result.status;
                 let latest_version = result.latest_version.clone();
                 let has_update_available = latest_version
                     .as_deref()
@@ -3521,7 +3515,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.apply_update_check_result(result);
                 if source == UpdateCheckSource::Manual {
                     self.manual_update_check_in_flight = false;
-                    self.set_update_dialog_mode_result(check_status);
+                    self.set_update_dialog_mode_result();
                 }
             }
             #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -3635,12 +3629,6 @@ fn report_abnormal_exit<T: TelemetryClient>(
     telemetry.flush(Duration::from_secs(2));
     telemetry.shutdown(Duration::from_secs(2));
     std::process::ExitCode::from(1)
-}
-
-fn bootstrap_telemetry() -> (RuntimeTelemetryClient, bool) {
-    let state = telemetry_state();
-    let install_first_run = state.install_first_run;
-    (RuntimeTelemetryClient::from_state(state), install_first_run)
 }
 
 fn parse_heartbeat_interval_seconds(raw: &str) -> u64 {
@@ -4015,9 +4003,8 @@ fn main() -> std::process::ExitCode {
         Err(error) => eprintln!("failed to initialize diagnostics logging: {error}"),
     }
 
-    let (telemetry, telemetry_install_first_run) = bootstrap_telemetry();
-    let startup_telemetry = telemetry.clone();
-    let panic_telemetry_for_hook = startup_telemetry.clone();
+    let panic_telemetry = RuntimeTelemetryClient::from_env();
+    let panic_telemetry_for_hook = panic_telemetry.clone();
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         log_stderr!("panic: {}", describe_panic(panic_info));
@@ -4042,7 +4029,7 @@ fn main() -> std::process::ExitCode {
         Err(error) => {
             log_stderr!("error: failed to create event loop: {error}");
             return report_abnormal_exit(
-                &startup_telemetry,
+                &panic_telemetry,
                 SessionEndReason::StartupFailure,
                 "event_loop_build",
             );
@@ -4098,8 +4085,10 @@ fn main() -> std::process::ExitCode {
         }
     });
 
-    let mut app = App::new(telemetry, telemetry_install_first_run);
-    app.event_loop_proxy = Some(event_loop_proxy);
+    let mut app = App {
+        event_loop_proxy: Some(event_loop_proxy),
+        ..App::default()
+    };
 
     if let Err(error) = event_loop.run_app(&mut app) {
         log_stderr!("error: app event loop failed: {error}");
@@ -4201,37 +4190,6 @@ mod tests {
 
     fn expected_support_email() -> &'static str {
         COMPILED_SUPPORT_EMAIL.unwrap_or(DEFAULT_SUPPORT_EMAIL)
-    }
-
-    #[test]
-    #[serial]
-    fn telemetry_bootstrap_preserves_first_run_boundary() {
-        let root = telemetry_test_dir("bootstrap");
-        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
-
-        let (first_client, first_run) = bootstrap_telemetry();
-        let app = App::new(first_client, first_run);
-        assert!(app.telemetry_install_first_run);
-
-        let (second_client, second_run) = bootstrap_telemetry();
-        assert!(!second_run);
-
-        app.telemetry.shutdown(Duration::from_millis(200));
-        second_client.shutdown(Duration::from_millis(200));
-        std::fs::remove_dir_all(root).ok();
-        std::env::remove_var("DOWNSHIFT_TELEMETRY_DIR");
-    }
-
-    #[test]
-    fn apply_snooze_clamps_oversized_inputs() {
-        let mut app = App::default();
-
-        let requested_duration = app
-            .apply_snooze(u64::MAX)
-            .expect("bounded snooze deadline should be representable");
-
-        assert_eq!(requested_duration, MAX_SNOOZE_MINUTES * 60);
-        assert_eq!(app.activity_mode, ActivityMode::Snoozed);
     }
 
     #[test]
@@ -4475,32 +4433,6 @@ mod tests {
     }
 
     #[test]
-    fn update_release_parser_rejects_malformed_or_invalid_versions() {
-        assert!(parse_update_release("{}").is_none());
-        assert!(parse_update_release(r#"{"tag_name":"not-a-version"}"#).is_none());
-        assert!(parse_update_release("not json").is_none());
-    }
-
-    #[test]
-    fn update_release_parser_accepts_valid_release_metadata() {
-        let parsed = parse_update_release(
-            r#"{"tag_name":"v9.9.9","html_url":" https://example.com/release "}"#,
-        )
-        .expect("valid release metadata should parse");
-
-        assert_eq!(parsed.0, "v9.9.9");
-        assert_eq!(parsed.1.as_deref(), Some("https://example.com/release"));
-    }
-
-    #[test]
-    fn failed_update_check_is_not_treated_as_latest() {
-        let result = failed_update_check_result();
-
-        assert_eq!(result.status, UpdateCheckStatus::Failed);
-        assert!(result.latest_version.is_none());
-    }
-
-    #[test]
     fn update_badge_visibility_respects_daily_snooze() {
         let state = UpdateUiState {
             latest_version: Some("9.9.9".to_string()),
@@ -4538,6 +4470,64 @@ mod tests {
         assert!(state.is_ignoring_current_update());
     }
 
+    #[cfg(debug_assertions)]
+    #[test]
+    fn developer_update_control_only_changes_future_check_policy() {
+        let app = App::default();
+        assert_eq!(app.widget_window_dimensions(320.0).height, 352.0);
+        app.update_check.set_simulate_pending_update(true);
+
+        assert!(app.update_check.simulate_pending_update());
+        assert!(!app.updates.has_update_available());
+        assert!(!app.updates.should_show_badge());
+        assert_eq!(app.widget_window_dimensions(320.0).height, 352.0);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn simulated_update_result_flows_through_normal_update_state() {
+        let mut app = App::default();
+        app.settings.cached_latest_update_version = Some("0.1.0".to_string());
+
+        app.apply_update_check_result(UpdateCheckResult {
+            latest_version: Some("99.99.99".to_string()),
+            download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
+            simulated: true,
+        });
+
+        assert_eq!(app.updates.latest_version.as_deref(), Some("99.99.99"));
+        assert!(app.updates.has_update_available());
+        assert!(app.updates.should_show_badge());
+        assert_eq!(
+            app.settings.cached_latest_update_version.as_deref(),
+            Some("0.1.0")
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn clear_update_notification_dismissed_only_clears_badge_snooze() {
+        let mut app = App::default();
+        app.settings.update_badge_snoozed_version = Some("9.9.9".to_string());
+        app.settings.update_badge_snoozed_at_epoch_seconds = Some(10_000);
+        app.settings.ignored_update_version = Some("9.9.9".to_string());
+        app.updates.badge_snoozed_version = app.settings.update_badge_snoozed_version.clone();
+        app.updates.badge_snoozed_at_epoch_seconds =
+            app.settings.update_badge_snoozed_at_epoch_seconds;
+        app.updates.ignored_version = app.settings.ignored_update_version.clone();
+
+        app.clear_update_notification_dismissed();
+
+        assert!(app.settings.update_badge_snoozed_version.is_none());
+        assert!(app.settings.update_badge_snoozed_at_epoch_seconds.is_none());
+        assert!(app.updates.badge_snoozed_version.is_none());
+        assert!(app.updates.badge_snoozed_at_epoch_seconds.is_none());
+        assert_eq!(
+            app.settings.ignored_update_version.as_deref(),
+            Some("9.9.9")
+        );
+    }
+
     #[test]
     fn update_check_result_clears_matching_ignore_and_snooze_after_upgrade() {
         let current = env!("CARGO_PKG_VERSION").to_string();
@@ -4550,7 +4540,8 @@ mod tests {
         app.apply_update_check_result(UpdateCheckResult {
             latest_version: Some(current),
             download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
-            status: UpdateCheckStatus::Success,
+            #[cfg(debug_assertions)]
+            simulated: false,
         });
 
         assert!(app.settings.update_badge_snoozed_version.is_none());
