@@ -1362,11 +1362,8 @@ struct App {
     manual_update_check_in_flight: bool,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        let telemetry_state = telemetry_state();
-        let telemetry_install_first_run = telemetry_state.install_first_run;
-        let telemetry = RuntimeTelemetryClient::from_state(telemetry_state);
+impl App {
+    fn new(telemetry: RuntimeTelemetryClient, telemetry_install_first_run: bool) -> Self {
         Self {
             window: None,
             window_id: None,
@@ -1403,6 +1400,14 @@ impl Default for App {
             updates: UpdateUiState::default(),
             manual_update_check_in_flight: false,
         }
+    }
+}
+
+#[cfg(test)]
+impl Default for App {
+    fn default() -> Self {
+        let (telemetry, telemetry_install_first_run) = bootstrap_telemetry();
+        Self::new(telemetry, telemetry_install_first_run)
     }
 }
 
@@ -3542,6 +3547,12 @@ fn report_abnormal_exit<T: TelemetryClient>(
     std::process::ExitCode::from(1)
 }
 
+fn bootstrap_telemetry() -> (RuntimeTelemetryClient, bool) {
+    let state = telemetry_state();
+    let install_first_run = state.install_first_run;
+    (RuntimeTelemetryClient::from_state(state), install_first_run)
+}
+
 fn parse_heartbeat_interval_seconds(raw: &str) -> u64 {
     raw.trim()
         .parse::<u64>()
@@ -3914,8 +3925,9 @@ fn main() -> std::process::ExitCode {
         Err(error) => eprintln!("failed to initialize diagnostics logging: {error}"),
     }
 
-    let panic_telemetry = RuntimeTelemetryClient::from_env();
-    let panic_telemetry_for_hook = panic_telemetry.clone();
+    let (telemetry, telemetry_install_first_run) = bootstrap_telemetry();
+    let startup_telemetry = telemetry.clone();
+    let panic_telemetry_for_hook = startup_telemetry.clone();
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         log_stderr!("panic: {}", describe_panic(panic_info));
@@ -3940,7 +3952,7 @@ fn main() -> std::process::ExitCode {
         Err(error) => {
             log_stderr!("error: failed to create event loop: {error}");
             return report_abnormal_exit(
-                &panic_telemetry,
+                &startup_telemetry,
                 SessionEndReason::StartupFailure,
                 "event_loop_build",
             );
@@ -3996,10 +4008,8 @@ fn main() -> std::process::ExitCode {
         }
     });
 
-    let mut app = App {
-        event_loop_proxy: Some(event_loop_proxy),
-        ..App::default()
-    };
+    let mut app = App::new(telemetry, telemetry_install_first_run);
+    app.event_loop_proxy = Some(event_loop_proxy);
 
     if let Err(error) = event_loop.run_app(&mut app) {
         log_stderr!("error: app event loop failed: {error}");
@@ -4101,6 +4111,25 @@ mod tests {
 
     fn expected_support_email() -> &'static str {
         COMPILED_SUPPORT_EMAIL.unwrap_or(DEFAULT_SUPPORT_EMAIL)
+    }
+
+    #[test]
+    #[serial]
+    fn telemetry_bootstrap_preserves_first_run_boundary() {
+        let root = telemetry_test_dir("bootstrap");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+
+        let (first_client, first_run) = bootstrap_telemetry();
+        let app = App::new(first_client, first_run);
+        assert!(app.telemetry_install_first_run);
+
+        let (second_client, second_run) = bootstrap_telemetry();
+        assert!(!second_run);
+
+        app.telemetry.shutdown(Duration::from_millis(200));
+        second_client.shutdown(Duration::from_millis(200));
+        std::fs::remove_dir_all(root).ok();
+        std::env::remove_var("DOWNSHIFT_TELEMETRY_DIR");
     }
 
     #[test]

@@ -1014,6 +1014,20 @@ mod tests {
         assert!(usage_events.load(Ordering::SeqCst) >= 1);
         assert!(crash_events.load(Ordering::SeqCst) >= 1);
 
+        let panic_hook_client = client.clone();
+        let crash_events_before_opt_out = crash_events.load(Ordering::SeqCst);
+        client.set_crash_enabled(false);
+        panic_hook_client.track_error(
+            EventName::AppCrash,
+            serde_json::json!({"category": "panic", "fatal": true}),
+        );
+        panic_hook_client.flush(Duration::from_millis(400));
+        assert_eq!(
+            crash_events.load(Ordering::SeqCst),
+            crash_events_before_opt_out,
+            "cloned panic-hook client must observe runtime crash opt-out",
+        );
+
         client.shutdown(Duration::from_millis(400));
         std::fs::remove_dir_all(root).ok();
     }
