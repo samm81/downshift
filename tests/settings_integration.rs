@@ -102,6 +102,19 @@ paused = false
 }
 
 #[test]
+fn load_settings_sanitizes_non_finite_size() {
+    let path = support::temp_file_path("breath-ball-nan-size", "toml");
+    std::fs::write(&path, "size = nan\npaused = false\n")
+        .expect("should write settings with nan size");
+
+    let result = load_settings_result(Some(&path));
+    std::fs::remove_file(&path).ok();
+
+    assert!(result.load_error.is_none());
+    assert_eq!(result.settings.size, DEFAULT_SIZE);
+}
+
+#[test]
 fn load_settings_supports_new_pattern_and_saved_presets() {
     let path = support::temp_file_path("breath-ball-pattern", "toml");
     let raw = r#"

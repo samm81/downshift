@@ -224,7 +224,7 @@ fn default_active_breathing_preset_id() -> String {
 
 impl Settings {
     pub fn sanitize(&mut self) {
-        self.size = self.size.clamp(MIN_SIZE, MAX_SIZE);
+        self.size = clamp_size(self.size);
         self.breathing_pattern.sanitize();
         sanitize_optional_string(&mut self.update_badge_snoozed_version);
         sanitize_optional_string(&mut self.ignored_update_version);
@@ -422,7 +422,11 @@ pub fn apply_resize_step(current_size: f64, delta: i32, fine: bool) -> f64 {
 }
 
 pub fn clamp_size(size: f64) -> f64 {
-    size.clamp(MIN_SIZE, MAX_SIZE)
+    if size.is_finite() {
+        size.clamp(MIN_SIZE, MAX_SIZE)
+    } else {
+        DEFAULT_SIZE
+    }
 }
 
 fn normalize_pattern_phase(value: f64, default: f64, allow_zero: bool) -> f64 {
@@ -726,6 +730,13 @@ mod tests {
     fn apply_resize_step_clamps_to_bounds() {
         assert_eq!(apply_resize_step(MIN_SIZE, -10, false), MIN_SIZE);
         assert_eq!(apply_resize_step(MAX_SIZE, 10, true), MAX_SIZE);
+    }
+
+    #[test]
+    fn clamp_size_replaces_non_finite_values_with_default() {
+        assert_eq!(clamp_size(f64::NAN), DEFAULT_SIZE);
+        assert_eq!(clamp_size(f64::INFINITY), DEFAULT_SIZE);
+        assert_eq!(clamp_size(f64::NEG_INFINITY), DEFAULT_SIZE);
     }
 
     #[test]
