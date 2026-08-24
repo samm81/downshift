@@ -8,7 +8,55 @@
     </style>
   </head>
   <body>
-    <div class="ball" id="ball"></div>
+    <div class="ball" id="ball">
+      <svg
+        class="breath-artwork"
+        viewBox="0 0 100 100"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <g id="breath-art">
+          <g class="breath-geometry">
+            <path
+              class="breath-polygon breath-ring-outer"
+              data-sides="8"
+              data-layer-index="5"
+              d="M 50 97 L 50 97 L 50 97 Z"
+            />
+            <path
+              class="breath-polygon"
+              data-sides="7"
+              data-layer-index="4"
+              d="M 50 97 L 50 97 L 50 97 Z"
+            />
+            <path
+              class="breath-polygon"
+              data-sides="6"
+              data-layer-index="3"
+              d="M 50 97 L 50 97 L 50 97 Z"
+            />
+            <path
+              class="breath-polygon"
+              data-sides="5"
+              data-layer-index="2"
+              d="M 50 97 L 50 97 L 50 97 Z"
+            />
+            <path
+              class="breath-polygon"
+              data-sides="4"
+              data-layer-index="1"
+              d="M 50 97 L 50 97 L 50 97 Z"
+            />
+            <path
+              class="breath-polygon breath-ring-core"
+              data-sides="3"
+              data-layer-index="0"
+              d="M 50 97 L 50 97 L 50 97 Z"
+            />
+          </g>
+        </g>
+      </svg>
+    </div>
     <button
       class="badge"
       id="update-badge"

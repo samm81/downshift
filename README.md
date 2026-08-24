@@ -1,6 +1,6 @@
 # downshift
 
-a tiny desktop breathing companion: one small animated ball that gently expands and contracts to cue slower, steadier breathing while you work.
+a tiny desktop breathing companion: one small animated geometric cue that gently expands and contracts to cue slower, steadier breathing while you work.
 
 [![downshift demo clip](docs/assets/2026-05-25--demo--still.webp)](docs/assets/2026-05-25--demo--still.mp4)
 

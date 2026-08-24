@@ -1,5 +1,9 @@
 (() => {
   const ball = document.getElementById("ball");
+  const breathArt = document.getElementById("breath-art");
+  const breathPolygons = Array.from(
+    breathArt.querySelectorAll(".breath-polygon"),
+  );
   const menu = document.getElementById("menu");
   const pauseButton = document.getElementById("menu-pause");
   const resetButton = document.getElementById("menu-reset");
@@ -41,7 +45,9 @@
     use_native_menu: false,
   };
   const useNativeMenu = Boolean(init.use_native_menu);
-  let breathAnimation = null;
+  let animationFrameId = null;
+  let animationElapsedMs = 0;
+  let animationTimestamp = null;
 
   function normalizePattern(pattern) {
     const fallback = {
@@ -85,32 +91,181 @@
     return next;
   }
 
-  function totalPatternSeconds(pattern) {
-    return (
-      pattern.expanding_seconds +
-      pattern.expanded_hold_seconds +
-      pattern.compressing_seconds +
-      pattern.compressed_hold_seconds
-    );
+  // Every final polygon is regular and uses the same side length. The slot
+  // order grows around the upper point/edge so the morphs stay symmetric.
+  const polygonSideLength = 25;
+  const polygonBaseline = 97;
+  const polygonCenterX = 50;
+  const terminalShapeFraction = 0.2;
+  const regularPolygonStartIndices = new Map([
+    [3, 0],
+    [4, 0],
+    [5, 4],
+    [6, 5],
+    [7, 5],
+    [8, 6],
+  ]);
+  const regularPolygonCache = new Map();
+  const expandedPolygonCache = new Map();
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(value, max));
   }
 
-  function keyframesForPattern(pattern) {
-    const total = Math.max(totalPatternSeconds(pattern), 0.1);
-    const expandEnd = pattern.expanding_seconds / total;
-    const topHoldEnd =
-      (pattern.expanding_seconds + pattern.expanded_hold_seconds) / total;
-    const compressEnd =
-      (pattern.expanding_seconds +
-        pattern.expanded_hold_seconds +
-        pattern.compressing_seconds) /
-      total;
-    return [
-      { transform: "scale(0.8)", offset: 0 },
-      { transform: "scale(1)", offset: expandEnd },
-      { transform: "scale(1)", offset: topHoldEnd },
-      { transform: "scale(0.8)", offset: compressEnd },
-      { transform: "scale(0.8)", offset: 1 },
+  function easeInOut(value) {
+    return 0.5 - Math.cos(Math.PI * clamp(value, 0, 1)) / 2;
+  }
+
+  function growthInsertionAfterIndex(sides) {
+    return Math.floor((sides - 4) / 2);
+  }
+
+  function stageSlots(sides) {
+    const slots = [
+      "triangle-top",
+      "triangle-bottom-right",
+      "triangle-bottom-left",
     ];
+    for (let nextSides = 4; nextSides <= sides; nextSides += 1) {
+      slots.splice(
+        growthInsertionAfterIndex(nextSides) + 1,
+        0,
+        `growth-${nextSides}`,
+      );
+    }
+    return slots;
+  }
+
+  function regularPolygonPoints(sides) {
+    if (regularPolygonCache.has(sides)) {
+      return regularPolygonCache.get(sides);
+    }
+    const radius = polygonSideLength / (2 * Math.sin(Math.PI / sides));
+    const startAngle =
+      sides % 2 === 0 ? -Math.PI / 2 - Math.PI / sides : -Math.PI / 2;
+    const points = Array.from({ length: sides }, (_, index) => {
+      const angle = startAngle + (index * 2 * Math.PI) / sides;
+      return [radius * Math.cos(angle), radius * Math.sin(angle)];
+    });
+    const bottom = Math.max(...points.map(([, y]) => y));
+    const startIndex = regularPolygonStartIndices.get(sides);
+    const rotated = points
+      .slice(startIndex)
+      .concat(points.slice(0, startIndex));
+    const translated = rotated.map(([x, y]) => [
+      polygonCenterX + x,
+      polygonBaseline + y - bottom,
+    ]);
+    regularPolygonCache.set(sides, translated);
+    return translated;
+  }
+
+  function expandedPolygonPoints(sides, vertexCount) {
+    const cacheKey = `${sides}:${vertexCount}`;
+    if (expandedPolygonCache.has(cacheKey)) {
+      return expandedPolygonCache.get(cacheKey);
+    }
+    const expanded = stageSlots(sides).map((slot, index) => ({
+      slot,
+      point: regularPolygonPoints(sides)[index],
+    }));
+    for (let nextSides = sides + 1; nextSides <= vertexCount; nextSides += 1) {
+      const insertAfter = growthInsertionAfterIndex(nextSides);
+      const insertIndex = insertAfter + 1;
+      const before = expanded[insertAfter].point;
+      const after = expanded[insertIndex % expanded.length].point;
+      const point =
+        nextSides % 2 === 0
+          ? [...before]
+          : [(before[0] + after[0]) / 2, (before[1] + after[1]) / 2];
+      expanded.splice(insertIndex, 0, {
+        slot: `growth-${nextSides}`,
+        point,
+      });
+    }
+    const points = expanded.map(({ point }) => point);
+    expandedPolygonCache.set(cacheKey, points);
+    return points;
+  }
+
+  function terminalPointsForProgress(vertexCount, progress) {
+    const triangle = expandedPolygonPoints(3, vertexCount);
+    const line = triangle.map(([x]) => [x, polygonBaseline]);
+    const dot = line.map(() => [polygonCenterX, polygonBaseline]);
+    if (progress < 0.5) {
+      return interpolatePolygon(dot, line, easeInOut(progress * 2));
+    }
+    return interpolatePolygon(line, triangle, easeInOut((progress - 0.5) * 2));
+  }
+
+  function interpolatePolygon(from, to, amount) {
+    return from.map((point, index) => [
+      point[0] + (to[index][0] - point[0]) * amount,
+      point[1] + (to[index][1] - point[1]) * amount,
+    ]);
+  }
+
+  function pathData(points) {
+    return `M ${points
+      .map(([x, y]) => `${x.toFixed(3)} ${y.toFixed(3)}`)
+      .join(" L")} Z`;
+  }
+
+  function polygonPointsForProgress(layerIndex, vertexCount, progress) {
+    const stagePosition = clamp(progress, 0, 1) * 5;
+    const stage = Math.min(Math.floor(stagePosition), 4);
+    const transition = stagePosition - stage;
+    const currentSides = Math.min(3 + layerIndex, 3 + stage);
+    const nextSides = Math.min(currentSides + 1, 3 + layerIndex);
+    const from = expandedPolygonPoints(currentSides, vertexCount);
+    if (currentSides === nextSides) {
+      return from;
+    }
+    const to = expandedPolygonPoints(nextSides, vertexCount);
+    return interpolatePolygon(from, to, easeInOut(transition));
+  }
+
+  function renderBreathingProgress(progress) {
+    const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
+    const polygonProgress = clamp(
+      (progress - terminalShapeFraction) / (1 - terminalShapeFraction),
+      0,
+      1,
+    );
+    breathPolygons.forEach((polygon) => {
+      const layerIndex = Number(polygon.dataset.layerIndex);
+      const vertexCount = Number(polygon.dataset.sides);
+      const points =
+        progress <= terminalShapeFraction
+          ? terminalPointsForProgress(vertexCount, terminalProgress)
+          : polygonPointsForProgress(layerIndex, vertexCount, polygonProgress);
+      polygon.setAttribute("d", pathData(points));
+    });
+  }
+
+  function breathingProgressAt(elapsedMs) {
+    const pattern = state.breathingPattern;
+    const expandingMs = pattern.expanding_seconds * 1000;
+    const expandedHoldMs = pattern.expanded_hold_seconds * 1000;
+    const compressingMs = pattern.compressing_seconds * 1000;
+    const compressedHoldMs = pattern.compressed_hold_seconds * 1000;
+    const cycleMs = Math.max(
+      expandingMs + expandedHoldMs + compressingMs + compressedHoldMs,
+      100,
+    );
+    let remaining = elapsedMs % cycleMs;
+    if (remaining < expandingMs) {
+      return easeInOut(remaining / expandingMs);
+    }
+    remaining -= expandingMs;
+    if (remaining < expandedHoldMs) {
+      return 1;
+    }
+    remaining -= expandedHoldMs;
+    if (remaining < compressingMs) {
+      return 1 - easeInOut(remaining / compressingMs);
+    }
+    return 0;
   }
 
   const state = {
@@ -175,31 +330,29 @@
   }
 
   function syncAnimationPauseState() {
-    if (!breathAnimation) {
-      return;
+    renderBreathingProgress(breathingProgressAt(animationElapsedMs));
+  }
+
+  function animateBreathing(timestamp) {
+    if (animationTimestamp === null) {
+      animationTimestamp = timestamp;
     }
-    if (state.paused) {
-      breathAnimation.pause();
-    } else {
-      breathAnimation.play();
+    if (!state.paused) {
+      animationElapsedMs += Math.min(timestamp - animationTimestamp, 100);
+      renderBreathingProgress(breathingProgressAt(animationElapsedMs));
     }
+    animationTimestamp = timestamp;
+    animationFrameId = window.requestAnimationFrame(animateBreathing);
   }
 
   function restartBreathingAnimation() {
-    if (breathAnimation) {
-      breathAnimation.cancel();
+    if (animationFrameId !== null) {
+      window.cancelAnimationFrame(animationFrameId);
     }
-    breathAnimation = ball.animate(
-      keyframesForPattern(state.breathingPattern),
-      {
-        duration: Math.round(
-          totalPatternSeconds(state.breathingPattern) * 1000,
-        ),
-        iterations: Infinity,
-        easing: "linear",
-      },
-    );
-    syncAnimationPauseState();
+    animationElapsedMs = 0;
+    animationTimestamp = null;
+    renderBreathingProgress(0);
+    animationFrameId = window.requestAnimationFrame(animateBreathing);
   }
 
   function applyBallState() {

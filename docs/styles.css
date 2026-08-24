@@ -219,16 +219,37 @@ h1 {
   width: clamp(88px, 15.5vw, 126px);
   aspect-ratio: 1 / 1;
   border-radius: 9999px;
-  background: rgba(124, 182, 255, 0.52);
-  box-shadow: inset 0 0 0 1px rgba(124, 182, 255, 0.35);
-  transform: scale(0.8);
-  transform-origin: center;
-  /* keep in sync with src/main.rs BREATH_HTML .ball animation */
-  animation: demo-breathe 5.5s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
+  background: transparent;
+  overflow: visible;
   cursor: -webkit-grab;
   cursor: grab;
   pointer-events: auto;
   touch-action: none;
+}
+
+.demo-breath-artwork {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.demo-breath-polygon {
+  fill: rgba(239, 247, 255, 0.42);
+  stroke: rgba(67, 122, 187, 0.78);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.15;
+}
+
+.demo-breath-ring-outer {
+  fill: rgba(124, 182, 255, 0.2);
+  stroke: rgba(67, 122, 187, 0.88);
+  stroke-width: 1.35;
+}
+
+.demo-breath-ring-core {
+  fill: rgba(124, 182, 255, 0.3);
 }
 
 .demo-ball.is-dragging {
