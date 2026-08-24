@@ -169,6 +169,7 @@ pages-preview:
 
 pages-check:
 	node dev/pages/release-manifest.mjs validate docs/release.json
+	node dev/pages/release-manifest.mjs validate-embedded docs/release.json docs/index.html
 
 pages-smoke: pages-check
 	npm run smoke:pages

@@ -3,16 +3,16 @@
 ## Goal
 
 Replace the website's client-side request to the unauthenticated GitHub Releases API with a
-small static release manifest committed under `/docs`.
+small static release manifest committed under `/docs` and embedded into the landing page.
 
 The website will continue to show the latest stable release and platform-specific downloads, but
-release metadata will be served by GitHub Pages from the same origin. Visitors will not consume
-GitHub's public API quota, and the site will not depend on CORS behavior or a browser's shared
-network egress address.
+release metadata will be generated from the canonical `docs/release.json` and made available in the
+initial HTML. Visitors will not consume GitHub's public API quota, and the site will not depend on
+CORS behavior, a second manifest request, or a browser's shared network egress address.
 
 ## Why this is needed
 
-The current `docs/script.js` fetches:
+Before this work, `docs/script.js` fetched:
 
 ```text
 https://api.github.com/repos/samm81/downshift/releases/latest
@@ -29,6 +29,10 @@ The website must never receive or embed the user's `gh` token.
 ## Success criteria
 
 - The website makes no request to `api.github.com` at runtime.
+- The website makes no runtime request to `release.json`; the embedded manifest is available during
+  the initial page load.
+- `docs/release.json` remains the canonical copy and matches the generated block in
+  `docs/index.html` exactly.
 - A stable release updates the static manifest after its release assets are published.
 - Prereleases leave the stable manifest unchanged.
 - The page shows the stable macOS asset when present.
@@ -72,9 +76,10 @@ Rules:
 
 ### 1. Add static manifest loading to the website
 
-- Replace the GitHub API URL in `docs/script.js` with `./release.json`.
-- Fetch the manifest from the same origin with browser caching disabled or revalidated so a Pages
-  deployment can pick up a new release promptly.
+- Add a marked `<script type="application/json">` block to `docs/index.html`.
+- Generate that block from the canonical `docs/release.json`.
+- Read the embedded manifest synchronously in `docs/script.js`; do not fetch either GitHub's API or
+  `release.json` at runtime.
 - Validate the required fields and accepted URL shape before updating the page.
 - Reuse the existing platform-card behavior:
   - show the macOS card only when `macos_url` is present;
@@ -84,13 +89,14 @@ Rules:
 - Keep the static HTML fallback usable if JavaScript is disabled.
 - Keep the failure state concise and point users to the GitHub releases page.
 - Remove the `api.github.com` dependency and its request-specific headers.
+- Keep `release.json` available as a directly inspectable and recoverable static artifact.
 
 ### 2. Seed and document the manifest
 
 - Add `docs/release.json` for the current stable release.
 - Document the schema and update ownership in `docs/README.md`.
 - State that the release workflow owns updates after publication; manual edits are for recovery only.
-- Add a JSON validation command to the local Pages checks.
+- Add JSON and embedded-block validation commands to the local Pages checks.
 
 ### 3. Update the unified release workflow
 
@@ -104,9 +110,10 @@ The stage should:
    authenticated `GITHUB_TOKEN`.
 3. Select the notarized macOS DMG, Windows installer when present, and combined `SHA256SUMS.txt`.
 4. Generate `docs/release.json` with deterministic formatting.
-5. Check out the `main` branch, because GitHub Pages publishes `/docs` from `main`.
-6. Commit the manifest as a bot change such as `chore: update Pages release manifest for v0.2.0`.
-7. Push the commit to `main` using the existing workflow contents-write permission.
+5. Embed the validated manifest into the marked block in `docs/index.html`.
+6. Check out the `main` branch, because GitHub Pages publishes `/docs` from `main`.
+7. Commit both files as a bot change such as `chore: update Pages release metadata for v0.2.0`.
+8. Push the commit to `main` using the existing workflow contents-write permission.
 
 Additional workflow requirements:
 
@@ -129,7 +136,7 @@ stable tag. It should support:
 
 - repairing a failed Pages-manifest update without rebuilding binaries;
 - moving the manifest back to a previous stable tag;
-- validating the generated JSON before pushing it.
+- validating the generated JSON and embedded HTML block before pushing it.
 
 Recovery must be explicit and tag-based. It must not silently select a prerelease or an arbitrary
 draft release.
@@ -141,8 +148,8 @@ Local iteration:
 - `make pages-preview` serves the real `/docs` directory.
 - Add a manifest validation check that confirms JSON syntax, required fields, HTTPS URLs, and the
   expected repository.
-- Use the browser smoke test to confirm that the page loads without a GitHub API request or a
-  `403` console warning.
+- Use the browser smoke test to confirm that the page loads from its embedded manifest without a
+  GitHub API request, a `release.json` request, or a `403` console warning.
 - Test the seeded macOS-only manifest and confirm that the Windows card is absent.
 - Test a temporary fixture containing a Windows `.exe` URL and confirm that both platform cards and
   both buttons appear.
@@ -151,7 +158,8 @@ Local iteration:
 Hosted verification:
 
 - Add the manifest validation to the Pages-related GitHub Actions checks.
-- Add a hosted Pages smoke workflow that verifies the static manifest request returns `200`.
+- Add a hosted Pages smoke workflow that verifies the directly published static manifest returns
+  `200` and matches the embedded manifest in the deployed HTML.
 - Verify that the browser console has no request to `api.github.com`.
 - After a test stable release, verify that the release workflow updates `main`, GitHub Pages deploys
   the new manifest, and the published website shows the new asset set.
@@ -160,17 +168,18 @@ Hosted verification:
 ## Rollout order
 
 1. Add and validate the manifest schema and the initial current-stable file.
-2. Switch the website from the GitHub API to the local manifest.
-3. Run local macOS-only and Windows-present fixture smoke tests.
-4. Add the release workflow manifest-update stage.
-5. Run a test release or controlled stable-release rehearsal and inspect the workflow summary and
+2. Generate and validate the embedded copy in the landing page.
+3. Switch the website from the GitHub API to the embedded manifest.
+4. Run local macOS-only and Windows-present fixture smoke tests.
+5. Add the release workflow manifest-update stage.
+6. Run a test release or controlled stable-release rehearsal and inspect the workflow summary and
    Pages deployment.
-6. Remove the old API-fetch code and update the migration/release documentation.
+7. Remove the old API-fetch code and update the migration/release documentation.
 
 ## Rollback
 
-- If the manifest update is wrong, restore the previous valid `docs/release.json` and push a normal
-  Pages update.
+- If the release metadata update is wrong, restore the previous valid `docs/release.json`, regenerate
+  the embedded block, and push a normal Pages update.
 - If the website code is wrong, revert the website change while retaining the manifest for the next
   deployment.
 - If the release workflow update fails after publication, run the authenticated recovery path for
@@ -178,20 +187,21 @@ Hosted verification:
 
 ## Current status
 
-- Status: implementation complete; local and hosted branch verification passed on the final branch
-  tip. Live deployed-site verification remains pending until this reaches `main`.
-- Working branch: `codex/pages-static-releases`.
-- Final validation commit: `96e93a4`.
-- The website now fetches same-origin `docs/release.json`; it no longer calls GitHub's
-  unauthenticated Releases API.
+- Status: embedded-manifest implementation complete on a follow-up branch; Windows-native local
+  checks and browser smoke pass. Hosted verification is pending until the branch is pushed.
+- Working branch: `codex/embed-pages-release-manifest`.
+- Base commit: `75bd2ba`.
+- The website now reads a generated embedded copy synchronously; it no longer requests either
+  GitHub's unauthenticated Releases API or `release.json` at runtime.
 - The checked-in manifest describes the current stable `v0.2.0` release, with macOS and Windows
   assets plus checksums.
-- The release workflow now updates `main` after a stable release is published. Prereleases leave
-  the existing manifest unchanged.
+- The release workflow now regenerates both `docs/release.json` and the embedded block in
+  `docs/index.html` after a stable release is published. Prereleases leave the existing release
+  metadata unchanged.
 - `make pages-preview`, `make pages-check`, `make pages-smoke`, and the tag-based
   `make pages-release-manifest` recovery target are available.
 - Local manifest validation and browser smoke pass on macOS-plus-Windows, macOS-only, malformed,
-  missing, and JavaScript-disabled cases.
+  missing, and JavaScript-disabled cases, including embedded and no-runtime-request assertions.
 - Hosted Pages smoke passed on GitHub run `32729625828` for commit `75d6108`.
 - The macOS build workflow passed on run `32729625780`; the Windows build, installer, and scripted
   smoke workflow passed on run `32729625726`.
@@ -234,3 +244,12 @@ Hosted verification:
   allow bounded filesystem cleanup. The exact CI-style and full local installer smokes passed.
 - Re-ran macOS, Windows, and Pages smoke on `96e93a4`; all passed. The live hosted-site check remains
   intentionally deferred to the first push on `main`.
+
+### 2026-08-24: embedded manifest follow-up
+
+- Started `codex/embed-pages-release-manifest` from `main` at `75bd2ba`; `main` remains untouched.
+- Added deterministic generation, embedding, removal, and validation helpers for the marked
+  release-metadata block in `docs/index.html`.
+- Updated the website, release updater, local checks, and hosted Pages smoke verification to keep
+  `docs/release.json` and the embedded copy synchronized and to assert that browsers do not request
+  `release.json`.

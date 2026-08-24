@@ -48,18 +48,20 @@ trap 'rm -f "$RELEASE_JSON"' EXIT
 
 gh api "repos/${REPOSITORY}/releases/tags/${TAG_VALUE}" >"$RELEASE_JSON"
 node dev/pages/release-manifest.mjs generate "$RELEASE_JSON" docs/release.json
+node dev/pages/release-manifest.mjs embed docs/release.json docs/index.html
+node dev/pages/release-manifest.mjs validate-embedded docs/release.json docs/index.html
 
 if
-  git diff --quiet -- docs/release.json &&
-    git diff --cached --quiet -- docs/release.json &&
-    git ls-files --error-unmatch -- docs/release.json >/dev/null 2>&1
+  git diff --quiet -- docs/release.json docs/index.html &&
+    git diff --cached --quiet -- docs/release.json docs/index.html &&
+    git ls-files --error-unmatch -- docs/release.json docs/index.html >/dev/null 2>&1
 then
-  echo "Pages release manifest is already current for ${TAG_VALUE}"
+  echo "Pages release metadata is already current for ${TAG_VALUE}"
   exit 0
 fi
 
 if [[ "$COMMIT" != true ]]; then
-  echo "updated docs/release.json for ${TAG_VALUE} (not committed)"
+  echo "updated docs/release.json and embedded it in docs/index.html for ${TAG_VALUE} (not committed)"
   exit 0
 fi
 
@@ -68,13 +70,13 @@ if [[ "$PUSH" == true ]]; then
   git rebase origin/main
 fi
 
-git add docs/release.json
-if git diff --cached --quiet -- docs/release.json; then
-  echo "Pages release manifest is already current for ${TAG_VALUE}"
+git add docs/release.json docs/index.html
+if git diff --cached --quiet -- docs/release.json docs/index.html; then
+  echo "Pages release metadata is already current for ${TAG_VALUE}"
   exit 0
 fi
 
-git commit -m "chore: update Pages release manifest for ${TAG_VALUE}"
+git commit -m "chore: update Pages release metadata for ${TAG_VALUE}"
 
 if [[ "$PUSH" == true ]]; then
   for attempt in 1 2 3; do

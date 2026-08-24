@@ -7,8 +7,11 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 import {
+  embedManifestIntoHtml,
   manifestFromRelease,
+  removeEmbeddedManifestFromHtml,
   validateReleaseManifest,
+  validateEmbeddedManifest,
 } from "./release-manifest.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -126,16 +129,14 @@ async function createFixture(manifest, { missing = false } = {}) {
     path.join(os.tmpdir(), "downshift-pages-smoke-"),
   );
   await fs.promises.cp(DOCS_DIR, fixture, { recursive: true });
+  const fixtureIndexPath = path.join(fixture, "index.html");
   const fixtureManifestPath = path.join(fixture, "release.json");
-  if (missing) {
-    await fs.promises.rm(fixtureManifestPath);
-  } else if (manifest !== undefined) {
-    await fs.promises.writeFile(
-      fixtureManifestPath,
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      "utf8",
-    );
-  }
+  const fixtureIndexHtml = await fs.promises.readFile(fixtureIndexPath, "utf8");
+  await fs.promises.rm(fixtureManifestPath, { force: true });
+  const updatedIndexHtml = missing
+    ? removeEmbeddedManifestFromHtml(fixtureIndexHtml)
+    : embedManifestIntoHtml(fixtureIndexHtml, manifest, { validate: false });
+  await fs.promises.writeFile(fixtureIndexPath, updatedIndexHtml, "utf8");
   return fixture;
 }
 
@@ -144,10 +145,8 @@ async function runJavaScriptCase(browser, fixture, expectations) {
   const context = await browser.newContext();
   const page = await context.newPage();
   const requests = [];
-  const responses = [];
   const consoleMessages = [];
   page.on("request", (request) => requests.push(request.url()));
-  page.on("response", (response) => responses.push(response));
   page.on("console", (message) => consoleMessages.push(message.text()));
 
   try {
@@ -160,17 +159,9 @@ async function runJavaScriptCase(browser, fixture, expectations) {
         document.querySelector("#download-error")?.hidden === false,
     );
 
-    const manifestResponse = responses.find((response) =>
-      response.url().endsWith("/release.json"),
-    );
     assert(
-      manifestResponse,
-      `${expectations.name}: release.json was not requested`,
-    );
-    assertEqual(
-      manifestResponse.status(),
-      expectations.manifestStatus,
-      `${expectations.name}: release.json status`,
+      !requests.some((url) => url.endsWith("/release.json")),
+      `${expectations.name}: browser requested release.json`,
     );
     assert(
       !requests.some((url) => url.includes("api.github.com")),
@@ -310,12 +301,21 @@ async function main() {
     !source.includes("api.github.com"),
     "index.html still contains the GitHub API endpoint",
   );
+  assert(
+    !source.includes("data-release-manifest"),
+    "index.html still declares a runtime manifest URL",
+  );
 
   const manifest = readManifest();
   const manifestErrors = validateReleaseManifest(manifest);
   assert(
     manifestErrors.length === 0,
     `checked-in manifest is invalid: ${manifestErrors.join(", ")}`,
+  );
+  const embeddedErrors = validateEmbeddedManifest(manifest, source);
+  assert(
+    embeddedErrors.length === 0,
+    `embedded release manifest is invalid: ${embeddedErrors.join(", ")}`,
   );
   testManifestGenerator(manifest);
 
@@ -343,7 +343,6 @@ async function main() {
     try {
       await runJavaScriptCase(browser, bothPlatforms, {
         name: "macOS-plus-Windows manifest",
-        manifestStatus: 200,
         valid: true,
         hasMacos: true,
         hasWindows: true,
@@ -352,7 +351,6 @@ async function main() {
       });
       await runJavaScriptCase(browser, macosOnly, {
         name: "macOS-only manifest",
-        manifestStatus: 200,
         valid: true,
         hasMacos: true,
         hasWindows: false,
@@ -360,14 +358,12 @@ async function main() {
       });
       await runJavaScriptCase(browser, malformed, {
         name: "malformed manifest",
-        manifestStatus: 200,
         valid: false,
         hasMacos: false,
         hasWindows: false,
       });
       await runJavaScriptCase(browser, missing, {
         name: "missing manifest",
-        manifestStatus: 404,
         valid: false,
         hasMacos: false,
         hasWindows: false,
@@ -385,7 +381,7 @@ async function main() {
   }
 
   console.log(
-    "Pages browser smoke passed: API-free, macOS-only, Windows-present, invalid, missing, and no-JavaScript cases",
+    "Pages browser smoke passed: embedded, API-free, macOS-only, Windows-present, invalid, missing, and no-JavaScript cases",
   );
 }
 

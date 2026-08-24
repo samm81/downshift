@@ -63,6 +63,9 @@ jobs:
           node dev/pages/release-manifest.mjs validate "$RUNNER_TEMP/deployed-release.json"
           curl --fail --location --silent --show-error "$PAGES_URL/" \
             --output "$RUNNER_TEMP/deployed-index.html"
+          node dev/pages/release-manifest.mjs validate-embedded \
+            "$RUNNER_TEMP/deployed-release.json" \
+            "$RUNNER_TEMP/deployed-index.html"
           if grep -Fq "api.github.com" "$RUNNER_TEMP/deployed-index.html"; then
               echo "error: deployed Pages site still references api.github.com"
               exit 1

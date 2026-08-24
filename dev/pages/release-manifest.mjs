@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 
 export const RELEASE_REPOSITORY = "samm81/downshift";
 export const STABLE_VERSION_PATTERN = /^v\d+\.\d+\.\d+$/;
+export const EMBEDDED_MANIFEST_START =
+  "<!-- DOWNSHIFT_RELEASE_MANIFEST_START -->";
+export const EMBEDDED_MANIFEST_END = "<!-- DOWNSHIFT_RELEASE_MANIFEST_END -->";
 
 const ASSET_FIELDS = ["macos_url", "windows_url", "checksums_url"];
 
@@ -209,19 +212,110 @@ function writeManifest(filePath, manifest) {
   fs.writeFileSync(filePath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
+function embeddedManifestBlock(manifest, { validate = true } = {}) {
+  if (validate) {
+    const errors = validateReleaseManifest(manifest);
+    if (errors.length > 0) {
+      throw new Error(
+        `cannot embed invalid release manifest:\n- ${errors.join("\n- ")}`,
+      );
+    }
+  }
+
+  // Escape HTML-sensitive characters before placing JSON inside a script
+  // element. This keeps a future manifest value from closing the element.
+  const json = JSON.stringify(manifest, null, 2)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026");
+  const indentedJson = json
+    .split("\n")
+    .map((line) => `      ${line}`)
+    .join("\n");
+
+  return [
+    `    ${EMBEDDED_MANIFEST_START}`,
+    '    <script id="release-manifest" type="application/json">',
+    indentedJson,
+    "    </script>",
+    `    ${EMBEDDED_MANIFEST_END}`,
+  ].join("\n");
+}
+
+function embeddedManifestRange(indexHtml) {
+  const start = indexHtml.indexOf(EMBEDDED_MANIFEST_START);
+  const end = indexHtml.indexOf(EMBEDDED_MANIFEST_END, start);
+  if (start < 0 || end < 0) {
+    throw new Error(
+      "index.html is missing the release manifest start/end markers",
+    );
+  }
+
+  const startLine = indexHtml.lastIndexOf("\n", start) + 1;
+  const endLine = indexHtml.indexOf("\n", end);
+  return {
+    startLine,
+    endLine: endLine < 0 ? indexHtml.length : endLine,
+    afterEndLine: endLine < 0 ? indexHtml.length : endLine + 1,
+  };
+}
+
+export function embedManifestIntoHtml(indexHtml, manifest, options = {}) {
+  const range = embeddedManifestRange(indexHtml);
+  const block = embeddedManifestBlock(manifest, options);
+  return `${indexHtml.slice(0, range.startLine)}${block}${indexHtml.slice(range.endLine)}`;
+}
+
+export function removeEmbeddedManifestFromHtml(indexHtml) {
+  const range = embeddedManifestRange(indexHtml);
+  return `${indexHtml.slice(0, range.startLine)}${indexHtml.slice(range.afterEndLine)}`;
+}
+
+export function validateEmbeddedManifest(manifest, indexHtml) {
+  try {
+    const expected = embedManifestIntoHtml(indexHtml, manifest);
+    return expected === indexHtml
+      ? []
+      : ["index.html does not contain the current release manifest"];
+  } catch (error) {
+    return [error.message];
+  }
+}
+
+function writeEmbeddedManifest(manifestPath, indexPath) {
+  const manifest = readJson(manifestPath);
+  const errors = validateReleaseManifest(manifest);
+  if (errors.length > 0) {
+    throw new Error(
+      `invalid release manifest ${manifestPath}:\n- ${errors.join("\n- ")}`,
+    );
+  }
+  const indexHtml = fs.readFileSync(indexPath, "utf8");
+  const updatedIndexHtml = embedManifestIntoHtml(indexHtml, manifest);
+  fs.writeFileSync(indexPath, updatedIndexHtml, "utf8");
+  console.log(
+    `embedded ${manifestPath} into ${indexPath} for ${manifest.version}`,
+  );
+}
+
 function usage() {
   console.error("usage:");
   console.error(
     "  node dev/pages/release-manifest.mjs validate [manifest-path|-]",
   );
   console.error(
+    "  node dev/pages/release-manifest.mjs validate-embedded <manifest-path> [index-path]",
+  );
+  console.error(
     "  node dev/pages/release-manifest.mjs generate <release-json-path> [manifest-path]",
+  );
+  console.error(
+    "  node dev/pages/release-manifest.mjs embed <manifest-path> [index-path]",
   );
 }
 
 function main() {
-  const [command, firstPath, secondPath = "docs/release.json"] =
-    process.argv.slice(2);
+  const [command, firstPath, secondPath] = process.argv.slice(2);
   if (command === "validate") {
     const filePath = firstPath || "docs/release.json";
     const manifest = readJson(filePath);
@@ -235,11 +329,31 @@ function main() {
     return;
   }
 
+  if (command === "validate-embedded" && firstPath) {
+    const manifestPath = firstPath;
+    const indexPath = secondPath || "docs/index.html";
+    const manifest = readJson(manifestPath);
+    const indexHtml = fs.readFileSync(indexPath, "utf8");
+    const errors = validateEmbeddedManifest(manifest, indexHtml);
+    if (errors.length > 0) {
+      throw new Error(
+        `invalid embedded release manifest ${indexPath}:\n- ${errors.join("\n- ")}`,
+      );
+    }
+    console.log(`validated embedded ${manifestPath} in ${indexPath}`);
+    return;
+  }
+
   if (command === "generate" && firstPath) {
     const release = readJson(firstPath);
     const manifest = manifestFromRelease(release);
     writeManifest(secondPath, manifest);
     console.log(`generated ${secondPath} for ${manifest.version}`);
+    return;
+  }
+
+  if (command === "embed" && firstPath) {
+    writeEmbeddedManifest(firstPath, secondPath || "docs/index.html");
     return;
   }
 

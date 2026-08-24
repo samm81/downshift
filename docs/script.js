@@ -1,6 +1,5 @@
 const dom = {
   page: document.body,
-  section: document.getElementById("download"),
   downloadGrid: document.getElementById("download-grid"),
   macosDownloadOption: document.getElementById("macos-download-option"),
   heroDownload: document.getElementById("hero-download"),
@@ -250,17 +249,19 @@ function validateReleaseManifest(manifest) {
   return errors;
 }
 
-async function loadReleaseManifest() {
-  const manifestUrl = dom.section?.dataset?.releaseManifest || "./release.json";
-
+function loadReleaseManifest() {
   try {
-    const response = await fetch(manifestUrl, { cache: "no-store" });
-
-    if (!response.ok) {
-      throw new Error(`manifest request status ${response.status}`);
+    const manifestElement = document.getElementById("release-manifest");
+    if (!manifestElement) {
+      throw new Error("embedded release manifest is missing");
     }
 
-    const manifest = await response.json();
+    const manifestText = manifestElement.textContent?.trim();
+    if (!manifestText) {
+      throw new Error("embedded release manifest is empty");
+    }
+
+    const manifest = JSON.parse(manifestText);
     const errors = validateReleaseManifest(manifest);
     if (errors.length > 0) {
       throw new Error(`invalid release manifest: ${errors.join(", ")}`);

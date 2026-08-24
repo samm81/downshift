@@ -4,9 +4,9 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 
 ## files
 
-- `index.html`: single-page landing structure and content
+- `index.html`: single-page landing structure, content, and generated release metadata block
 - `styles.css`: desktop-first styling
-- `script.js`: static release manifest enhancement (no product-copy overrides)
+- `script.js`: embedded release metadata enhancement (no product-copy overrides)
 - `release.json`: generated manifest for the latest stable release
 - `assets/icon.png`: placeholder app icon (locally generated)
 - `assets/mac-desktop-generic.svg`: placeholder desktop preview backdrop (locally generated)
@@ -15,7 +15,8 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 
 - `index.html` is the source of truth for all user-visible product narrative and baseline links.
 - the page must remain coherent and usable with JavaScript disabled.
-- `script.js` may only enhance behavior that cannot be done statically (release manifest loading).
+- `script.js` may only enhance behavior that cannot be done statically (reading embedded release
+  metadata and wiring download links).
 - do not add JS-driven overrides for brand/product copy like app name, tagline, hero text, or trust claims.
 
 ## placeholder asset source/license
@@ -61,10 +62,15 @@ npx playwright install chromium
 make pages-smoke
 ```
 
-## release sync approach (implemented): static release manifest
+## release sync approach (implemented): static release manifest with embedded copy
 
-this page uses `script.js` to fetch `./release.json` from the same GitHub Pages origin. The manifest
-contains:
+`docs/release.json` is the canonical release manifest. The release workflow generates it from the
+published GitHub release and embeds an exact generated copy in `index.html`. `script.js` reads that
+embedded JSON synchronously, so the first page load does not depend on a second network request.
+The standalone `release.json` remains published for inspection, validation, and recovery tooling;
+it is not loaded by the browser at runtime.
+
+The manifest contains:
 
 - stable version tag
 - `.dmg` macOS download link, when present
@@ -75,15 +81,15 @@ contains:
 The manifest is deliberately small and is validated in both Node-based tooling and the browser.
 Only stable tags and HTTPS URLs for `samm81/downshift` are accepted. Static HTML has no
 platform-specific direct download links or version text. A `<noscript>` block links to the latest
-releases page when JavaScript is disabled. If manifest loading fails, the page shows a concise
-latest-releases fallback and hides direct download buttons. If a stable release is missing a
-platform artifact, that platform's download card stays hidden. Prereleases never update the
+releases page when JavaScript is disabled. If embedded manifest parsing or validation fails, the
+page shows a concise latest-releases fallback and hides direct download buttons. If a stable release
+is missing a platform artifact, that platform's download card stays hidden. Prereleases never update the
 manifest.
 
 After a stable release is published, the unified release workflow uses its authenticated
-`GITHUB_TOKEN` to regenerate `docs/release.json`, commit it to `main`, and push it for GitHub Pages
-to deploy. The committed manifest never contains credentials or private release data. The update is
-idempotent and exact-tag based.
+`GITHUB_TOKEN` to regenerate `docs/release.json`, embed it into `docs/index.html`, commit both files
+to `main`, and push them for GitHub Pages to deploy. The committed release metadata never contains
+credentials or private release data. The update is idempotent and exact-tag based.
 
 `release.json` uses these fields:
 
@@ -101,15 +107,16 @@ artifacts, run this from `main`:
 make pages-release-manifest TAG=v0.2.0
 ```
 
-That updates the working tree only. Add `PUSH=1` to create the bot-style manifest commit and push
-it to `main` after verifying the result.
+That updates the working tree only. It regenerates the canonical manifest and its embedded copy.
+Add `PUSH=1` to create the bot-style release-metadata commit and push it to `main` after verifying
+the result.
 
 ### update content and release metadata
 
 Edit `index.html` for product narrative, contact details, the email capture URL, and the
-no-JavaScript fallback releases link. Platform download URLs, checksums, release notes, and the
-version are not edited in `index.html`; update `release.json` through the release workflow or the
-explicit tag-based recovery target above.
+no-JavaScript fallback releases link. Do not hand-edit the generated release metadata block in
+`index.html`. Platform download URLs, checksums, release notes, and the version are sourced from
+`release.json` through the release workflow or the explicit tag-based recovery target above.
 
 ## notes
 

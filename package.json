@@ -15,7 +15,7 @@
     "check:windows": "prettier --check src/ui && eslint src/ui && stylelint src/ui/**/*.css && markdownlint-cli2 && npm run check:pages",
     "lint": "npm run lint:web:js && npm run lint:web:css && npm run lint:shell && npm run lint:md",
     "check": "npm run fmt:check:web && npm run fmt:check:shell && npm run lint && npm run check:pages",
-    "check:pages": "node dev/pages/release-manifest.mjs validate docs/release.json",
+    "check:pages": "node dev/pages/release-manifest.mjs validate docs/release.json && node dev/pages/release-manifest.mjs validate-embedded docs/release.json docs/index.html",
     "smoke:pages": "node dev/pages/pages-smoke.mjs"
   },
   "devDependencies": {
