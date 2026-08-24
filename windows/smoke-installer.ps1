@@ -375,18 +375,25 @@ function Invoke-SilentUninstall {
     if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
         throw "Uninstaller not found at '$uninstaller'."
     }
+
+    # The installed app starts WebView2 child processes. Stop the complete
+    # process tree before launching Inno's uninstaller so those children do
+    # not keep files in the install directory locked during cleanup.
+    $installedBinary = Join-Path $TargetDirectory 'downshift.exe'
+    Stop-ProcessesAtPathAndWait -Path $installedBinary -TimeoutSeconds 10
+    Stop-InstallerProcessesForDirectory -Directory $TargetDirectory
+
     $process = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -PassThru -Wait
     if ($process.ExitCode -ne 0) {
         throw "Silent Inno uninstall exited with code $($process.ExitCode)."
     }
 
-    # Stop the app and any WebView2 descendants before uninstalling. Inno can
-    # finish the uninstaller process before its final directory cleanup has
-    # become visible to the filesystem, so give that cleanup a bounded grace
-    # period as well.
+    # Inno can finish the uninstaller process before its final directory
+    # cleanup has become visible to the filesystem, so give that cleanup a
+    # bounded grace period as well.
     Stop-ProcessesAtPathAndWait -Path (Join-Path $TargetDirectory 'downshift.exe') -TimeoutSeconds 10
     Stop-InstallerProcessesForDirectory -Directory $TargetDirectory
-    $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(30)
     while ((Test-Path -LiteralPath $TargetDirectory) -and [DateTime]::UtcNow -lt $cleanupDeadline) {
         Stop-ProcessAtPath -Path (Join-Path $TargetDirectory 'downshift.exe')
         Stop-InstallerProcessesForDirectory -Directory $TargetDirectory
@@ -404,8 +411,26 @@ function Invoke-SilentUninstall {
 function Stop-ProcessAtPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     foreach ($processId in @(Get-ProcessIdsAtPath -Path $Path)) {
-        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Stop-ProcessTree -ProcessId $processId
     }
+}
+
+function Stop-ProcessTree {
+    param([Parameter(Mandatory = $true)][int]$ProcessId)
+
+    # taskkill's /T flag includes WebView2's descendants, which are not
+    # discoverable from the installed executable path alone.
+    $taskkillPath = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+    try {
+        $taskkill = Start-Process -FilePath $taskkillPath -ArgumentList @('/PID', "$ProcessId", '/T', '/F') -PassThru -Wait -WindowStyle Hidden
+        if ($taskkill.ExitCode -eq 0) {
+            return
+        }
+    } catch {
+        # Fall back to PowerShell's process termination if taskkill is not
+        # available or the process exits during the tree termination request.
+    }
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
 }
 
 function Get-ProcessIdsAtPath {
@@ -432,7 +457,7 @@ function Stop-ProcessesAtPathAndWait {
     do {
         $processIds = @(Get-ProcessIdsAtPath -Path $Path)
         foreach ($processId in $processIds) {
-            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            Stop-ProcessTree -ProcessId $processId
         }
         if ($processIds.Count -eq 0) {
             Start-Sleep -Milliseconds 250

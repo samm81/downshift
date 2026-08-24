@@ -51,7 +51,7 @@ make run
 preview the GitHub Pages site locally:
 
 ```bash
-wsl make pages-preview
+make pages-preview
 ```
 
 then open <http://127.0.0.1:4173/>. The target serves the exact `/docs` directory used by GitHub
@@ -191,7 +191,7 @@ cargo build --release
 cargo test
 ```
 
-With GNU Make available on Windows or through WSL, the recurring Windows workflows can be run as:
+With GNU Make available, the recurring Windows workflows can be run as:
 
 ```bash
 make verify-windows
