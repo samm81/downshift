@@ -1,8 +1,6 @@
 const dom = {
   page: document.body,
   section: document.getElementById("download"),
-  versionLabel: document.getElementById("release-version"),
-  downloadHelp: document.getElementById("download-help"),
   downloadGrid: document.getElementById("download-grid"),
   heroDownload: document.getElementById("hero-download"),
   macosDownloadButton: document.getElementById("macos-download-button"),
@@ -98,11 +96,6 @@ function setDownloadButton(button, url, available, label) {
   button.classList.toggle("is-disabled", !available);
 }
 
-function setDownloadHelp(message) {
-  dom.downloadHelp.textContent = message;
-  dom.downloadHelp.classList.toggle("is-hidden", !message);
-}
-
 function applyHeroLabel(version, hasMacos, hasWindows) {
   const platform =
     hasMacos && hasWindows
@@ -125,7 +118,6 @@ function applyReadyState({
 }) {
   const hasMacos = Boolean(dmgUrl);
   const hasWindows = Boolean(exeUrl);
-  dom.versionLabel.textContent = `Version: ${version}`;
   dom.downloadGrid.classList.toggle("single-platform", !hasWindows);
   dom.windowsDownloadOption.hidden = !hasWindows;
   applyHeroLabel(version, hasMacos, hasWindows);
@@ -155,8 +147,7 @@ function applyReadyState({
   }
 }
 
-function applyErrorState(message) {
-  dom.versionLabel.textContent = message;
+function applyErrorState() {
   dom.heroDownload.href = "#download";
   dom.heroDownload.removeAttribute("target");
   dom.heroDownload.removeAttribute("rel");
@@ -174,13 +165,12 @@ function applyErrorState(message) {
     false,
     "Download for Windows (x64)",
   );
-  setDownloadHelp("");
 }
 
 async function loadLatestRelease() {
   const apiUrl = dom.section?.dataset?.githubApiLatestRelease || "";
   if (!apiUrl) {
-    applyErrorState("download info unavailable. use latest releases.");
+    applyErrorState();
     return;
   }
 
@@ -205,9 +195,7 @@ async function loadLatestRelease() {
       !data.tag_name ||
       !data.html_url
     ) {
-      applyErrorState(
-        "download info unavailable right now. use latest releases.",
-      );
+      applyErrorState();
       return;
     }
 
@@ -220,9 +208,7 @@ async function loadLatestRelease() {
     applyReadyState({ version, dmgUrl, exeUrl, releaseNotesUrl, checksumUrl });
   } catch (error) {
     console.warn("failed to load latest release", error);
-    applyErrorState(
-      "download info unavailable right now. use latest releases.",
-    );
+    applyErrorState();
   }
 }
 

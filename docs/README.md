@@ -59,10 +59,10 @@ and then auto-fills:
 - release notes link
 - optional checksum link
 
-there is no fallback download link/version in static html. if release fetch fails, the page keeps
-direct downloads disabled and tells users to use the latest releases page. if a stable release is
-missing a platform artifact, that platform's download card stays hidden. prereleases are not used
-for the automatic download links.
+static HTML has no platform-specific download links or version text. A `<noscript>` block links to
+the latest releases page when JavaScript is disabled. If release fetch fails, the page keeps direct
+downloads disabled. If a stable release is missing a platform artifact, that platform's download
+card stays hidden. Prereleases are not used for the automatic download links.
 
 ### update placeholders
 
@@ -73,7 +73,7 @@ edit `index.html` and set:
 - optional checksum URL (`#checksum-link`)
 - contact email text
 - email capture URL (`#email-capture-link`)
-- no-js fallback releases link in `#download-help`
+- no-JavaScript fallback releases link in the `<noscript>` block inside `#download`
 
 edit `index.html` data attributes for JS enhancement:
 

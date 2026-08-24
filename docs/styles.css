@@ -326,23 +326,11 @@ h1 {
   line-height: 1.35;
 }
 
-#download-help {
-  margin-top: 4px;
-}
-
-#release-version {
-  text-align: center;
-}
-
 .download-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin-top: 14px;
-}
-
-.download-grid.single-platform {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .download-option {
