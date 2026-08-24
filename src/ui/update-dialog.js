@@ -20,6 +20,11 @@
       return;
     }
     spinner.hidden = true;
+    if (mode === "error") {
+      message.textContent = "couldn't check for updates.";
+      downloadButton.hidden = true;
+      return;
+    }
     if (mode === "available") {
       const latest = state.latest_version || "latest";
       message.textContent = `new update available (${latest})`;

@@ -56,6 +56,7 @@ const MIN_HEARTBEAT_INTERVAL_SEC: u64 = 5;
 const MAX_HEARTBEAT_INTERVAL_SEC: u64 = 3600;
 const UPDATE_CHECK_STARTUP_DELAY_SEC: u64 = 8;
 const UPDATE_CHECK_BACKGROUND_INTERVAL_SEC: u64 = 6 * 60 * 60;
+const UPDATE_CHECK_TIMEOUT_SEC: u64 = 10;
 const UPDATE_BADGE_REMINDER_INTERVAL_SEC: i64 = 24 * 60 * 60;
 const UPDATE_RELEASE_API_URL: &str =
     "https://api.github.com/repos/samm81/downshift/releases/latest";
@@ -420,6 +421,13 @@ impl UpdateCheckSource {
 struct UpdateCheckResult {
     latest_version: Option<String>,
     download_url: String,
+    status: UpdateCheckStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateCheckStatus {
+    Success,
+    Failed,
 }
 
 #[derive(Debug, Clone)]
@@ -695,34 +703,53 @@ fn now_epoch_seconds() -> i64 {
         .unwrap_or_default()
 }
 
-fn check_latest_release() -> UpdateCheckResult {
-    let response = ureq::get(UPDATE_RELEASE_API_URL)
-        .set("User-Agent", "downshift")
-        .call();
-    let Ok(response) = response else {
-        return UpdateCheckResult {
-            latest_version: None,
-            download_url: download_release_url()
-                .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
-        };
-    };
-    let body = response.into_string().unwrap_or_default();
-    let data: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+fn failed_update_check_result() -> UpdateCheckResult {
+    UpdateCheckResult {
+        latest_version: None,
+        download_url: download_release_url()
+            .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
+        status: UpdateCheckStatus::Failed,
+    }
+}
+
+fn parse_update_release(body: &str) -> Option<(String, Option<String>)> {
+    let data: serde_json::Value = serde_json::from_str(body).ok()?;
     let latest_version = data
         .get("tag_name")
         .and_then(|value| value.as_str())
         .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        .filter(|value| !value.is_empty())
+        .filter(|value| parse_version(value).is_some())?;
     let download_url = data
         .get("html_url")
         .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string())
-        });
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Some((latest_version, download_url))
+}
+
+fn check_latest_release() -> UpdateCheckResult {
+    let response = ureq::get(UPDATE_RELEASE_API_URL)
+        .set("User-Agent", "downshift")
+        .timeout(Duration::from_secs(UPDATE_CHECK_TIMEOUT_SEC))
+        .call();
+    let Ok(response) = response else {
+        return failed_update_check_result();
+    };
+    let Ok(body) = response.into_string() else {
+        return failed_update_check_result();
+    };
+    let Some((latest_version, release_url)) = parse_update_release(&body) else {
+        return failed_update_check_result();
+    };
+    let download_url = release_url.unwrap_or_else(|| {
+        download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string())
+    });
     UpdateCheckResult {
-        latest_version,
+        latest_version: Some(latest_version),
         download_url,
+        status: UpdateCheckStatus::Success,
     }
 }
 
@@ -2070,11 +2097,13 @@ impl App {
         }
     }
 
-    fn set_update_dialog_mode_result(&self) {
+    fn set_update_dialog_mode_result(&self, status: UpdateCheckStatus) {
         let Some(webview) = self.update_dialog_webview.as_ref() else {
             return;
         };
-        let js = if self.updates.has_update_available() {
+        let js = if status == UpdateCheckStatus::Failed {
+            "window.updateDialogApplyState({ mode: 'error' });".to_string()
+        } else if self.updates.has_update_available() {
             format!(
                 "window.updateDialogApplyState({{ mode: 'available', latest_version: {} }});",
                 serde_json::json!(self.updates.latest_version)
@@ -3415,6 +3444,7 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::TelemetryHeartbeat => self.telemetry_heartbeat(),
             AppEvent::SnoozeExpired(generation) => self.expire_snooze(generation),
             AppEvent::UpdateCheckFinished(result, source) => {
+                let check_status = result.status;
                 let latest_version = result.latest_version.clone();
                 let has_update_available = latest_version
                     .as_deref()
@@ -3431,7 +3461,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.apply_update_check_result(result);
                 if source == UpdateCheckSource::Manual {
                     self.manual_update_check_in_flight = false;
-                    self.set_update_dialog_mode_result();
+                    self.set_update_dialog_mode_result(check_status);
                 }
             }
             #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -4373,6 +4403,32 @@ mod tests {
     }
 
     #[test]
+    fn update_release_parser_rejects_malformed_or_invalid_versions() {
+        assert!(parse_update_release("{}").is_none());
+        assert!(parse_update_release(r#"{"tag_name":"not-a-version"}"#).is_none());
+        assert!(parse_update_release("not json").is_none());
+    }
+
+    #[test]
+    fn update_release_parser_accepts_valid_release_metadata() {
+        let parsed = parse_update_release(
+            r#"{"tag_name":"v9.9.9","html_url":" https://example.com/release "}"#,
+        )
+        .expect("valid release metadata should parse");
+
+        assert_eq!(parsed.0, "v9.9.9");
+        assert_eq!(parsed.1.as_deref(), Some("https://example.com/release"));
+    }
+
+    #[test]
+    fn failed_update_check_is_not_treated_as_latest() {
+        let result = failed_update_check_result();
+
+        assert_eq!(result.status, UpdateCheckStatus::Failed);
+        assert!(result.latest_version.is_none());
+    }
+
+    #[test]
     fn update_badge_visibility_respects_daily_snooze() {
         let state = UpdateUiState {
             latest_version: Some("9.9.9".to_string()),
@@ -4422,6 +4478,7 @@ mod tests {
         app.apply_update_check_result(UpdateCheckResult {
             latest_version: Some(current),
             download_url: UPDATE_DOWNLOAD_FALLBACK_URL.to_string(),
+            status: UpdateCheckStatus::Success,
         });
 
         assert!(app.settings.update_badge_snoozed_version.is_none());
