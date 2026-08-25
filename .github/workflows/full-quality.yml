@@ -1,0 +1,52 @@
+name: full-quality
+
+on:
+  push:
+    branches:
+      - main
+      - release
+      - "release/**"
+  pull_request:
+    branches:
+      - main
+      - release
+      - "release/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS build and checks
+    uses: ./.github/workflows/build-macos.yml
+    permissions:
+      contents: read
+
+  windows:
+    name: Windows build and checks
+    uses: ./.github/workflows/build-windows.yml
+    permissions:
+      contents: read
+
+  gate:
+    name: full quality gate
+    if: always()
+    needs: [macos, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: require both platform checks
+        env:
+          MACOS_RESULT: ${{ needs.macos.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+        run: |
+          set -euo pipefail
+          if [ "$MACOS_RESULT" != "success" ] || [ "$WINDOWS_RESULT" != "success" ]; then
+            echo "error: full quality failed (macOS=$MACOS_RESULT, Windows=$WINDOWS_RESULT)"
+            exit 1
+          fi
+          echo "full quality passed on macOS and Windows"
