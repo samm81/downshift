@@ -1,6 +1,7 @@
 (() => {
   const ball = document.getElementById("ball");
   const breathArt = document.getElementById("breath-art");
+  const breathGeometry = breathArt.querySelector(".breath-geometry");
   const breathPolygons = Array.from(
     breathArt.querySelectorAll(".breath-polygon"),
   );
@@ -107,6 +108,11 @@
   const terminalHitTargetSizePx = 56;
   const terminalHitTargetPaddingPx = 12;
   const terminalHitTargetMaxProgress = 0.55;
+  const animationBoundsPaddingPx = 2;
+  const animationBoundsEpsilon = 0.25;
+  let currentAnimationBounds = null;
+  let lastWindowBounds = null;
+  let maximumAnimationBounds = null;
   function updateBreathingHitTarget(progress) {
     const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
     const hitTargetActive =
@@ -136,14 +142,14 @@
     );
     breathHitTarget.setAttribute(
       "y",
-      (polygonBaseline - targetHeight / 2).toFixed(3),
+      (polygonBaseline - targetHeight).toFixed(3),
     );
     breathHitTarget.setAttribute("width", targetWidth.toFixed(3));
     breathHitTarget.setAttribute("height", targetHeight.toFixed(3));
     breathHitTarget.setAttribute("rx", (targetHeight / 2).toFixed(3));
   }
 
-  function renderBreathingProgress(progress) {
+  function renderBreathingProgress(progress, syncBounds = true) {
     const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
     const polygonProgress = clamp(
       (progress - terminalShapeFraction) / (1 - terminalShapeFraction),
@@ -160,6 +166,9 @@
       polygon.setAttribute("d", pathData(points));
     });
     updateBreathingHitTarget(progress);
+    if (syncBounds) {
+      syncAnimationBounds();
+    }
   }
 
   function breathingProgressAt(elapsedMs) {
@@ -215,6 +224,11 @@
     updateShowBadge: Boolean(init.update_show_badge),
     updateIgnoreCurrentEnabled: Boolean(init.update_ignore_current_enabled),
     updateIgnoreCurrentChecked: Boolean(init.update_ignore_current_checked),
+    artworkSize:
+      Number.isFinite(Number(init.artwork_size)) &&
+      Number(init.artwork_size) > 0
+        ? Number(init.artwork_size)
+        : Math.max(window.innerWidth, 1),
     sizePresets:
       Array.isArray(init.size_presets) && init.size_presets.length === 4
         ? init.size_presets
@@ -232,6 +246,94 @@
       window.ipc.postMessage(JSON.stringify(payload));
     }
   }
+
+  function applyArtworkLayout(bounds) {
+    const artworkSize = Math.max(state.artworkSize, 1);
+    const viewBoxUnitsPerPixel = 100 / artworkSize;
+    const maximum = maximumAnimationBounds || bounds;
+    document.documentElement.style.setProperty(
+      "--artwork-size",
+      `${artworkSize}px`,
+    );
+    document.documentElement.style.setProperty(
+      "--artwork-left",
+      `${animationBoundsPaddingPx + (maximum.width / 2 - (bounds.x + bounds.width / 2)) / viewBoxUnitsPerPixel}px`,
+    );
+    document.documentElement.style.setProperty(
+      "--artwork-top",
+      `${animationBoundsPaddingPx + (maximum.height - (bounds.y + bounds.height)) / viewBoxUnitsPerPixel}px`,
+    );
+  }
+
+  function animationBoundsChanged(previous, next) {
+    if (!previous) {
+      return true;
+    }
+    return (
+      ["x", "y", "width", "height"].some(
+        (key) => Math.abs(previous[key] - next[key]) > animationBoundsEpsilon,
+      ) || previous.badge_visible !== next.badge_visible
+    );
+  }
+
+  function readAnimationBounds() {
+    let box;
+    try {
+      box = breathGeometry.getBBox();
+    } catch (_error) {
+      return null;
+    }
+    if (
+      !box ||
+      ![box.x, box.y, box.width, box.height].every(Number.isFinite) ||
+      box.width < 0 ||
+      box.height < 0
+    ) {
+      return null;
+    }
+    return {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+    };
+  }
+
+  function measureMaximumAnimationBounds() {
+    renderBreathingProgress(1, false);
+    const bounds = readAnimationBounds();
+    renderBreathingProgress(0, false);
+    return (
+      bounds || {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+      }
+    );
+  }
+
+  function syncAnimationBounds() {
+    const bounds = readAnimationBounds();
+    if (!bounds) {
+      return;
+    }
+    currentAnimationBounds = bounds;
+    applyArtworkLayout(bounds);
+    // Keep the native hitbox fixed at the largest shape; only the artwork
+    // layout changes as the animation morphs.
+    const windowBounds = {
+      ...maximumAnimationBounds,
+      badge_visible: !updateBadge.hidden,
+    };
+    if (!animationBoundsChanged(lastWindowBounds, windowBounds)) {
+      return;
+    }
+    lastWindowBounds = windowBounds;
+    post({ cmd: "set_animation_bounds", ...windowBounds });
+  }
+
+  maximumAnimationBounds = measureMaximumAnimationBounds();
 
   function hideMenu() {
     menu.hidden = true;
@@ -376,10 +478,12 @@
       window.setTimeout(() => {
         updateBadge.classList.remove("is-dismissing");
         updateBadge.hidden = true;
+        syncAnimationBounds();
       }, 240);
     } else {
       updateBadge.classList.remove("is-dismissing");
       updateBadge.hidden = true;
+      syncAnimationBounds();
     }
   }
 
@@ -390,6 +494,7 @@
     }
     updateBadge.hidden = false;
     positionBadge();
+    syncAnimationBounds();
     updateBadge.classList.remove("is-dismissing");
     if (animateIn) {
       updateBadge.classList.remove("is-appearing");
@@ -420,6 +525,15 @@
       state.breathingPresets = Array.isArray(next.breathing_presets)
         ? next.breathing_presets
         : [];
+    }
+    if (Object.prototype.hasOwnProperty.call(next, "artwork_size")) {
+      const artworkSize = Number(next.artwork_size);
+      if (Number.isFinite(artworkSize) && artworkSize > 0) {
+        state.artworkSize = artworkSize;
+        if (currentAnimationBounds) {
+          applyArtworkLayout(currentAnimationBounds);
+        }
+      }
     }
     if (Object.prototype.hasOwnProperty.call(next, "size_presets")) {
       const values = Array.isArray(next.size_presets)

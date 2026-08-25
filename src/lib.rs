@@ -393,6 +393,13 @@ pub enum IpcCommand {
         screen_y: i32,
     },
     EndDrag,
+    SetAnimationBounds {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        badge_visible: bool,
+    },
     Reset,
 }
 
@@ -821,6 +828,21 @@ mod tests {
         let drag_end: IpcCommand =
             serde_json::from_str(r#"{"cmd":"end_drag"}"#).expect("valid end_drag command");
         assert_eq!(drag_end, IpcCommand::EndDrag);
+
+        let animation_bounds: IpcCommand = serde_json::from_str(
+            r#"{"cmd":"set_animation_bounds","x":12.5,"y":24.0,"width":48.0,"height":32.0,"badge_visible":false}"#,
+        )
+        .expect("valid set_animation_bounds command");
+        assert_eq!(
+            animation_bounds,
+            IpcCommand::SetAnimationBounds {
+                x: 12.5,
+                y: 24.0,
+                width: 48.0,
+                height: 32.0,
+                badge_visible: false,
+            }
+        );
 
         let delete_preset: IpcCommand =
             serde_json::from_str(r#"{"cmd":"delete_breathing_preset","preset_id":"focus"}"#)

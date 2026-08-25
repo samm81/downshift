@@ -49,6 +49,9 @@ use wry::WebView;
 mod update_check;
 use update_check::{UpdateCheckResult, UpdateCheckService, UpdateCheckSource};
 
+const ANIMATION_BOUNDS_PADDING_PX: f64 = 2.0;
+const ANIMATION_VIEWBOX_SIZE: f64 = 100.0;
+
 macro_rules! log_stderr {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
@@ -118,6 +121,37 @@ struct App {
     updates: UpdateUiState,
     update_check: UpdateCheckService,
     manual_update_check_in_flight: bool,
+    animation_bounds: AnimationBounds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AnimationBounds {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    badge_visible: bool,
+}
+
+impl AnimationBounds {
+    const fn full() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            width: ANIMATION_VIEWBOX_SIZE,
+            height: ANIMATION_VIEWBOX_SIZE,
+            badge_visible: false,
+        }
+    }
+
+    fn is_valid(self) -> bool {
+        self.x.is_finite()
+            && self.y.is_finite()
+            && self.width.is_finite()
+            && self.height.is_finite()
+            && self.width >= 0.0
+            && self.height >= 0.0
+    }
 }
 
 impl Default for App {
@@ -162,6 +196,7 @@ impl Default for App {
                 download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
             ),
             manual_update_check_in_flight: false,
+            animation_bounds: AnimationBounds::full(),
         }
     }
 }
@@ -402,22 +437,96 @@ impl App {
     }
 
     fn widget_dimensions_px(&self) -> (u32, u32) {
-        let window_size = self.window.as_ref().map(|window| {
-            let size = window.inner_size();
-            (size.width, size.height)
-        });
-        let scale_factor = self.window.as_ref().map(Window::scale_factor);
-        window_policy::widget_dimensions_px(
-            window_size,
-            scale_factor,
-            self.settings.size,
-            UPDATE_BADGE_WINDOW_RESERVE_PX,
-        )
+        let size = self.settings.size.round().max(0.0) as u32;
+        (size, size)
     }
 
     fn widget_window_dimensions(&self, size: f64) -> LogicalSize<f64> {
         let (width, height) = app_core::widget_window_dimensions(size);
         LogicalSize::new(width, height)
+    }
+
+    fn animation_window_dimensions_for(
+        &self,
+        artwork_size: f64,
+        bounds: AnimationBounds,
+    ) -> LogicalSize<f64> {
+        let view_box_scale = artwork_size / ANIMATION_VIEWBOX_SIZE;
+        LogicalSize::new(
+            (bounds.width * view_box_scale + ANIMATION_BOUNDS_PADDING_PX * 2.0)
+                .ceil()
+                .max(1.0),
+            (bounds.height * view_box_scale
+                + ANIMATION_BOUNDS_PADDING_PX * 2.0
+                + if bounds.badge_visible {
+                    UPDATE_BADGE_WINDOW_RESERVE_PX
+                } else {
+                    0.0
+                })
+            .ceil()
+            .max(1.0),
+        )
+    }
+
+    fn animation_shape_bottom_center(
+        &self,
+        artwork_size: f64,
+        bounds: AnimationBounds,
+    ) -> LogicalPosition<f64> {
+        let view_box_scale = artwork_size / ANIMATION_VIEWBOX_SIZE;
+        LogicalPosition::new(
+            ANIMATION_BOUNDS_PADDING_PX + bounds.width / 2.0 * view_box_scale,
+            ANIMATION_BOUNDS_PADDING_PX + bounds.height * view_box_scale,
+        )
+    }
+
+    fn set_animation_bounds(&mut self, next: AnimationBounds) {
+        if !next.is_valid() {
+            return;
+        }
+        let previous = self.animation_bounds;
+        if previous == next {
+            return;
+        }
+
+        let position = logical_outer_position(self.window.as_ref());
+        let previous_anchor = self.animation_shape_bottom_center(self.settings.size, previous);
+        let next_anchor = self.animation_shape_bottom_center(self.settings.size, next);
+        let position_delta = LogicalPosition::new(
+            previous_anchor.x - next_anchor.x,
+            previous_anchor.y - next_anchor.y,
+        );
+        self.animation_bounds = next;
+
+        let target_dimensions =
+            self.animation_window_dimensions_for(self.settings.size, self.animation_bounds);
+        {
+            let Some(window) = self.window.as_ref() else {
+                return;
+            };
+            let current = window.inner_size().to_logical::<f64>(window.scale_factor());
+            let width_mismatch = (current.width - target_dimensions.width).abs() > 0.5;
+            let height_mismatch = (current.height - target_dimensions.height).abs() > 0.5;
+            window.set_resizable(false);
+            window.set_min_inner_size(Some(target_dimensions));
+            window.set_max_inner_size(Some(target_dimensions));
+            if width_mismatch || height_mismatch {
+                let _ = window.request_inner_size(target_dimensions);
+            }
+        }
+
+        if let Some(position) = position {
+            let Some(window) = self.window.as_ref() else {
+                return;
+            };
+            let next_position =
+                LogicalPosition::new(position.x + position_delta.x, position.y + position_delta.y);
+            window.set_outer_position(next_position);
+            if let Some(anchor) = self.drag_anchor_window_pos.as_mut() {
+                anchor.x += position_delta.x;
+                anchor.y += position_delta.y;
+            }
+        }
     }
 
     fn telemetry_heartbeat(&self) {
@@ -479,8 +588,8 @@ impl App {
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        let target = clamp_size(self.settings.size);
-        let target_dimensions = self.widget_window_dimensions(target);
+        let target_dimensions =
+            self.animation_window_dimensions_for(self.settings.size, self.animation_bounds);
         enforce_fixed_size(window, target_dimensions);
     }
 
@@ -1110,6 +1219,7 @@ impl App {
           "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "update_tooltip": UPDATE_TOOLTIP,
+          "artwork_size": self.settings.size,
           "size_presets": size_presets,
            "use_native_menu": native_menu_available(),
         });
@@ -1123,11 +1233,14 @@ impl App {
         };
         let size = clamp_size(size);
         self.settings.size = size;
-        let target_dimensions = self.widget_window_dimensions(size);
+        let target_dimensions = self.animation_window_dimensions_for(size, self.animation_bounds);
         if let Some(physical) = resize_preserving_center(window, target_dimensions) {
             self.settings.physical_x = Some(physical.x);
             self.settings.physical_y = Some(physical.y);
         }
+        self.apply_main_webview_state(serde_json::json!({
+            "artwork_size": size,
+        }));
     }
 
     fn sync_breathing_pattern_to_webview(&self) {
@@ -1566,6 +1679,19 @@ impl App {
             }
             IpcCommand::DragTo { screen_x, screen_y } => self.drag_to(screen_x, screen_y),
             IpcCommand::EndDrag => self.stop_manual_drag(),
+            IpcCommand::SetAnimationBounds {
+                x,
+                y,
+                width,
+                height,
+                badge_visible,
+            } => self.set_animation_bounds(AnimationBounds {
+                x,
+                y,
+                width,
+                height,
+                badge_visible,
+            }),
             IpcCommand::Reset => {
                 self.telemetry_menu_action(MenuAction::Reset, None);
                 self.reset_widget(event_loop);
@@ -2677,6 +2803,53 @@ mod tests {
             .expect("breathing consumer should be embedded");
 
         assert!(polygon_module < breathing_consumer);
+    }
+
+    #[test]
+    fn animation_window_dimensions_use_reported_bounds() {
+        let app = App::default();
+        let dimensions = app.animation_window_dimensions_for(
+            320.0,
+            AnimationBounds {
+                x: 25.0,
+                y: 30.0,
+                width: 50.0,
+                height: 25.0,
+                badge_visible: false,
+            },
+        );
+
+        assert_eq!(dimensions.width, 164.0);
+        assert_eq!(dimensions.height, 84.0);
+
+        let badge_dimensions = app.animation_window_dimensions_for(
+            320.0,
+            AnimationBounds {
+                x: 25.0,
+                y: 30.0,
+                width: 50.0,
+                height: 25.0,
+                badge_visible: true,
+            },
+        );
+        assert_eq!(badge_dimensions.height, 116.0);
+    }
+
+    #[test]
+    fn animation_shape_bottom_center_includes_hit_padding() {
+        let app = App::default();
+        let center = app.animation_shape_bottom_center(
+            320.0,
+            AnimationBounds {
+                x: 25.0,
+                y: 30.0,
+                width: 50.0,
+                height: 25.0,
+                badge_visible: false,
+            },
+        );
+
+        assert_eq!(center, LogicalPosition::new(82.0, 82.0));
     }
 
     #[test]
