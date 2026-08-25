@@ -149,6 +149,18 @@ it:
 
 the job summary includes the parsed smoke result, and the artifacts contain the screenshots plus `run.log` for manual review.
 
+## github actions quality tiers
+
+the repository uses three CI tiers:
+
+- `basic-quality` runs on every branch push and pull request update. it checks Rust formatting, library and integration tests, library and integration Clippy, and web, shell, markdown, and Pages tooling.
+- `full-quality` runs for pull requests targeting `main` or a release branch, for pushes to those protected branches, nightly, and manual dispatch. it builds and tests the native macOS and Windows targets, packages the platform artifacts, runs the available installer smoke checks, and reports a single `full quality gate` after both platforms pass.
+- `release` runs for `v*` tags or manual dispatch. it adds signed/notarized release packaging, artifact verification, macOS GUI smoke, Windows release checks, publishing, and the Pages release-manifest update.
+
+the Pages browser smoke workflow remains path-filtered because it only applies when Pages inputs change.
+
+configure `full quality gate` as a required status check in GitHub branch protection for `main` and release branches.
+
 the `release` workflow is the single tagged-release entry point. it creates one draft release, runs the reusable macos and windows release jobs, requires mac gui smoke plus windows installer smoke, and publishes only after both platform gates pass. macos notarization, stapling, and validation are completed inside the macos platform job; windows signing is conditional on the release environment having a certificate.
 
 ## mac distribution (unsigned)
