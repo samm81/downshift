@@ -20,7 +20,7 @@ pub(crate) fn set_launch_at_login(enabled: bool) -> Result<(), String> {
         } else {
             remove_launch_agent(&path)
         };
-        return result;
+        result
     }
 
     #[cfg(target_os = "windows")]

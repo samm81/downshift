@@ -37,7 +37,7 @@ pub(crate) fn start(proxy: EventLoopProxy<AppEvent>) -> Result<InstanceStart, St
                 return Err(format!("failed to start instance server: {error}"));
             }
         }
-        return Ok(InstanceStart::Primary(InstanceGuard {}));
+        Ok(InstanceStart::Primary(InstanceGuard {}))
     }
 
     #[cfg(target_os = "windows")]

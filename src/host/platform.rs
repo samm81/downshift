@@ -7,7 +7,7 @@ use crate::app_core::AppEvent;
 use crate::diagnostics;
 
 pub(crate) fn configure_main_window(initial_size: LogicalSize<f64>) -> WindowAttributes {
-    let mut attributes = Window::default_attributes()
+    let attributes = Window::default_attributes()
         .with_title("downshift")
         .with_decorations(false)
         .with_transparent(true)
@@ -18,15 +18,15 @@ pub(crate) fn configure_main_window(initial_size: LogicalSize<f64>) -> WindowAtt
         .with_inner_size(initial_size);
 
     #[cfg(target_os = "windows")]
-    {
+    let attributes = {
         // A transparent WebView2 child can retain the previous opaque DWM
         // redirection bitmap after the host window is resized. The no-
         // redirection path keeps the transparent surface current.
         use winit::platform::windows::WindowAttributesExtWindows;
-        attributes = attributes
+        attributes
             .with_no_redirection_bitmap(true)
-            .with_skip_taskbar(true);
-    }
+            .with_skip_taskbar(true)
+    };
 
     attributes
 }
@@ -172,7 +172,7 @@ pub(crate) fn current_os_version() -> String {
 pub(crate) fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        return copy_to_command("pbcopy", text);
+        copy_to_command("pbcopy", text)
     }
     #[cfg(target_os = "windows")]
     {
