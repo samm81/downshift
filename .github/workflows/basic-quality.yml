@@ -28,8 +28,13 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: install shell tooling
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes shellcheck shfmt
+      - name: install Linux build and shell tooling
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install --no-install-recommends --yes
+          libwebkit2gtk-4.1-dev
+          shellcheck
+          shfmt
 
       - name: install Node.js
         uses: actions/setup-node@v5
