@@ -13,6 +13,14 @@ the agent runs in an already-provisioned development environment.
 linux is used only as an orchestration host to provision a remote mac.
 all actual development work happens on the macos checkout.
 
+## cross-platform development
+
+- keep shared source code, build tooling, scripts, and release workflows Unix-first
+- confine Windows-specific material as much as possible to clearly identified Windows-only files, targets, workflow sections, or conditional code
+- on Windows, use `wsl` for Unix-oriented commands and scripts when needed; prefer the Unix toolchain over adding PowerShell or `cmd.exe` paths to shared workflows
+- use PowerShell only for genuinely Windows-specific operations, such as Windows packaging, installer validation, or Windows-only system integration
+- keep Unix scripts and configuration portable across Linux, macOS, and WSL, including consistent LF line endings
+
 ## bootstrap policy (linux-driven)
 
 the linux environment is allowed and expected to bootstrap the remote macos machine for this repo.

@@ -66,6 +66,9 @@ if [[ "$COMMIT" != true ]]; then
 fi
 
 if [[ "$PUSH" == true ]]; then
+  # Rebase before generating the files so the working tree stays clean during
+  # synchronization. The generated changes can then be committed on top of
+  # the current main branch without asking git to rebase unstaged work.
   git fetch origin main
   git rebase origin/main
 fi
