@@ -14,13 +14,12 @@ pub(crate) fn set_launch_at_login(enabled: bool) -> Result<(), String> {
     {
         let path =
             launch_agent_path().ok_or_else(|| "failed to resolve launch agent path".to_string())?;
-        let result = if enabled {
+        if enabled {
             let executable = std::env::current_exe().map_err(|error| error.to_string())?;
             write_launch_agent(&path, &executable)
         } else {
             remove_launch_agent(&path)
-        };
-        result
+        }
     }
 
     #[cfg(target_os = "windows")]
