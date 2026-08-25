@@ -181,20 +181,6 @@ pub(crate) fn choose_initial_position(
     default_corner_position(primary, size)
 }
 
-pub(crate) fn widget_dimensions_px(
-    window_size: Option<(u32, u32)>,
-    scale_factor: Option<f64>,
-    size: f64,
-    badge_reserve_px: f64,
-) -> (u32, u32) {
-    if let (Some((width, height)), Some(scale_factor)) = (window_size, scale_factor) {
-        let reserve = (badge_reserve_px * scale_factor).round() as u32;
-        return (width, height.saturating_sub(reserve));
-    }
-    let size = size.round().max(0.0) as u32;
-    (size, size)
-}
-
 pub(crate) fn reset_size_for_monitor(monitor: Option<&MonitorSnapshot>) -> f64 {
     monitor
         .map(default_size_for_monitor)

@@ -1,7 +1,5 @@
 :root {
   color-scheme: light;
-
-  --update-badge-window-reserve: 32px;
 }
 
 html,
@@ -14,17 +12,17 @@ body {
 }
 
 body {
-  display: grid;
-  place-items: start center;
+  position: relative;
   user-select: none;
   cursor: default;
 }
 
 .ball {
-  position: relative;
-  width: 100%;
-  height: calc(100% - var(--update-badge-window-reserve));
-  aspect-ratio: 1 / 1;
+  position: absolute;
+  width: var(--artwork-size, 100%);
+  height: var(--artwork-size, 100%);
+  left: var(--artwork-left, 0);
+  top: var(--artwork-top, 0);
   border-radius: 9999px;
   background: transparent;
   overflow: visible;
