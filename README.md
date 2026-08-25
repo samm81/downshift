@@ -54,8 +54,9 @@ preview the GitHub Pages site locally:
 make pages-preview
 ```
 
-then open <http://127.0.0.1:4173/>. The target serves the exact `/docs` directory used by GitHub
-Pages; press `Ctrl-C` to stop it. Set `PAGES_PREVIEW_PORT=4174` to use another port.
+then open <http://127.0.0.1:4173/>. The target builds and serves the same staging shape used by the
+GitHub Pages Actions workflow; press `Ctrl-C` to stop it. Set `PAGES_PREVIEW_PORT=4174` to use
+another port.
 
 enable launch at login:
 

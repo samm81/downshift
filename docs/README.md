@@ -1,13 +1,15 @@
 # downshift github pages landing page
 
-this folder is a no-build static site intended for deployment via GitHub Pages from `/docs` on the `main` branch.
+this folder is the source for a static site deployed by the custom GitHub Pages Actions workflow.
+The workflow copies this folder to a staging directory, generates release metadata there, and
+deploys the staging directory as a Pages artifact.
 
 ## files
 
-- `index.html`: single-page landing structure, content, and generated release metadata block
+- `index.html`: single-page landing structure, content, and local release-metadata fixture
 - `styles.css`: desktop-first styling
 - `script.js`: embedded release metadata enhancement (no product-copy overrides)
-- `release.json`: generated manifest for the latest stable release
+- `release.json`: checked-in stable-release fixture for local preview and smoke tests
 - `assets/icon.png`: placeholder app icon (locally generated)
 - `assets/mac-desktop-generic.svg`: placeholder desktop preview backdrop (locally generated)
 
@@ -17,6 +19,8 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 - the page must remain coherent and usable with JavaScript disabled.
 - `script.js` may only enhance behavior that cannot be done statically (reading embedded release
   metadata and wiring download links).
+- the Pages workflow owns the deployed release metadata; the checked-in manifest and embedded block
+  are local fixtures and are not updated by releases.
 - do not add JS-driven overrides for brand/product copy like app name, tagline, hero text, or trust claims.
 
 ## placeholder asset source/license
@@ -24,28 +28,25 @@ this folder is a no-build static site intended for deployment via GitHub Pages f
 - `assets/icon.png` and `assets/mac-desktop-generic.svg` are original, locally generated placeholders created for this repo.
 - they are safe to use as copyright-free placeholders and can be replaced later with final branded assets.
 
-## enable GitHub Pages from `/docs`
+## enable GitHub Pages with GitHub Actions
 
 1. open your repository on GitHub.
 2. go to **Settings** → **Pages**.
-3. under **Build and deployment**, set:
-   - **Source**: Deploy from a branch
-   - **Branch**: `main`
-   - **Folder**: `/docs`
-4. save. GitHub will publish the site URL.
+3. under **Build and deployment**, set **Source** to **GitHub Actions**.
+4. save. The `deploy-pages` workflow will publish the site URL.
 
 ## preview locally
 
-GitHub Pages serves this folder as a no-build static site, so the local preview can use the same
-files directly:
+The local preview builds the same staging shape as the Pages workflow, using the checked-in stable
+release fixture:
 
 ```bash
 make pages-preview
 ```
 
 Open <http://127.0.0.1:4173/> in a browser and press `Ctrl-C` in the terminal to stop the server. Use
-`PAGES_PREVIEW_PORT=4174` if another local service is already using port 4173. The preview serves
-the exact `/docs` directory that GitHub Pages publishes; it does not alter or build the site.
+`PAGES_PREVIEW_PORT=4174` if another local service is already using port 4173. The generated preview
+is written under `dist/pages`, which is ignored by Git.
 
 For fast validation, run:
 
@@ -53,7 +54,9 @@ For fast validation, run:
 make pages-check
 ```
 
-The browser smoke test exercises the real `/docs` directory with macOS-only, macOS-plus-Windows,
+To build only the Pages artifact, run `make pages-build`.
+
+The browser smoke test exercises the generated Pages artifact with macOS-only, macOS-plus-Windows,
 malformed, missing, and JavaScript-disabled cases:
 
 ```bash
@@ -62,13 +65,16 @@ npx playwright install chromium
 make pages-smoke
 ```
 
-## release sync approach (implemented): static release manifest with embedded copy
+## release sync approach (implemented): custom Pages build
 
-`docs/release.json` is the canonical release manifest. The release workflow generates it from the
-published GitHub release and embeds an exact generated copy in `index.html`. `script.js` reads that
-embedded JSON synchronously, so the first page load does not depend on a second network request.
-The standalone `release.json` remains published for inspection, validation, and recovery tooling;
-it is not loaded by the browser at runtime.
+The Pages Actions workflow builds a staging copy from the published GitHub release. It fetches the
+latest stable release for ordinary `main` pushes, or receives the exact stable tag from the unified
+release workflow, then generates `release.json` and embeds an exact copy in the staging
+`index.html`. `script.js` reads that embedded JSON synchronously, so the first page load does not
+depend on a second network request.
+
+The checked-in `release.json` and embedded block are fixtures for local preview and smoke tests.
+The deployed artifact is generated in Actions and is not committed back to `main`.
 
 The manifest contains:
 
@@ -86,10 +92,9 @@ page shows a concise latest-releases fallback and hides direct download buttons.
 is missing a platform artifact, that platform's download card stays hidden. Prereleases never update the
 manifest.
 
-After a stable release is published, the unified release workflow uses its authenticated
-`GITHUB_TOKEN` to regenerate `docs/release.json`, embed it into `docs/index.html`, commit both files
-to `main`, and push them for GitHub Pages to deploy. The committed release metadata never contains
-credentials or private release data. The update is idempotent and exact-tag based.
+After a stable release is published, the unified release workflow calls the Pages build/deployment
+workflow with its exact tag. No release-metadata commit is created. The generated release metadata
+never contains credentials or private release data.
 
 `release.json` uses these fields:
 
@@ -100,23 +105,22 @@ credentials or private release data. The update is idempotent and exact-tag base
 - `windows_url`: nullable Windows `.exe` asset URL.
 - `checksums_url`: nullable `SHA256SUMS.txt` asset URL.
 
-To repair or deliberately move the manifest to an existing stable release without rebuilding
-artifacts, run this from `main`:
+To rebuild the deployed site for an existing stable release without rebuilding application
+artifacts, run this from the repository's Actions tab after Pages is configured for GitHub Actions:
 
 ```bash
-make pages-release-manifest TAG=v0.2.0
+gh workflow run deploy-pages.yml --ref main -f release_tag=v0.3.0
 ```
 
-That updates the working tree only. It regenerates the canonical manifest and its embedded copy.
-Add `PUSH=1` to create the bot-style release-metadata commit and push it to `main` after verifying
-the result.
+The workflow validates the exact stable release, generates a temporary Pages artifact, and deploys
+it without changing the working tree or creating a commit.
 
 ### update content and release metadata
 
 Edit `index.html` for product narrative, contact details, the email capture URL, and the
-no-JavaScript fallback releases link. Do not hand-edit the generated release metadata block in
-`index.html`. Platform download URLs, checksums, release notes, and the version are sourced from
-`release.json` through the release workflow or the explicit tag-based recovery target above.
+no-JavaScript fallback releases link. The release metadata block and `release.json` in this folder
+are local fixtures; the Pages build overwrites them in its staging artifact from the selected
+published release.
 
 ## notes
 

@@ -5,7 +5,8 @@ BUNDLE_ID := app.getdownshift
 MIN_MACOS := 13.0
 MACOS_TARGET ?= $(shell rustc -vV 2>/dev/null | sed -n 's/^host: //p')
 WINDOWS_VM_ROOT ?= ../downshift-vm
-PAGES_DIR := docs
+PAGES_SOURCE_DIR := docs
+PAGES_DIR := dist/pages
 PAGES_PREVIEW_HOST ?= 127.0.0.1
 PAGES_PREVIEW_BIND ?= 0.0.0.0
 PAGES_PREVIEW_PORT ?= 4173
@@ -42,7 +43,7 @@ RUN_RESET := $(filter 1,$(RESET))
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
 	smoke-windows-vm \
-	pages-preview pages-check pages-smoke pages-release-manifest \
+	pages-build pages-preview pages-check pages-smoke \
 	app app-no-telemetry \
 	verify-rust verify-release \
 	sign-app \
@@ -161,29 +162,21 @@ build-debug-no-telemetry:
 smoke-windows-vm:
 	powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows/smoke-vm.ps1 -VmRoot "$(WINDOWS_VM_ROOT)"
 
-pages-preview:
+pages-build:
+	node dev/pages/build-site.mjs build docs/release.json "$(PAGES_SOURCE_DIR)" "$(PAGES_DIR)"
+
+pages-preview: pages-build
 	@command -v python3 >/dev/null 2>&1 || { echo "error: python3 is required for the local GitHub Pages preview"; exit 1; }
 	@echo "GitHub Pages preview: http://$(PAGES_PREVIEW_HOST):$(PAGES_PREVIEW_PORT)/"
 	@echo "Serving $(PWD)/$(PAGES_DIR); press Ctrl-C to stop."
 	python3 -m http.server "$(PAGES_PREVIEW_PORT)" --bind "$(PAGES_PREVIEW_BIND)" --directory "$(PAGES_DIR)"
 
-pages-check:
+pages-check: pages-build
 	node dev/pages/release-manifest.mjs validate docs/release.json
 	node dev/pages/release-manifest.mjs validate-embedded docs/release.json docs/index.html
 
 pages-smoke: pages-check
-	npm run smoke:pages
-
-pages-release-manifest:
-	@if [ -z "$(TAG)" ]; then \
-		echo "error: TAG is required (for example TAG=v0.2.0)"; \
-		exit 1; \
-	fi
-	@if [ "$(PUSH)" = "1" ]; then \
-		bash dev/pages/update-release-manifest.bash "$(TAG)" --commit --push; \
-	else \
-		bash dev/pages/update-release-manifest.bash "$(TAG)"; \
-	fi
+	npm run smoke:pages -- "$(PAGES_DIR)"
 
 run: build-debug
 ifneq ($(RUN_RESET),)

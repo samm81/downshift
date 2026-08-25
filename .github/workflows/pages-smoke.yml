@@ -11,6 +11,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/pages-smoke.yml"
+      - ".github/workflows/pages-deploy.yml"
   pull_request:
     paths:
       - "docs/**"
@@ -19,7 +20,9 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/pages-smoke.yml"
+      - ".github/workflows/pages-deploy.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -48,10 +51,12 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: run Pages browser smoke
-        run: npm run smoke:pages
+        run: npm run smoke:pages -- dist/pages
 
       - name: verify deployed Pages manifest
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          github.event_name == 'workflow_call'
         env:
           PAGES_URL: https://getdownshift.app
         run: |

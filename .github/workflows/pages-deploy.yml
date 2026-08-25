@@ -1,0 +1,90 @@
+name: deploy-pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: stable release tag to publish (blank uses the latest stable release)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        description: stable release tag to publish
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag || '' }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: resolve stable release
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_TAG" ]]; then
+            if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "error: release_tag must be a stable tag such as v0.3.0" >&2
+              exit 1
+            fi
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+              > "$RUNNER_TEMP/release-response.json"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/releases/latest" \
+              > "$RUNNER_TEMP/release-response.json"
+          fi
+
+          node dev/pages/release-manifest.mjs generate \
+            "$RUNNER_TEMP/release-response.json" \
+            "$RUNNER_TEMP/release.json"
+
+      - name: build Pages artifact
+        run: |
+          node dev/pages/build-site.mjs build \
+            "$RUNNER_TEMP/release.json" \
+            docs \
+            "$RUNNER_TEMP/pages-site"
+
+      - name: configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/pages-site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: deploy Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

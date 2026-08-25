@@ -16,7 +16,10 @@ import {
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, "../..");
-const DOCS_DIR = path.join(REPOSITORY_ROOT, "docs");
+const DOCS_DIR = path.resolve(
+  REPOSITORY_ROOT,
+  process.argv[2] || process.env.DOWNSHIFT_PAGES_DIR || "docs",
+);
 const RELEASE_MANIFEST_PATH = path.join(DOCS_DIR, "release.json");
 
 function assert(condition, message) {
