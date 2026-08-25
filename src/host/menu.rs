@@ -7,14 +7,15 @@ use muda::{
 use winit::event_loop::EventLoopProxy;
 use winit::window::Window;
 
-use crate::app_core::{
-    breathing_pattern_menu_label, breathing_pattern_summary, AppEvent, SNOOZE_PRESET_MINUTES,
-};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use crate::app_core::{breathing_pattern_menu_label, breathing_pattern_summary};
+use crate::app_core::{AppEvent, SNOOZE_PRESET_MINUTES};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::diagnostics;
 use crate::update_check::UpdateCheckService;
-use downshift::{
-    built_in_breathing_presets, BreathingPattern, Settings, BREATHING_PRESET_ID_COHERENT,
-};
+use downshift::Settings;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use downshift::{built_in_breathing_presets, BreathingPattern, BREATHING_PRESET_ID_COHERENT};
 
 pub(crate) const MENU_ID_PAUSE: &str = "pause";
 pub(crate) const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
@@ -62,6 +63,7 @@ pub(crate) const MENU_ID_FORCE_BACKGROUND_UPDATE_CHECK: &str = "force_background
 pub(crate) const MENU_ID_CLEAR_UPDATE_NOTIFICATION_DISMISSED: &str =
     "clear_update_notification_dismissed";
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 macro_rules! log_stderr {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
