@@ -42,6 +42,14 @@ if [[ "$PUSH" == true && "$(git branch --show-current)" != "main" ]]; then
   exit 2
 fi
 
+if [[ "$PUSH" == true ]]; then
+  # Rebase before generating the files so the working tree stays clean during
+  # synchronization. The generated changes can then be committed on top of
+  # the current main branch without asking git to rebase unstaged work.
+  git fetch origin main
+  git rebase origin/main
+fi
+
 REPOSITORY="${GITHUB_REPOSITORY:-samm81/downshift}"
 RELEASE_JSON="$(mktemp)"
 trap 'rm -f "$RELEASE_JSON"' EXIT
@@ -63,14 +71,6 @@ fi
 if [[ "$COMMIT" != true ]]; then
   echo "updated docs/release.json and embedded it in docs/index.html for ${TAG_VALUE} (not committed)"
   exit 0
-fi
-
-if [[ "$PUSH" == true ]]; then
-  # Rebase before generating the files so the working tree stays clean during
-  # synchronization. The generated changes can then be committed on top of
-  # the current main branch without asking git to rebase unstaged work.
-  git fetch origin main
-  git rebase origin/main
 fi
 
 git add docs/release.json docs/index.html
