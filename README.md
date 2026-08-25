@@ -154,7 +154,7 @@ the job summary includes the parsed smoke result, and the artifacts contain the 
 the repository uses three CI tiers:
 
 - `basic-quality` runs on every branch push and pull request update. it checks Rust formatting, library and integration tests, library and integration Clippy, and web, shell, markdown, and Pages tooling.
-- `full-quality` runs for pull requests targeting `main` or a release branch, for pushes to those protected branches, nightly, and manual dispatch. it builds and tests the native macOS and Windows targets, packages the platform artifacts, runs the available installer smoke checks, and reports a single `full quality gate` after both platforms pass.
+- `full-quality` runs for pull requests targeting `main` or a release branch, for pushes to those protected branches, and manual dispatch. it builds and tests the native macOS and Windows targets, packages the platform artifacts, runs the available installer smoke checks, and reports a single `full quality gate` after both platforms pass.
 - `release` runs for `v*` tags or manual dispatch. it adds signed/notarized release packaging, artifact verification, macOS GUI smoke, Windows release checks, publishing, and the Pages release-manifest update.
 
 the Pages browser smoke workflow remains path-filtered because it only applies when Pages inputs change.
