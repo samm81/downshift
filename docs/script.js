@@ -11,122 +11,17 @@ const dom = {
   checksumLink: document.getElementById("checksum-link"),
 };
 
-// Keep the demo geometry in step with the app: regular polygons with one
-// shared side length and symmetric top-growth insertion slots.
-const polygonSideLength = 25;
-const polygonBaseline = 97;
-const polygonCenterX = 50;
-const terminalShapeFraction = 0.2;
-const regularPolygonStartIndices = new Map([
-  [3, 0],
-  [4, 0],
-  [5, 4],
-  [6, 5],
-  [7, 5],
-  [8, 6],
-]);
-const regularPolygonCache = new Map();
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function easeInOut(value) {
-  return 0.5 - Math.cos(Math.PI * clamp(value, 0, 1)) / 2;
-}
-
-function growthInsertionAfterIndex(sides) {
-  return Math.floor((sides - 4) / 2);
-}
-
-function stageSlots(sides) {
-  const slots = [
-    "triangle-top",
-    "triangle-bottom-right",
-    "triangle-bottom-left",
-  ];
-  for (let nextSides = 4; nextSides <= sides; nextSides += 1) {
-    slots.splice(
-      growthInsertionAfterIndex(nextSides) + 1,
-      0,
-      `growth-${nextSides}`,
-    );
-  }
-  return slots;
-}
-
-function regularPolygonPoints(sides) {
-  if (regularPolygonCache.has(sides)) {
-    return regularPolygonCache.get(sides);
-  }
-  const radius = polygonSideLength / (2 * Math.sin(Math.PI / sides));
-  const startAngle =
-    sides % 2 === 0 ? -Math.PI / 2 - Math.PI / sides : -Math.PI / 2;
-  const points = Array.from({ length: sides }, (_, index) => {
-    const angle = startAngle + (index * 2 * Math.PI) / sides;
-    return [radius * Math.cos(angle), radius * Math.sin(angle)];
-  });
-  const bottom = Math.max(...points.map(([, y]) => y));
-  const startIndex = regularPolygonStartIndices.get(sides);
-  const rotated = points.slice(startIndex).concat(points.slice(0, startIndex));
-  const translated = rotated.map(([x, y]) => [
-    polygonCenterX + x,
-    polygonBaseline + y - bottom,
-  ]);
-  regularPolygonCache.set(sides, translated);
-  return translated;
-}
-
-function expandedPolygonPoints(sides, vertexCount, cache) {
-  const cacheKey = `${sides}:${vertexCount}`;
-  if (cache.has(cacheKey)) {
-    return cache.get(cacheKey);
-  }
-  const expanded = stageSlots(sides).map((slot, index) => ({
-    slot,
-    point: regularPolygonPoints(sides)[index],
-  }));
-  for (let nextSides = sides + 1; nextSides <= vertexCount; nextSides += 1) {
-    const insertAfter = growthInsertionAfterIndex(nextSides);
-    const insertIndex = insertAfter + 1;
-    const before = expanded[insertAfter].point;
-    const after = expanded[insertIndex % expanded.length].point;
-    const point =
-      nextSides % 2 === 0
-        ? [...before]
-        : [(before[0] + after[0]) / 2, (before[1] + after[1]) / 2];
-    expanded.splice(insertIndex, 0, {
-      slot: `growth-${nextSides}`,
-      point,
-    });
-  }
-  const points = expanded.map(({ point }) => point);
-  cache.set(cacheKey, points);
-  return points;
-}
-
-function terminalPointsForProgress(vertexCount, progress, cache) {
-  const triangle = expandedPolygonPoints(3, vertexCount, cache);
-  const line = triangle.map(([x]) => [x, polygonBaseline]);
-  const dot = line.map(() => [polygonCenterX, polygonBaseline]);
-  if (progress < 0.5) {
-    return interpolatePolygon(dot, line, easeInOut(progress * 2));
-  }
-  return interpolatePolygon(line, triangle, easeInOut((progress - 0.5) * 2));
-}
-
-function interpolatePolygon(from, to, amount) {
-  return from.map((point, index) => [
-    point[0] + (to[index][0] - point[0]) * amount,
-    point[1] + (to[index][1] - point[1]) * amount,
-  ]);
-}
-
-function pathData(points) {
-  return `M ${points
-    .map(([x, y]) => `${x.toFixed(3)} ${y.toFixed(3)}`)
-    .join(" L")} Z`;
-}
+const {
+  clamp,
+  easeInOut,
+  pathData,
+  polygonBaseline,
+  polygonCenterX,
+  polygonPointsForProgress,
+  polygonSideLength,
+  terminalPointsForProgress,
+  terminalShapeFraction,
+} = window.downshiftPolygonAnimation;
 
 function updateDemoBreathingHitTarget(hitTarget, artwork, progress) {
   const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
@@ -147,20 +42,16 @@ function updateDemoBreathingHitTarget(hitTarget, artwork, progress) {
   const lineWidth = polygonSideLength + 24 * viewBoxUnitsPerPixel;
   const dotToLineProgress = clamp(terminalProgress / 0.5, 0, 1);
   const targetWidth =
-    targetHeight +
-    (lineWidth - targetHeight) * easeInOut(dotToLineProgress);
+    targetHeight + (lineWidth - targetHeight) * easeInOut(dotToLineProgress);
 
   hitTarget.setAttribute("x", (polygonCenterX - targetWidth / 2).toFixed(3));
-  hitTarget.setAttribute(
-    "y",
-    (polygonBaseline - targetHeight / 2).toFixed(3),
-  );
+  hitTarget.setAttribute("y", (polygonBaseline - targetHeight / 2).toFixed(3));
   hitTarget.setAttribute("width", targetWidth.toFixed(3));
   hitTarget.setAttribute("height", targetHeight.toFixed(3));
   hitTarget.setAttribute("rx", (targetHeight / 2).toFixed(3));
 }
 
-function renderDemoBreathing(polygonNodes, hitTarget, artwork, progress, cache) {
+function renderDemoBreathing(polygonNodes, hitTarget, artwork, progress) {
   const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
   const polygonProgress = clamp(
     (progress - terminalShapeFraction) / (1 - terminalShapeFraction),
@@ -172,22 +63,13 @@ function renderDemoBreathing(polygonNodes, hitTarget, artwork, progress, cache) 
     const vertexCount = Number(polygon.dataset.sides);
     let points;
     if (progress <= terminalShapeFraction) {
-      points = terminalPointsForProgress(vertexCount, terminalProgress, cache);
+      points = terminalPointsForProgress(vertexCount, terminalProgress);
     } else {
-      const stagePosition = polygonProgress * 5;
-      const stage = Math.min(Math.floor(stagePosition), 4);
-      const transition = stagePosition - stage;
-      const currentSides = Math.min(3 + layerIndex, 3 + stage);
-      const nextSides = Math.min(currentSides + 1, 3 + layerIndex);
-      const from = expandedPolygonPoints(currentSides, vertexCount, cache);
-      points =
-        currentSides === nextSides
-          ? from
-          : interpolatePolygon(
-              from,
-              expandedPolygonPoints(nextSides, vertexCount, cache),
-              easeInOut(transition),
-            );
+      points = polygonPointsForProgress(
+        layerIndex,
+        vertexCount,
+        polygonProgress,
+      );
     }
     polygon.setAttribute("d", pathData(points));
   });
@@ -204,7 +86,6 @@ function wireDemoBreathing() {
 
   const hitTarget = document.getElementById("demo-breath-hit-target");
   const artwork = document.querySelector(".demo-breath-artwork");
-  const cache = new Map();
   let elapsedMs = 0;
   let previousTimestamp = null;
 
@@ -218,12 +99,12 @@ function wireDemoBreathing() {
       cyclePosition < 5500
         ? easeInOut(cyclePosition / 5500)
         : 1 - easeInOut((cyclePosition - 5500) / 5500);
-    renderDemoBreathing(polygonNodes, hitTarget, artwork, progress, cache);
+    renderDemoBreathing(polygonNodes, hitTarget, artwork, progress);
     previousTimestamp = timestamp;
     window.requestAnimationFrame(animate);
   }
 
-  renderDemoBreathing(polygonNodes, hitTarget, artwork, 0, cache);
+  renderDemoBreathing(polygonNodes, hitTarget, artwork, 0);
   window.requestAnimationFrame(animate);
 }
 

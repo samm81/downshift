@@ -299,6 +299,8 @@ const INLINE_SCRIPT_PLACEHOLDER: &str = "__DOWNSHIFT_INLINE_SCRIPT__";
 
 const BREATH_HTML_TEMPLATE: &str = include_str!("ui/breath.html");
 const BREATH_CSS: &str = include_str!("ui/breath.css");
+// Keep the embedded app and standalone Pages demo on the same polygon math.
+const BREATH_POLYGON_JS: &str = include_str!("ui/polygon-animation.js");
 const BREATH_JS: &str = include_str!("ui/breath.js");
 
 const TELEMETRY_INFO_HTML_TEMPLATE: &str = include_str!("ui/telemetry-info.html");
@@ -318,6 +320,7 @@ const BREATHING_PATTERN_CSS: &str = include_str!("ui/breathing-pattern.css");
 const BREATHING_PATTERN_JS: &str = include_str!("ui/breathing-pattern.js");
 
 static BREATH_HTML: OnceLock<String> = OnceLock::new();
+static BREATH_JS_COMBINED: OnceLock<String> = OnceLock::new();
 static TELEMETRY_INFO_HTML: OnceLock<String> = OnceLock::new();
 static UPDATE_DIALOG_HTML: OnceLock<String> = OnceLock::new();
 static CUSTOM_SNOOZE_HTML: OnceLock<String> = OnceLock::new();
@@ -329,8 +332,12 @@ fn inline_ui_assets(template: &str, css: &str, js: &str) -> String {
         .replace(INLINE_SCRIPT_PLACEHOLDER, js.trim())
 }
 
+fn breath_js() -> &'static str {
+    BREATH_JS_COMBINED.get_or_init(|| format!("{BREATH_POLYGON_JS}\n{BREATH_JS}"))
+}
+
 fn breath_html() -> &'static str {
-    BREATH_HTML.get_or_init(|| inline_ui_assets(BREATH_HTML_TEMPLATE, BREATH_CSS, BREATH_JS))
+    BREATH_HTML.get_or_init(|| inline_ui_assets(BREATH_HTML_TEMPLATE, BREATH_CSS, breath_js()))
 }
 
 fn telemetry_info_html() -> &'static str {
@@ -4611,6 +4618,19 @@ mod tests {
             html,
             "<style>body { color: red; }</style><script>console.log('ok');</script>"
         );
+    }
+
+    #[test]
+    fn breath_html_embeds_polygon_animation_before_breathing_consumer() {
+        let html = breath_html();
+        let polygon_module = html
+            .find("window.downshiftPolygonAnimation")
+            .expect("shared polygon module should be embedded");
+        let breathing_consumer = html
+            .find("terminalHitTargetSizePx")
+            .expect("breathing consumer should be embedded");
+
+        assert!(polygon_module < breathing_consumer);
     }
 
     #[test]
