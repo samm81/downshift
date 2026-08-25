@@ -1,677 +1,59 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 #![cfg_attr(target_os = "linux", allow(dead_code))]
 
+mod app_core;
+mod host;
+mod ui_assets;
+mod window_policy;
+
+use app_core::*;
 use downshift::telemetry::{
-    menu_action_size_target, telemetry_state, ActivityState, ActivityTrigger, EventName,
-    MenuAction, RuntimeTelemetryClient, SessionEndReason, SizeTarget, TelemetryClient,
+    telemetry_state, ActivityState, ActivityTrigger, EventName, MenuAction, RuntimeTelemetryClient,
+    SessionEndReason, TelemetryClient,
 };
 use downshift::{
     apply_resize_step, built_in_breathing_preset, built_in_breathing_presets, clamp_size,
-    diagnostics, load_settings_result, BreathingPattern, IpcCommand, PersistedMonitor,
-    SavedBreathingPreset, Settings, BREATHING_PRESET_ID_COHERENT, BREATHING_PRESET_ID_CUSTOM,
-    DEFAULT_SIZE,
+    diagnostics, load_settings_result, BreathingPattern, IpcCommand, SavedBreathingPreset,
+    Settings, BREATHING_PRESET_ID_COHERENT, BREATHING_PRESET_ID_CUSTOM,
 };
-#[cfg(target_os = "macos")]
-use downshift::{launch_agent_path_from_home, launch_agent_plist};
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use muda::{
-    CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+#[cfg(all(test, unix))]
+use host::instance::instance_socket_path_for_executable;
+#[cfg(all(test, target_os = "windows"))]
+use host::instance::windows_instance_pipe_name;
+#[cfg(all(test, target_os = "macos"))]
+use host::launch_at_login::{remove_launch_agent, write_launch_agent};
+use host::menu::*;
+use host::InstanceStart;
+use host::NativeContextMenu;
+use host::{
+    build_main_webview, clear_child_window, configure_event_loop_builder, copy_text_to_clipboard,
+    create_fixed_child_window, create_main_window, current_os_version, enforce_fixed_size,
+    focus_existing_child_window, install_menu_event_handler, logical_outer_position,
+    native_menu_available, open_external_url, persisted_monitor, resize_preserving_center,
+    set_outer_position, set_outer_position_physical, set_visible, show_without_focus,
+    snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
 };
-#[cfg(target_os = "macos")]
-use objc2_app_kit::{NSView, NSWindowCollectionBehavior};
-use semver::Version;
-use std::hash::{Hash, Hasher};
-#[cfg(unix)]
-use std::io::Read;
-use std::io::Write;
-#[cfg(unix)]
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::PanicHookInfo;
-#[cfg(unix)]
-use std::path::Path;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
+use ui_assets::*;
+use window_policy::*;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
-#[cfg(target_os = "macos")]
-use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
-#[cfg(target_os = "windows")]
-use winit::platform::windows::WindowAttributesExtWindows;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::{Window, WindowId, WindowLevel};
-use wry::{Rect, WebView, WebViewBuilder};
+use winit::window::{Window, WindowId};
+use wry::WebView;
 
 mod update_check;
 use update_check::{UpdateCheckResult, UpdateCheckService, UpdateCheckSource};
 
-const DEFAULT_SIZE_SHORT_SIDE_RATIO: f64 = 0.10;
-const DEFAULT_EDGE_MARGIN_RATIO: f64 = 0.05;
-const SIZE_PRESET_RATIOS: [f64; 4] = [0.08, 0.10, 0.13, 0.16];
-const DEFAULT_SIZE_PRESETS: [f64; 4] = [64.0, 96.0, 128.0, 160.0];
-const DEFAULT_HEARTBEAT_INTERVAL_SEC: u64 = 60;
-const MIN_HEARTBEAT_INTERVAL_SEC: u64 = 5;
-const MAX_HEARTBEAT_INTERVAL_SEC: u64 = 3600;
-const UPDATE_CHECK_STARTUP_DELAY_SEC: u64 = 8;
-const UPDATE_CHECK_BACKGROUND_INTERVAL_SEC: u64 = 6 * 60 * 60;
-const UPDATE_BADGE_REMINDER_INTERVAL_SEC: i64 = 24 * 60 * 60;
-const UPDATE_DOWNLOAD_FALLBACK_URL: &str = "https://github.com/samm81/downshift/releases/latest";
-const DEFAULT_GITHUB_ISSUES_URL: &str = "github-issues-url-not-set";
-const DEFAULT_SUPPORT_EMAIL: &str = "email-not-set";
-const UPDATE_TOOLTIP: &str = "new version available";
-const UPDATE_BADGE_WINDOW_RESERVE_PX: f64 = 32.0;
-const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
-const COMPILED_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
-const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
-const COMPILED_TELEMETRY_ENABLED: Option<&str> = option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
-const COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC: Option<&str> =
-    option_env!("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC");
-const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> = option_env!("DOWNSHIFT_DOWNLOAD_RELEASE_URL");
-const COMPILED_GITHUB_ISSUES_URL: Option<&str> = option_env!("DOWNSHIFT_GITHUB_ISSUES_URL");
-const COMPILED_SUPPORT_EMAIL: Option<&str> = option_env!("DOWNSHIFT_SUPPORT_EMAIL");
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-mod menu_ids {
-    pub(super) const MENU_ID_PAUSE: &str = "pause";
-    pub(super) const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
-    pub(super) const MENU_ID_SNOOZE_5: &str = "snooze_5";
-    pub(super) const MENU_ID_SNOOZE_10: &str = "snooze_10";
-    pub(super) const MENU_ID_SNOOZE_15: &str = "snooze_15";
-    pub(super) const MENU_ID_SNOOZE_30: &str = "snooze_30";
-    pub(super) const MENU_ID_SNOOZE_60: &str = "snooze_60";
-    pub(super) const MENU_ID_SNOOZE_CUSTOM: &str = "snooze_custom";
-    pub(super) const MENU_ID_SIZE_S: &str = "size_s";
-    pub(super) const MENU_ID_SIZE_M: &str = "size_m";
-    pub(super) const MENU_ID_SIZE_L: &str = "size_l";
-    pub(super) const MENU_ID_SIZE_XL: &str = "size_xl";
-    pub(super) const MENU_ID_BREATHING_PATTERN: &str = "breathing_pattern";
-    pub(super) const MENU_ID_BREATHING_COHERENT: &str = "breathing_coherent";
-    pub(super) const MENU_ID_BREATHING_BOX: &str = "breathing_box";
-    pub(super) const MENU_ID_BREATHING_479: &str = "breathing_479";
-    pub(super) const MENU_ID_BREATHING_EDIT: &str = "breathing_edit";
-    pub(super) const MENU_ID_BREATHING_DELETE_ROOT: &str = "breathing_delete_root";
-    pub(super) const MENU_ID_BREATHING_DELETE_PREFIX: &str = "breathing_delete:";
-    pub(super) const MENU_ID_BREATHING_SAVED_PREFIX: &str = "breathing_saved:";
-    pub(super) const MENU_ID_RESET: &str = "reset";
-    pub(super) const MENU_ID_QUIT: &str = "quit";
-    pub(super) const MENU_ID_ANALYTICS_ROOT: &str = "analytics_root";
-    pub(super) const MENU_ID_USAGE_ON: &str = "usage_on";
-    pub(super) const MENU_ID_USAGE_OFF: &str = "usage_off";
-    pub(super) const MENU_ID_CRASH_ON: &str = "crash_on";
-    pub(super) const MENU_ID_CRASH_OFF: &str = "crash_off";
-    pub(super) const MENU_ID_ANALYTICS_INFO: &str = "analytics_info";
-    pub(super) const MENU_ID_UPDATE_ROOT: &str = "update_root";
-    pub(super) const MENU_ID_UPDATE_PRIMARY: &str = "update_primary";
-    pub(super) const MENU_ID_UPDATE_IGNORE_CURRENT: &str = "update_ignore_current";
-    pub(super) const MENU_ID_LAUNCH_AT_LOGIN: &str = "launch_at_login";
-    pub(super) const MENU_ID_BUGS_ROOT: &str = "bugs_root";
-    pub(super) const MENU_ID_COPY_DIAGNOSTICS: &str = "copy_diagnostics";
-    pub(super) const MENU_ID_FILE_BUG_GITHUB: &str = "file_bug_github";
-    pub(super) const MENU_ID_FILE_BUG_EMAIL: &str = "file_bug_email";
-    #[cfg(debug_assertions)]
-    pub(super) const MENU_ID_DEVELOPER_PREVIEWS_ROOT: &str = "developer_previews_root";
-    #[cfg(debug_assertions)]
-    pub(super) const MENU_ID_SIMULATE_PENDING_UPDATE: &str = "simulate_pending_update";
-    #[cfg(debug_assertions)]
-    pub(super) const MENU_ID_FORCE_BACKGROUND_UPDATE_CHECK: &str = "force_background_update_check";
-    #[cfg(debug_assertions)]
-    pub(super) const MENU_ID_CLEAR_UPDATE_NOTIFICATION_DISMISSED: &str =
-        "clear_update_notification_dismissed";
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use menu_ids::*;
-
-#[cfg(target_os = "macos")]
-fn configure_window_for_all_spaces(window: &Window) {
-    let ns_view = match window.window_handle() {
-        Ok(handle) => match handle.as_raw() {
-            RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr().cast::<NSView>(),
-            _ => {
-                diagnostics::log_line("ERROR", "warning: window handle was not an AppKit handle");
-                return;
-            }
-        },
-        Err(error) => {
-            diagnostics::log_line(
-                "ERROR",
-                &format!(
-                    "warning: failed to access window handle for spaces configuration: {error}"
-                ),
-            );
-            return;
-        }
-    };
-    let Some(ns_view) = (unsafe { ns_view.as_ref() }) else {
-        diagnostics::log_line("ERROR", "warning: window handle returned a null NSView");
-        return;
-    };
-    let Some(ns_window) = ns_view.window() else {
-        diagnostics::log_line("ERROR", "warning: failed to resolve NSWindow from NSView");
-        return;
-    };
-
-    let mut behavior = unsafe { ns_window.collectionBehavior() };
-    behavior.insert(
-        NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::FullScreenAuxiliary,
-    );
-    behavior.remove(NSWindowCollectionBehavior::MoveToActiveSpace);
-    unsafe {
-        ns_window.setCollectionBehavior(behavior);
-    }
-}
 macro_rules! log_stderr {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
         diagnostics::log_line("ERROR", &message);
     }};
-}
-
-struct HeartbeatSnapshot {
-    state: String,
-    paused: bool,
-    snoozed: bool,
-    active_breathing_preset_id: String,
-    breathing_pattern: BreathingPattern,
-    width_px: u32,
-    height_px: u32,
-    usage_enabled: bool,
-    crash_enabled: bool,
-}
-
-impl HeartbeatSnapshot {
-    fn into_properties(self) -> serde_json::Value {
-        serde_json::json!({
-            "state": self.state,
-            "config": {
-                "paused": self.paused,
-                "snoozed": self.snoozed,
-                "active_breathing_preset_id": self.active_breathing_preset_id,
-                "breathing_pattern": {
-                    "expanding_seconds": self.breathing_pattern.expanding_seconds,
-                    "expanded_hold_seconds": self.breathing_pattern.expanded_hold_seconds,
-                    "compressing_seconds": self.breathing_pattern.compressing_seconds,
-                    "compressed_hold_seconds": self.breathing_pattern.compressed_hold_seconds,
-                    "total_seconds": self.breathing_pattern.expanding_seconds
-                        + self.breathing_pattern.expanded_hold_seconds
-                        + self.breathing_pattern.compressing_seconds
-                        + self.breathing_pattern.compressed_hold_seconds,
-                },
-                "width_px": self.width_px,
-                "height_px": self.height_px,
-                "usage_enabled": self.usage_enabled,
-                "crash_enabled": self.crash_enabled,
-            }
-        })
-    }
-}
-
-fn emit_startup_telemetry(
-    telemetry: &RuntimeTelemetryClient,
-    initial_state: ActivityState,
-    heartbeat_snapshot: HeartbeatSnapshot,
-) {
-    telemetry.start_session(initial_state);
-    telemetry.track(
-        EventName::SessionHeartbeat,
-        heartbeat_snapshot.into_properties(),
-    );
-}
-
-#[cfg(target_os = "macos")]
-fn launch_agent_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| launch_agent_path_from_home(&home))
-}
-
-#[cfg(target_os = "macos")]
-fn write_launch_agent(path: &Path, executable: &Path) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("invalid launch agent path: {}", path.display()))?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    std::fs::write(path, launch_agent_plist(executable)).map_err(|error| error.to_string())
-}
-
-#[cfg(target_os = "macos")]
-fn remove_launch_agent(path: &Path) -> Result<(), String> {
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-#[cfg(target_os = "windows")]
-const WINDOWS_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-#[cfg(target_os = "windows")]
-const WINDOWS_RUN_VALUE: &str = "Downshift";
-
-#[cfg(target_os = "windows")]
-fn set_windows_launch_at_login(enabled: bool) -> Result<(), String> {
-    let output = if enabled {
-        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-        let command = format!("\"{}\"", executable.display());
-        std::process::Command::new("reg.exe")
-            .args([
-                "add",
-                WINDOWS_RUN_KEY,
-                "/v",
-                WINDOWS_RUN_VALUE,
-                "/t",
-                "REG_SZ",
-                "/d",
-                &command,
-                "/f",
-            ])
-            .output()
-            .map_err(|error| error.to_string())?
-    } else {
-        std::process::Command::new("reg.exe")
-            .args(["delete", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE, "/f"])
-            .output()
-            .map_err(|error| error.to_string())?
-    };
-
-    if output.status.success()
-        || (!enabled
-            && String::from_utf8_lossy(&output.stderr)
-                .to_ascii_lowercase()
-                .contains("unable to find"))
-    {
-        return Ok(());
-    }
-
-    let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(if details.is_empty() {
-        format!("reg.exe exited with status {}", output.status)
-    } else {
-        details
-    })
-}
-
-const INLINE_STYLE_PLACEHOLDER: &str = "__DOWNSHIFT_INLINE_STYLE__";
-const INLINE_SCRIPT_PLACEHOLDER: &str = "__DOWNSHIFT_INLINE_SCRIPT__";
-
-const BREATH_HTML_TEMPLATE: &str = include_str!("ui/breath.html");
-const BREATH_CSS: &str = include_str!("ui/breath.css");
-// Keep the embedded app and standalone Pages demo on the same polygon math.
-const BREATH_POLYGON_JS: &str = include_str!("ui/polygon-animation.js");
-const BREATH_JS: &str = include_str!("ui/breath.js");
-
-const TELEMETRY_INFO_HTML_TEMPLATE: &str = include_str!("ui/telemetry-info.html");
-const TELEMETRY_INFO_CSS: &str = include_str!("ui/telemetry-info.css");
-const TELEMETRY_INFO_JS: &str = include_str!("ui/telemetry-info.js");
-
-const UPDATE_DIALOG_HTML_TEMPLATE: &str = include_str!("ui/update-dialog.html");
-const UPDATE_DIALOG_CSS: &str = include_str!("ui/update-dialog.css");
-const UPDATE_DIALOG_JS: &str = include_str!("ui/update-dialog.js");
-
-const CUSTOM_SNOOZE_HTML_TEMPLATE: &str = include_str!("ui/custom-snooze.html");
-const CUSTOM_SNOOZE_CSS: &str = include_str!("ui/custom-snooze.css");
-const CUSTOM_SNOOZE_JS: &str = include_str!("ui/custom-snooze.js");
-
-const BREATHING_PATTERN_HTML_TEMPLATE: &str = include_str!("ui/breathing-pattern.html");
-const BREATHING_PATTERN_CSS: &str = include_str!("ui/breathing-pattern.css");
-const BREATHING_PATTERN_JS: &str = include_str!("ui/breathing-pattern.js");
-
-static BREATH_HTML: OnceLock<String> = OnceLock::new();
-static BREATH_JS_COMBINED: OnceLock<String> = OnceLock::new();
-static TELEMETRY_INFO_HTML: OnceLock<String> = OnceLock::new();
-static UPDATE_DIALOG_HTML: OnceLock<String> = OnceLock::new();
-static CUSTOM_SNOOZE_HTML: OnceLock<String> = OnceLock::new();
-static BREATHING_PATTERN_HTML: OnceLock<String> = OnceLock::new();
-
-fn inline_ui_assets(template: &str, css: &str, js: &str) -> String {
-    template
-        .replace(INLINE_STYLE_PLACEHOLDER, css.trim())
-        .replace(INLINE_SCRIPT_PLACEHOLDER, js.trim())
-}
-
-fn breath_js() -> &'static str {
-    BREATH_JS_COMBINED.get_or_init(|| format!("{BREATH_POLYGON_JS}\n{BREATH_JS}"))
-}
-
-fn breath_html() -> &'static str {
-    BREATH_HTML.get_or_init(|| inline_ui_assets(BREATH_HTML_TEMPLATE, BREATH_CSS, breath_js()))
-}
-
-fn telemetry_info_html() -> &'static str {
-    TELEMETRY_INFO_HTML.get_or_init(|| {
-        inline_ui_assets(
-            TELEMETRY_INFO_HTML_TEMPLATE,
-            TELEMETRY_INFO_CSS,
-            TELEMETRY_INFO_JS,
-        )
-    })
-}
-
-fn update_dialog_html() -> &'static str {
-    UPDATE_DIALOG_HTML.get_or_init(|| {
-        inline_ui_assets(
-            UPDATE_DIALOG_HTML_TEMPLATE,
-            UPDATE_DIALOG_CSS,
-            UPDATE_DIALOG_JS,
-        )
-    })
-}
-
-fn custom_snooze_html() -> &'static str {
-    CUSTOM_SNOOZE_HTML.get_or_init(|| {
-        inline_ui_assets(
-            CUSTOM_SNOOZE_HTML_TEMPLATE,
-            CUSTOM_SNOOZE_CSS,
-            CUSTOM_SNOOZE_JS,
-        )
-    })
-}
-
-fn breathing_pattern_html() -> &'static str {
-    BREATHING_PATTERN_HTML.get_or_init(|| {
-        inline_ui_assets(
-            BREATHING_PATTERN_HTML_TEMPLATE,
-            BREATHING_PATTERN_CSS,
-            BREATHING_PATTERN_JS,
-        )
-    })
-}
-
-#[derive(Debug, Clone)]
-enum AppEvent {
-    ExitRequested,
-    Ipc(String),
-    InstanceActivate,
-    TelemetryHeartbeat,
-    SnoozeExpired(u64),
-    UpdateCheckFinished(UpdateCheckResult, UpdateCheckSource),
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    MenuActivated(String),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ActivityMode {
-    Active,
-    Paused,
-    Snoozed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InstanceCommand {
-    Activate,
-}
-
-impl InstanceCommand {
-    fn as_bytes(self) -> &'static [u8] {
-        match self {
-            Self::Activate => b"activate\n",
-        }
-    }
-
-    fn parse(input: &str) -> Option<Self> {
-        match input.trim() {
-            "activate" => Some(Self::Activate),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct UpdateUiState {
-    latest_version: Option<String>,
-    download_url: String,
-    checking: bool,
-    checked_once: bool,
-    badge_snoozed_version: Option<String>,
-    badge_snoozed_at_epoch_seconds: Option<i64>,
-    ignored_version: Option<String>,
-}
-
-impl Default for UpdateUiState {
-    fn default() -> Self {
-        Self {
-            latest_version: None,
-            download_url: download_release_url()
-                .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
-            checking: false,
-            checked_once: false,
-            badge_snoozed_version: None,
-            badge_snoozed_at_epoch_seconds: None,
-            ignored_version: None,
-        }
-    }
-}
-
-impl UpdateUiState {
-    fn has_update_available(&self) -> bool {
-        let Some(latest) = self.latest_version.as_ref() else {
-            return false;
-        };
-        is_newer_version(latest, env!("CARGO_PKG_VERSION"))
-    }
-
-    fn is_ignoring_current_update(&self) -> bool {
-        let Some(latest) = self.latest_version.as_ref() else {
-            return false;
-        };
-        self.ignored_version.as_deref() == Some(latest.as_str())
-    }
-
-    fn ignore_current_update_enabled(&self) -> bool {
-        if !self.has_update_available() {
-            return false;
-        }
-        true
-    }
-
-    fn should_show_badge(&self) -> bool {
-        self.should_show_badge_at(now_epoch_seconds())
-    }
-
-    fn should_show_badge_at(&self, now_epoch_seconds: i64) -> bool {
-        let Some(latest) = self.latest_version.as_ref() else {
-            return false;
-        };
-        if !self.has_update_available() || self.is_ignoring_current_update() {
-            return false;
-        }
-        if self.badge_snoozed_version.as_deref() != Some(latest.as_str()) {
-            return true;
-        }
-        let Some(snoozed_at) = self.badge_snoozed_at_epoch_seconds else {
-            return true;
-        };
-        now_epoch_seconds - snoozed_at >= UPDATE_BADGE_REMINDER_INTERVAL_SEC
-    }
-
-    fn menu_label(&self) -> String {
-        let current = env!("CARGO_PKG_VERSION");
-        if self.has_update_available() {
-            let latest = self.latest_version.as_deref().unwrap_or("unknown");
-            return format!("get newest version ({latest}) (current {current})");
-        }
-        format!("check for updates (version {current})")
-    }
-}
-
-fn parse_version(input: &str) -> Option<Version> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Version::parse(trimmed.trim_start_matches('v')).ok()
-}
-
-fn is_newer_version(latest: &str, current: &str) -> bool {
-    let Some(latest_version) = parse_version(latest) else {
-        return false;
-    };
-    let Some(current_version) = parse_version(current) else {
-        return false;
-    };
-    latest_version > current_version
-}
-
-fn open_external_url(url: &str) {
-    #[cfg(target_os = "macos")]
-    let command = ("open", vec![url.to_string()]);
-    #[cfg(target_os = "windows")]
-    let command = (
-        "cmd",
-        vec![
-            "/C".to_string(),
-            "start".to_string(),
-            "".to_string(),
-            url.to_string(),
-        ],
-    );
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let command = ("xdg-open", vec![url.to_string()]);
-
-    let (program, args) = command;
-    if let Err(error) = std::process::Command::new(program).args(args).spawn() {
-        log_stderr!("warning: failed to open external url: {error}");
-    }
-}
-
-fn optional_env_value(name: &str, compiled: Option<&str>) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .or_else(|| compiled.map(str::to_string))
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-fn runtime_env_label() -> String {
-    optional_env_value("DOWNSHIFT_ENV", COMPILED_ENV).unwrap_or_else(|| "unset".to_string())
-}
-
-fn build_channel_label() -> String {
-    optional_env_value("DOWNSHIFT_BUILD_CHANNEL", COMPILED_BUILD_CHANNEL)
-        .unwrap_or_else(|| "unset".to_string())
-}
-
-fn telemetry_globally_enabled() -> bool {
-    optional_env_value("DOWNSHIFT_TELEMETRY_ENABLED", COMPILED_TELEMETRY_ENABLED)
-        .map(|raw| !matches!(raw.to_ascii_lowercase().as_str(), "0" | "false" | "off"))
-        .unwrap_or(true)
-}
-
-fn resolve_compiled_setting(compiled: Option<&str>, fallback: &str) -> Result<String, String> {
-    if let Some(value) = compiled.map(str::trim).filter(|value| !value.is_empty()) {
-        return Ok(value.to_string());
-    }
-
-    Ok(fallback.to_string())
-}
-
-fn download_release_url() -> Result<String, String> {
-    resolve_compiled_setting(COMPILED_DOWNLOAD_RELEASE_URL, UPDATE_DOWNLOAD_FALLBACK_URL)
-}
-
-fn resolve_external_contact_value(
-    env_name: &str,
-    compiled: Option<&str>,
-    fallback: &str,
-) -> Result<String, String> {
-    if let Some(value) = optional_env_value(env_name, compiled) {
-        return Ok(value);
-    }
-
-    Ok(fallback.to_string())
-}
-
-fn telemetry_heartbeat_interval_seconds() -> Result<u64, String> {
-    let raw = resolve_compiled_setting(COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC, "60")?;
-    Ok(parse_heartbeat_interval_seconds(&raw))
-}
-
-fn github_issues_url() -> Result<String, String> {
-    resolve_external_contact_value(
-        "DOWNSHIFT_GITHUB_ISSUES_URL",
-        COMPILED_GITHUB_ISSUES_URL,
-        DEFAULT_GITHUB_ISSUES_URL,
-    )
-}
-
-fn support_email_address() -> Result<String, String> {
-    resolve_external_contact_value(
-        "DOWNSHIFT_SUPPORT_EMAIL",
-        COMPILED_SUPPORT_EMAIL,
-        DEFAULT_SUPPORT_EMAIL,
-    )
-}
-
-fn support_email_mailto() -> Result<String, String> {
-    Ok(format!(
-        "mailto:{}?subject=downshift%20bug%20report&body=please%20describe%20what%20happened%20and%20paste%20diagnostics%20if%20helpful.",
-        support_email_address()?
-    ))
-}
-
-fn current_os_version() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("sw_vers")
-            .arg("-productVersion")
-            .output();
-        if let Ok(output) = output {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !version.is_empty() {
-                return format!("macOS {version}");
-            }
-        }
-    }
-    std::env::consts::OS.to_string()
-}
-
-fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let mut process = std::process::Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        let Some(stdin) = process.stdin.as_mut() else {
-            return Err("clipboard stdin unavailable".to_string());
-        };
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|error| error.to_string())?;
-        let status = process.wait().map_err(|error| error.to_string())?;
-        return if status.success() {
-            Ok(())
-        } else {
-            Err(format!("pbcopy exited with status {status}"))
-        };
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let mut process = std::process::Command::new("clip.exe")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        let Some(stdin) = process.stdin.as_mut() else {
-            return Err("clipboard stdin unavailable".to_string());
-        };
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|error| error.to_string())?;
-        let status = process.wait().map_err(|error| error.to_string())?;
-        return if status.success() {
-            Ok(())
-        } else {
-            Err(format!("clip.exe exited with status {status}"))
-        };
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let _ = text;
-    #[allow(unreachable_code)]
-    Err("clipboard copy is unsupported on this platform".to_string())
 }
 
 fn export_diagnostics_to_temp_file(text: &str) -> Result<PathBuf, String> {
@@ -684,15 +66,6 @@ fn export_diagnostics_to_temp_file(text: &str) -> Result<PathBuf, String> {
     let path = std::env::temp_dir().join(format!("downshift-diagnostics-{timestamp}.txt"));
     std::fs::write(&path, text).map_err(|error| error.to_string())?;
     Ok(path)
-}
-
-fn now_epoch_seconds() -> i64 {
-    use std::time::UNIX_EPOCH;
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or_default()
 }
 
 fn spawn_update_check(
@@ -708,656 +81,6 @@ fn spawn_update_check(
         let result = update_check.check();
         let _ = proxy.send_event(AppEvent::UpdateCheckFinished(result, source));
     });
-}
-
-fn breathing_pattern_total_seconds(pattern: &BreathingPattern) -> f64 {
-    pattern.expanding_seconds
-        + pattern.expanded_hold_seconds
-        + pattern.compressing_seconds
-        + pattern.compressed_hold_seconds
-}
-
-fn format_breathing_seconds(value: f64) -> String {
-    if (value.fract()).abs() <= 0.001 {
-        format!("{}", value.round() as i64)
-    } else {
-        format!("{value:.1}")
-    }
-}
-
-fn breathing_pattern_summary(pattern: &BreathingPattern) -> String {
-    format!(
-        "{} / {} / {} / {}",
-        format_breathing_seconds(pattern.expanding_seconds),
-        format_breathing_seconds(pattern.expanded_hold_seconds),
-        format_breathing_seconds(pattern.compressing_seconds),
-        format_breathing_seconds(pattern.compressed_hold_seconds),
-    )
-}
-
-fn breathing_pattern_payload(pattern: &BreathingPattern) -> serde_json::Value {
-    serde_json::json!({
-        "expanding_seconds": pattern.expanding_seconds,
-        "expanded_hold_seconds": pattern.expanded_hold_seconds,
-        "compressing_seconds": pattern.compressing_seconds,
-        "compressed_hold_seconds": pattern.compressed_hold_seconds,
-        "total_seconds": breathing_pattern_total_seconds(pattern),
-    })
-}
-
-fn breathing_pattern_menu_label() -> String {
-    "breathing pattern".to_string()
-}
-
-fn size_target_label(size_slot: usize) -> Option<&'static str> {
-    menu_action_size_target(size_slot).map(|target| match target {
-        SizeTarget::S => "S",
-        SizeTarget::M => "M",
-        SizeTarget::L => "L",
-        SizeTarget::Xl => "XL",
-    })
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn breathing_delete_menu_id(id: &str) -> String {
-    format!("{MENU_ID_BREATHING_DELETE_PREFIX}{id}")
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn deleted_breathing_preset_id_from_menu_id(id: &str) -> Option<&str> {
-    id.strip_prefix(MENU_ID_BREATHING_DELETE_PREFIX)
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn breathing_saved_menu_id(id: &str) -> String {
-    format!("{MENU_ID_BREATHING_SAVED_PREFIX}{id}")
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn saved_breathing_preset_id_from_menu_id(id: &str) -> Option<&str> {
-    id.strip_prefix(MENU_ID_BREATHING_SAVED_PREFIX)
-}
-
-fn slugify_preset_name(name: &str) -> String {
-    let mut id = String::new();
-    let mut last_was_separator = false;
-    for ch in name.chars() {
-        let normalized = ch.to_ascii_lowercase();
-        if normalized.is_ascii_alphanumeric() {
-            id.push(normalized);
-            last_was_separator = false;
-        } else if !last_was_separator {
-            id.push('_');
-            last_was_separator = true;
-        }
-    }
-    let id = id.trim_matches('_').to_string();
-    if id.is_empty() {
-        "preset".to_string()
-    } else {
-        id
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-#[derive(Clone)]
-struct NativeContextMenu {
-    root: Submenu,
-    pause: CheckMenuItem,
-    launch_at_login: CheckMenuItem,
-    snooze_menu: Submenu,
-    snooze_5: MenuItem,
-    snooze_10: MenuItem,
-    snooze_15: MenuItem,
-    snooze_30: MenuItem,
-    snooze_60: MenuItem,
-    snooze_custom: MenuItem,
-    size_menu: Submenu,
-    size_s: MenuItem,
-    size_m: MenuItem,
-    size_l: MenuItem,
-    size_xl: MenuItem,
-    size_scroll_hint: MenuItem,
-    breathing_menu: Submenu,
-    breathing_coherent: CheckMenuItem,
-    breathing_box: CheckMenuItem,
-    breathing_479: CheckMenuItem,
-    breathing_saved: Vec<(String, CheckMenuItem)>,
-    breathing_delete_menu: Submenu,
-    breathing_delete_items: Vec<(String, MenuItem)>,
-    reset: MenuItem,
-    quit: MenuItem,
-    update_menu: Submenu,
-    update_primary: MenuItem,
-    update_ignore_current: CheckMenuItem,
-    bugs_menu: Submenu,
-    copy_diagnostics: MenuItem,
-    file_bug_github: MenuItem,
-    file_bug_email: MenuItem,
-    analytics_menu: Submenu,
-    usage_on: CheckMenuItem,
-    usage_off: CheckMenuItem,
-    crash_on: CheckMenuItem,
-    crash_off: CheckMenuItem,
-    analytics_info: MenuItem,
-    #[cfg(debug_assertions)]
-    simulate_pending_update: CheckMenuItem,
-    #[cfg(debug_assertions)]
-    force_background_update_check: MenuItem,
-    #[cfg(debug_assertions)]
-    clear_update_notification_dismissed: MenuItem,
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-impl NativeContextMenu {
-    fn new(settings: &Settings) -> Option<Self> {
-        let visible_built_in_presets = built_in_breathing_presets()
-            .into_iter()
-            .filter(|preset| {
-                !settings
-                    .hidden_breathing_preset_ids
-                    .iter()
-                    .any(|id| id == preset.id)
-            })
-            .collect::<Vec<_>>();
-        let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
-        let launch_at_login =
-            CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, true, None);
-        let snooze_5 = MenuItem::with_id(MENU_ID_SNOOZE_5, "snooze for 5 minutes", true, None);
-        let snooze_10 = MenuItem::with_id(MENU_ID_SNOOZE_10, "snooze for 10 minutes", true, None);
-        let snooze_15 = MenuItem::with_id(MENU_ID_SNOOZE_15, "snooze for 15 minutes", true, None);
-        let snooze_30 = MenuItem::with_id(MENU_ID_SNOOZE_30, "snooze for 30 minutes", true, None);
-        let snooze_60 = MenuItem::with_id(MENU_ID_SNOOZE_60, "snooze for 60 minutes", true, None);
-        let snooze_custom = MenuItem::with_id(
-            MENU_ID_SNOOZE_CUSTOM,
-            "snooze for custom minutes…",
-            true,
-            None,
-        );
-        let size_s = MenuItem::with_id(MENU_ID_SIZE_S, "S (64px)", true, None);
-        let size_m = MenuItem::with_id(MENU_ID_SIZE_M, "M (96px)", true, None);
-        let size_l = MenuItem::with_id(MENU_ID_SIZE_L, "L (128px)", true, None);
-        let size_xl = MenuItem::with_id(MENU_ID_SIZE_XL, "XL (160px)", true, None);
-        let size_scroll_hint = MenuItem::with_id(
-            "size_scroll_hint",
-            "tip: scroll the ball to resize",
-            false,
-            None,
-        );
-        let breathing_coherent = CheckMenuItem::with_id(
-            MENU_ID_BREATHING_COHERENT,
-            format!(
-                "coherent breathing ({})",
-                breathing_pattern_summary(&BreathingPattern::coherent())
-            ),
-            visible_built_in_presets
-                .iter()
-                .any(|preset| preset.id == BREATHING_PRESET_ID_COHERENT),
-            false,
-            None,
-        );
-        let breathing_box = CheckMenuItem::with_id(
-            MENU_ID_BREATHING_BOX,
-            format!(
-                "box breathing ({})",
-                breathing_pattern_summary(&BreathingPattern::box_breathing())
-            ),
-            visible_built_in_presets
-                .iter()
-                .any(|preset| preset.id == "box_breathing"),
-            false,
-            None,
-        );
-        let breathing_479 = CheckMenuItem::with_id(
-            MENU_ID_BREATHING_479,
-            format!(
-                "4-7-9 ({})",
-                breathing_pattern_summary(&BreathingPattern::four_seven_nine())
-            ),
-            visible_built_in_presets
-                .iter()
-                .any(|preset| preset.id == "4_7_9"),
-            false,
-            None,
-        );
-        let breathing_edit = MenuItem::with_id(MENU_ID_BREATHING_EDIT, "add new…", true, None);
-        let breathing_saved = settings
-            .saved_breathing_presets
-            .iter()
-            .map(|preset| {
-                (
-                    preset.id.clone(),
-                    CheckMenuItem::with_id(
-                        breathing_saved_menu_id(&preset.id),
-                        format!(
-                            "{} ({})",
-                            preset.name,
-                            breathing_pattern_summary(&preset.pattern)
-                        ),
-                        true,
-                        false,
-                        None,
-                    ),
-                )
-            })
-            .collect::<Vec<_>>();
-        let breathing_delete_items = visible_built_in_presets
-            .iter()
-            .map(|preset| {
-                (
-                    preset.id.to_string(),
-                    MenuItem::with_id(
-                        breathing_delete_menu_id(preset.id),
-                        format!(
-                            "{} ({})",
-                            preset.name,
-                            breathing_pattern_summary(&preset.pattern)
-                        ),
-                        true,
-                        None,
-                    ),
-                )
-            })
-            .chain(settings.saved_breathing_presets.iter().map(|preset| {
-                (
-                    preset.id.clone(),
-                    MenuItem::with_id(
-                        breathing_delete_menu_id(&preset.id),
-                        format!(
-                            "{} ({})",
-                            preset.name,
-                            breathing_pattern_summary(&preset.pattern)
-                        ),
-                        true,
-                        None,
-                    ),
-                )
-            }))
-            .collect::<Vec<_>>();
-        let reset = MenuItem::with_id(MENU_ID_RESET, "reset", true, None);
-        let quit = MenuItem::with_id(MENU_ID_QUIT, "quit", true, None);
-        let update_primary = MenuItem::with_id(
-            MENU_ID_UPDATE_PRIMARY,
-            format!("check for updates (version {})", env!("CARGO_PKG_VERSION")),
-            true,
-            None,
-        );
-        let update_ignore_current = CheckMenuItem::with_id(
-            MENU_ID_UPDATE_IGNORE_CURRENT,
-            "do not remind me about the current update again",
-            false,
-            false,
-            None,
-        );
-        let copy_diagnostics =
-            MenuItem::with_id(MENU_ID_COPY_DIAGNOSTICS, "copy diagnostics", true, None);
-        let file_bug_github = MenuItem::with_id(
-            MENU_ID_FILE_BUG_GITHUB,
-            "file a bug report on github",
-            true,
-            None,
-        );
-        let file_bug_email = MenuItem::with_id(
-            MENU_ID_FILE_BUG_EMAIL,
-            "file a bug report by email",
-            true,
-            None,
-        );
-        let usage_on = CheckMenuItem::with_id(
-            MENU_ID_USAGE_ON,
-            "share anonymous usage data",
-            true,
-            false,
-            None,
-        );
-        let usage_off = CheckMenuItem::with_id(
-            MENU_ID_USAGE_OFF,
-            "don’t share usage data",
-            true,
-            false,
-            None,
-        );
-        let crash_on = CheckMenuItem::with_id(
-            MENU_ID_CRASH_ON,
-            "share anonymous crash reports",
-            true,
-            false,
-            None,
-        );
-        let crash_off = CheckMenuItem::with_id(
-            MENU_ID_CRASH_OFF,
-            "don't share crash reports",
-            true,
-            false,
-            None,
-        );
-        let analytics_info =
-            MenuItem::with_id(MENU_ID_ANALYTICS_INFO, "what we collect…", true, None);
-        #[cfg(debug_assertions)]
-        let simulate_pending_update = CheckMenuItem::with_id(
-            MENU_ID_SIMULATE_PENDING_UPDATE,
-            "simulate pending update",
-            true,
-            false,
-            None,
-        );
-        #[cfg(debug_assertions)]
-        let force_background_update_check = MenuItem::with_id(
-            MENU_ID_FORCE_BACKGROUND_UPDATE_CHECK,
-            "force background update check",
-            true,
-            None,
-        );
-        #[cfg(debug_assertions)]
-        let clear_update_notification_dismissed = MenuItem::with_id(
-            MENU_ID_CLEAR_UPDATE_NOTIFICATION_DISMISSED,
-            "clear update notification dismissed",
-            true,
-            None,
-        );
-        #[cfg(debug_assertions)]
-        let developer_previews_menu = match Submenu::with_id_and_items(
-            MENU_ID_DEVELOPER_PREVIEWS_ROOT,
-            "developer previews",
-            true,
-            &[
-                &simulate_pending_update,
-                &force_background_update_check,
-                &clear_update_notification_dismissed,
-            ],
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build developer previews submenu: {error}");
-                return None;
-            }
-        };
-        let analytics_separator_one = PredefinedMenuItem::separator();
-        let analytics_separator_two = PredefinedMenuItem::separator();
-        let snooze_submenu = match Submenu::with_id_and_items(
-            MENU_ID_SNOOZE_ROOT,
-            "snooze",
-            true,
-            &[
-                &snooze_5,
-                &snooze_10,
-                &snooze_15,
-                &snooze_30,
-                &snooze_60,
-                &snooze_custom,
-            ],
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build snooze submenu: {error}");
-                return None;
-            }
-        };
-        let analytics_menu = match Submenu::with_id_and_items(
-            MENU_ID_ANALYTICS_ROOT,
-            "help improve downshift",
-            true,
-            &[
-                &usage_on,
-                &usage_off,
-                &analytics_separator_one,
-                &crash_on,
-                &crash_off,
-                &analytics_separator_two,
-                &analytics_info,
-            ],
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build analytics submenu: {error}");
-                return None;
-            }
-        };
-        let bugs_menu = match Submenu::with_id_and_items(
-            MENU_ID_BUGS_ROOT,
-            "bugs",
-            true,
-            &[&copy_diagnostics, &file_bug_github, &file_bug_email],
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build bugs submenu: {error}");
-                return None;
-            }
-        };
-        let update_menu = match Submenu::with_id_and_items(
-            MENU_ID_UPDATE_ROOT,
-            "updates",
-            true,
-            &[&update_primary, &update_ignore_current],
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build update submenu: {error}");
-                return None;
-            }
-        };
-        let size_separator = PredefinedMenuItem::separator();
-        let size_submenu = match Submenu::with_items(
-            "size",
-            true,
-            &[
-                &size_s,
-                &size_m,
-                &size_l,
-                &size_xl,
-                &size_separator,
-                &size_scroll_hint,
-            ],
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build size submenu: {error}");
-                return None;
-            }
-        };
-        let breathing_separator = PredefinedMenuItem::separator();
-        let mut breathing_items: Vec<&dyn IsMenuItem> =
-            vec![&breathing_coherent, &breathing_box, &breathing_479];
-        if !breathing_saved.is_empty() {
-            for (_, item) in &breathing_saved {
-                breathing_items.push(item);
-            }
-        }
-        breathing_items.push(&breathing_separator);
-        breathing_items.push(&breathing_edit);
-        let delete_items = breathing_delete_items
-            .iter()
-            .map(|(_, item)| item as &dyn IsMenuItem)
-            .collect::<Vec<_>>();
-        let breathing_delete_menu = match Submenu::with_id_and_items(
-            MENU_ID_BREATHING_DELETE_ROOT,
-            "delete",
-            !delete_items.is_empty(),
-            &delete_items,
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build breathing delete submenu: {error}");
-                return None;
-            }
-        };
-        breathing_items.push(&breathing_delete_menu);
-        let breathing_menu = match Submenu::with_id_and_items(
-            MENU_ID_BREATHING_PATTERN,
-            breathing_pattern_menu_label(),
-            true,
-            &breathing_items,
-        ) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build breathing submenu: {error}");
-                return None;
-            }
-        };
-        let separator_one = PredefinedMenuItem::separator();
-        let separator_two = PredefinedMenuItem::separator();
-        let separator_three = PredefinedMenuItem::separator();
-        let separator_four = PredefinedMenuItem::separator();
-        let separator_five = PredefinedMenuItem::separator();
-        let separator_six = PredefinedMenuItem::separator();
-        let separator_seven = PredefinedMenuItem::separator();
-        let separator_pattern = PredefinedMenuItem::separator();
-        #[cfg(debug_assertions)]
-        let separator_developer_previews = PredefinedMenuItem::separator();
-        #[allow(unused_mut)]
-        let mut root_items: Vec<&dyn IsMenuItem> = vec![
-            &pause,
-            &separator_one,
-            &snooze_submenu,
-            &separator_two,
-            &size_submenu,
-            &separator_three,
-            &breathing_menu,
-            &separator_pattern,
-            &reset,
-            &launch_at_login,
-            &separator_four,
-            &quit,
-            &separator_five,
-            &update_menu,
-            &separator_six,
-            &bugs_menu,
-            &separator_seven,
-            &analytics_menu,
-        ];
-        #[cfg(debug_assertions)]
-        {
-            root_items.push(&separator_developer_previews);
-            root_items.push(&developer_previews_menu);
-        }
-        let root = match Submenu::with_items("menu", true, &root_items) {
-            Ok(menu) => menu,
-            Err(error) => {
-                log_stderr!("warning: failed to build native context menu: {error}");
-                return None;
-            }
-        };
-        Some(Self {
-            root,
-            pause,
-            launch_at_login,
-            snooze_menu: snooze_submenu,
-            snooze_5,
-            snooze_10,
-            snooze_15,
-            snooze_30,
-            snooze_60,
-            snooze_custom,
-            size_menu: size_submenu,
-            size_s,
-            size_m,
-            size_l,
-            size_xl,
-            size_scroll_hint,
-            breathing_menu,
-            breathing_coherent,
-            breathing_box,
-            breathing_479,
-            breathing_saved,
-            breathing_delete_menu,
-            breathing_delete_items,
-            reset,
-            quit,
-            update_menu,
-            update_primary,
-            update_ignore_current,
-            bugs_menu,
-            copy_diagnostics,
-            file_bug_github,
-            file_bug_email,
-            analytics_menu,
-            usage_on,
-            usage_off,
-            crash_on,
-            crash_off,
-            analytics_info,
-            #[cfg(debug_assertions)]
-            simulate_pending_update,
-            #[cfg(debug_assertions)]
-            force_background_update_check,
-            #[cfg(debug_assertions)]
-            clear_update_notification_dismissed,
-        })
-    }
-
-    fn sync_from_settings(
-        &self,
-        settings: &Settings,
-        size_presets: [f64; 4],
-        update_label: &str,
-        update_ignore_enabled: bool,
-        update_ignore_checked: bool,
-    ) {
-        self.pause.set_checked(settings.paused);
-        self.pause
-            .set_text(if settings.paused { "paused" } else { "pause" });
-        self.launch_at_login.set_checked(settings.launch_at_login);
-        self.launch_at_login.set_enabled(true);
-        self.snooze_menu.set_enabled(true);
-        self.snooze_5.set_enabled(true);
-        self.snooze_10.set_enabled(true);
-        self.snooze_15.set_enabled(true);
-        self.snooze_30.set_enabled(true);
-        self.snooze_60.set_enabled(true);
-        self.snooze_custom.set_enabled(true);
-        self.size_menu
-            .set_text(format!("size ({}px)", settings.size.round() as i32));
-        self.size_s
-            .set_text(format!("S ({}px)", size_presets[0].round() as i32));
-        self.size_m
-            .set_text(format!("M ({}px)", size_presets[1].round() as i32));
-        self.size_l
-            .set_text(format!("L ({}px)", size_presets[2].round() as i32));
-        self.size_xl
-            .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
-        self.size_scroll_hint.set_enabled(false);
-        let _ = settings;
-        self.breathing_menu.set_text(breathing_pattern_menu_label());
-        self.breathing_coherent
-            .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_COHERENT);
-        self.breathing_box
-            .set_checked(settings.active_breathing_preset_id == "box_breathing");
-        self.breathing_479
-            .set_checked(settings.active_breathing_preset_id == "4_7_9");
-        for (id, item) in &self.breathing_saved {
-            item.set_checked(settings.active_breathing_preset_id == *id);
-        }
-        self.breathing_delete_menu
-            .set_enabled(!self.breathing_delete_items.is_empty());
-        self.reset.set_enabled(true);
-        self.quit.set_enabled(true);
-        self.update_menu.set_enabled(true);
-        self.update_primary.set_text(update_label);
-        self.update_primary.set_enabled(true);
-        self.update_ignore_current
-            .set_enabled(update_ignore_enabled);
-        self.update_ignore_current
-            .set_checked(update_ignore_checked);
-        #[cfg(debug_assertions)]
-        {
-            self.force_background_update_check.set_enabled(true);
-            self.clear_update_notification_dismissed.set_enabled(true);
-        }
-        self.bugs_menu.set_enabled(true);
-        self.copy_diagnostics.set_enabled(true);
-        self.file_bug_github.set_enabled(true);
-        self.file_bug_email.set_enabled(true);
-        self.analytics_menu.set_enabled(true);
-    }
-
-    fn sync_consent(&self, usage_enabled: bool, crash_enabled: bool) {
-        self.usage_on.set_checked(usage_enabled);
-        self.usage_off.set_checked(!usage_enabled);
-        self.crash_on.set_checked(crash_enabled);
-        self.crash_off.set_checked(!crash_enabled);
-        self.analytics_info.set_enabled(true);
-    }
 }
 
 struct App {
@@ -1376,7 +99,6 @@ struct App {
     update_dialog_window: Option<Window>,
     update_dialog_window_id: Option<WindowId>,
     update_dialog_webview: Option<WebView>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     native_context_menu: Option<NativeContextMenu>,
     startup_error: Option<String>,
     settings: Settings,
@@ -1419,7 +141,6 @@ impl Default for App {
             update_dialog_window: None,
             update_dialog_window_id: None,
             update_dialog_webview: None,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
             native_context_menu: None,
             startup_error: None,
             settings: Settings::default(),
@@ -1475,7 +196,7 @@ impl App {
         let executable_path = std::env::current_exe()
             .ok()
             .map(|path| path.display().to_string());
-        let window_position = self.current_window_logical_position().map(|position| {
+        let window_position = logical_outer_position(self.window.as_ref()).map(|position| {
             format!(
                 "x={}, y={}",
                 position.x.round() as i32,
@@ -1490,7 +211,7 @@ impl App {
             .window
             .as_ref()
             .and_then(|window| window.current_monitor())
-            .map(snapshot_monitor)
+            .map(|monitor| persisted_monitor(&monitor))
             .or(self.settings.monitor);
         let monitor = monitor.map(|monitor| {
             format!(
@@ -1656,22 +377,8 @@ impl App {
         self.save_settings();
     }
 
-    #[cfg(target_os = "macos")]
     fn sync_launch_at_login_setting(&mut self, enabled: bool) {
-        let Some(path) = launch_agent_path() else {
-            log_stderr!("warning: failed to resolve launch agent path");
-            return;
-        };
-
-        let result = if enabled {
-            match std::env::current_exe() {
-                Ok(executable) => write_launch_agent(&path, &executable),
-                Err(error) => Err(error.to_string()),
-            }
-        } else {
-            remove_launch_agent(&path)
-        };
-
+        let result = host::set_launch_at_login(enabled);
         match result {
             Ok(()) => {
                 self.settings.launch_at_login = enabled;
@@ -1682,43 +389,35 @@ impl App {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    fn sync_launch_at_login_setting(&mut self, enabled: bool) {
-        let result = set_windows_launch_at_login(enabled);
-        match result {
-            Ok(()) => {
-                self.settings.launch_at_login = enabled;
-            }
-            Err(error) => {
-                log_stderr!("warning: failed to update launch-at-login setting: {error}");
-            }
-        }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn apply_launch_at_login(&mut self, enabled: bool) {
         self.sync_launch_at_login_setting(enabled);
         self.sync_update_menu_state();
         self.save_settings();
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn reconcile_launch_at_login(&mut self) {
-        self.sync_launch_at_login_setting(self.settings.launch_at_login);
+        if let Err(error) = host::reconcile_launch_at_login(self.settings.launch_at_login) {
+            log_stderr!("warning: failed to reconcile launch-at-login setting: {error}");
+        }
     }
 
     fn widget_dimensions_px(&self) -> (u32, u32) {
-        if let Some(window) = self.window.as_ref() {
+        let window_size = self.window.as_ref().map(|window| {
             let size = window.inner_size();
-            let reserve = (UPDATE_BADGE_WINDOW_RESERVE_PX * window.scale_factor()).round() as u32;
-            return (size.width, size.height.saturating_sub(reserve));
-        }
-        let size = self.settings.size.round().max(0.0) as u32;
-        (size, size)
+            (size.width, size.height)
+        });
+        let scale_factor = self.window.as_ref().map(Window::scale_factor);
+        window_policy::widget_dimensions_px(
+            window_size,
+            scale_factor,
+            self.settings.size,
+            UPDATE_BADGE_WINDOW_RESERVE_PX,
+        )
     }
 
     fn widget_window_dimensions(&self, size: f64) -> LogicalSize<f64> {
-        LogicalSize::new(size, size + UPDATE_BADGE_WINDOW_RESERVE_PX)
+        let (width, height) = app_core::widget_window_dimensions(size);
+        LogicalSize::new(width, height)
     }
 
     fn telemetry_heartbeat(&self) {
@@ -1750,7 +449,7 @@ impl App {
     }
 
     fn start_manual_drag(&mut self, screen_x: i32, screen_y: i32) {
-        self.drag_anchor_window_pos = self.current_window_logical_position();
+        self.drag_anchor_window_pos = logical_outer_position(self.window.as_ref());
         self.drag_anchor_pointer_pos = Some(LogicalPosition::new(screen_x as f64, screen_y as f64));
     }
 
@@ -1763,11 +462,12 @@ impl App {
             return;
         };
 
-        let dx = screen_x as f64 - anchor_pointer.x;
-        let dy = screen_y as f64 - anchor_pointer.y;
-        let next_x = (anchor_window.x + dx).round() as i32;
-        let next_y = (anchor_window.y + dy).round() as i32;
-        window.set_outer_position(LogicalPosition::new(next_x, next_y));
+        let (next_x, next_y) = app_core::drag_position(
+            (anchor_window.x, anchor_window.y),
+            (anchor_pointer.x, anchor_pointer.y),
+            (screen_x as f64, screen_y as f64),
+        );
+        set_outer_position(window, LogicalPosition::new(next_x, next_y));
     }
 
     fn stop_manual_drag(&mut self) {
@@ -1781,26 +481,11 @@ impl App {
         };
         let target = clamp_size(self.settings.size);
         let target_dimensions = self.widget_window_dimensions(target);
-        let current = window.inner_size().to_logical::<f64>(window.scale_factor());
-        let width_mismatch = (current.width - target_dimensions.width).abs() > 0.5;
-        let height_mismatch = (current.height - target_dimensions.height).abs() > 0.5;
-
-        window.set_resizable(false);
-        window.set_min_inner_size(Some(target_dimensions));
-        window.set_max_inner_size(Some(target_dimensions));
-        if width_mismatch || height_mismatch {
-            let _ = window.request_inner_size(target_dimensions);
-        }
+        enforce_fixed_size(window, target_dimensions);
     }
 
     fn sync_webview_bounds(&self) {
-        // Wry's non-child Windows WebView2 path subclasses the parent HWND and
-        // resizes the controller directly from WM_SIZE. That path also avoids
-        // racing request_inner_size with a second asynchronous SetWindowPos.
-        // Keep the explicit bounds sync for macOS, where this app owns the
-        // child view geometry.
-        #[cfg(not(target_os = "windows"))]
-        sync_child_webview_bounds(self.window.as_ref(), self.webview.as_ref(), "main webview");
+        sync_main_webview_bounds(self.window.as_ref(), self.webview.as_ref());
     }
 
     fn sync_telemetry_info_webview_bounds(&self) {
@@ -1819,12 +504,7 @@ impl App {
     }
 
     fn settings_backup_path(path: &std::path::Path) -> PathBuf {
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| format!("{name}.bak"))
-            .unwrap_or_else(|| "settings.toml.bak".to_string());
-        path.with_file_name(file_name)
+        app_core::settings_backup_path(path)
     }
 
     fn backup_corrupt_settings_if_needed(&mut self, path: &std::path::Path) -> Result<(), String> {
@@ -1876,7 +556,6 @@ impl App {
     }
 
     fn sync_analytics_menu_state(&self) {
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let Some(menu) = self.native_context_menu.as_ref() {
             menu.sync_consent(
                 self.settings.usage_data_sharing,
@@ -1901,7 +580,6 @@ impl App {
     }
 
     fn sync_update_menu_state(&self) {
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let Some(menu) = self.native_context_menu.as_ref() {
             menu.sync_from_settings(
                 &self.settings,
@@ -2084,20 +762,11 @@ impl App {
     }
 
     fn sync_update_dialog_webview_bounds(&self) {
-        let (Some(window), Some(webview)) = (
+        sync_child_webview_bounds(
             self.update_dialog_window.as_ref(),
             self.update_dialog_webview.as_ref(),
-        ) else {
-            return;
-        };
-        let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-        let bounds = Rect {
-            position: LogicalPosition::new(0, 0).into(),
-            size: LogicalSize::new(size.width, size.height).into(),
-        };
-        if let Err(error) = webview.set_bounds(bounds) {
-            log_stderr!("warning: failed to sync update dialog webview bounds: {error}");
-        }
+            "update dialog webview",
+        );
     }
 
     fn close_update_dialog_window(&mut self) {
@@ -2416,69 +1085,15 @@ impl App {
         let primary = event_loop
             .primary_monitor()
             .or_else(|| monitors.first().cloned())?;
-
-        if let (Some(saved_x), Some(saved_y)) = (self.settings.physical_x, self.settings.physical_y)
-        {
-            let saved = PhysicalPosition::new(saved_x, saved_y);
-            if let Some(saved_monitor) = self.settings.monitor.as_ref() {
-                if let Some(current) = monitors
-                    .iter()
-                    .find(|monitor| monitor_matches_persisted(monitor, saved_monitor))
-                {
-                    if position_fits_monitor(saved, size, current) {
-                        return Some(saved);
-                    }
-                } else {
-                    // Display config changed (for example resolution), so reuse corner-relative spawn.
-                    return Some(default_corner_position(&primary, size));
-                }
-            } else if monitors
-                .iter()
-                .any(|monitor| position_fits_monitor(saved, size, monitor))
-            {
-                return Some(saved);
-            }
-        }
-
-        if let Some(saved) =
-            self.choose_initial_position_from_legacy_logical(&monitors, &primary, size)
-        {
-            return Some(saved);
-        }
-
-        Some(default_corner_position(&primary, size))
-    }
-
-    fn choose_initial_position_from_legacy_logical(
-        &self,
-        monitors: &[MonitorHandle],
-        primary: &MonitorHandle,
-        size: f64,
-    ) -> Option<PhysicalPosition<i32>> {
-        let (Some(saved_x), Some(saved_y)) = (self.settings.x, self.settings.y) else {
-            return None;
-        };
-        let saved = LogicalPosition::new(saved_x as f64, saved_y as f64);
-
-        if let Some(saved_monitor) = self.settings.monitor.as_ref() {
-            if let Some(current) = monitors
-                .iter()
-                .find(|monitor| monitor_matches_persisted(monitor, saved_monitor))
-            {
-                if position_fits_monitor_legacy(saved, size, current) {
-                    return Some(logical_to_physical_position(saved, current.scale_factor()));
-                }
-            } else {
-                return Some(default_corner_position(primary, size));
-            }
-        } else if let Some(current) = monitors
-            .iter()
-            .find(|monitor| position_fits_monitor_legacy(saved, size, monitor))
-        {
-            return Some(logical_to_physical_position(saved, current.scale_factor()));
-        }
-
-        None
+        let monitor_snapshots = monitors.iter().map(snapshot_monitor).collect::<Vec<_>>();
+        let primary_snapshot = snapshot_monitor(&primary);
+        let position = window_policy::choose_initial_position(
+            &self.settings,
+            &monitor_snapshots,
+            &primary_snapshot,
+            size,
+        );
+        Some(PhysicalPosition::new(position.x, position.y))
     }
 
     fn build_init_script(&self, size_presets: [f64; 4]) -> String {
@@ -2496,20 +1111,9 @@ impl App {
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "update_tooltip": UPDATE_TOOLTIP,
           "size_presets": size_presets,
-          "use_native_menu": cfg!(any(target_os = "macos", target_os = "windows")),
+           "use_native_menu": native_menu_available(),
         });
         format!("window.__BB_INIT__ = {payload};")
-    }
-
-    fn current_window_logical_position(&self) -> Option<LogicalPosition<f64>> {
-        let window = self.window.as_ref()?;
-        let physical = window.outer_position().ok()?;
-        Some(physical.to_logical(window.scale_factor()))
-    }
-
-    fn current_window_physical_position(&self) -> Option<PhysicalPosition<i32>> {
-        let window = self.window.as_ref()?;
-        window.outer_position().ok()
     }
 
     fn apply_size(&mut self, size: f64) {
@@ -2520,21 +1124,9 @@ impl App {
         let size = clamp_size(size);
         self.settings.size = size;
         let target_dimensions = self.widget_window_dimensions(size);
-        let old_dimensions = window.inner_size().to_logical::<f64>(window.scale_factor());
-        window.set_min_inner_size(Some(target_dimensions));
-        window.set_max_inner_size(Some(target_dimensions));
-        let _ = window.request_inner_size(target_dimensions);
-
-        if let Some(current_pos) = self.current_window_logical_position() {
-            let center_x = current_pos.x + old_dimensions.width / 2.0;
-            let center_y = current_pos.y + old_dimensions.height / 2.0;
-            let next_x = (center_x - target_dimensions.width / 2.0).round() as i32;
-            let next_y = (center_y - target_dimensions.height / 2.0).round() as i32;
-            window.set_outer_position(LogicalPosition::new(next_x, next_y));
-            if let Some(physical) = self.current_window_physical_position() {
-                self.settings.physical_x = Some(physical.x);
-                self.settings.physical_y = Some(physical.y);
-            }
+        if let Some(physical) = resize_preserving_center(window, target_dimensions) {
+            self.settings.physical_x = Some(physical.x);
+            self.settings.physical_y = Some(physical.y);
         }
     }
 
@@ -2553,21 +1145,9 @@ impl App {
     }
 
     fn next_saved_breathing_preset_id(&self, name: &str) -> String {
-        let base = slugify_preset_name(name);
-        let mut candidate = base.clone();
-        let mut suffix = 2usize;
-        while candidate == BREATHING_PRESET_ID_CUSTOM
-            || built_in_breathing_preset(&candidate).is_some()
-            || self
-                .settings
-                .saved_breathing_presets
-                .iter()
-                .any(|preset| preset.id == candidate)
-        {
-            candidate = format!("{base}_{suffix}");
-            suffix += 1;
-        }
-        candidate
+        app_core::next_saved_preset_id(name, &self.settings.saved_breathing_presets, |id| {
+            built_in_breathing_preset(id).is_some()
+        })
     }
 
     fn apply_breathing_pattern(&mut self, preset_id: String, mut pattern: BreathingPattern) {
@@ -2665,7 +1245,7 @@ impl App {
 
     fn sync_window_visibility(&self) {
         if let Some(window) = self.window.as_ref() {
-            window.set_visible(self.activity_mode != ActivityMode::Snoozed);
+            set_visible(window, self.activity_mode != ActivityMode::Snoozed);
         }
     }
 
@@ -2739,7 +1319,7 @@ impl App {
 
     fn show_main_window_without_focus(&self) {
         if let Some(window) = self.window.as_ref() {
-            window.set_visible(true);
+            show_without_focus(window);
         }
     }
 
@@ -2802,7 +1382,6 @@ impl App {
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn apply_size_slot_from_user_action(&mut self, size_slot: usize) {
         let presets = self.current_size_presets();
         let Some(size) = presets.get(size_slot).copied() else {
@@ -2860,7 +1439,7 @@ impl App {
             self.settings.physical_x = Some(physical.x);
             self.settings.physical_y = Some(physical.y);
             let current_monitor = window.current_monitor();
-            self.settings.monitor = current_monitor.clone().map(snapshot_monitor);
+            self.settings.monitor = current_monitor.as_ref().map(persisted_monitor);
             if let Some(monitor) = current_monitor {
                 self.apply_size_presets_for_monitor(&monitor);
             }
@@ -2874,10 +1453,8 @@ impl App {
             .and_then(|window| window.current_monitor())
             .or_else(|| event_loop.primary_monitor())
             .or_else(|| event_loop.available_monitors().next());
-        let reset_size = monitor
-            .as_ref()
-            .map(default_size_for_monitor)
-            .unwrap_or(DEFAULT_SIZE);
+        let monitor_snapshot = monitor.as_ref().map(snapshot_monitor);
+        let reset_size = reset_size_for_monitor(monitor_snapshot.as_ref());
         self.apply_size(reset_size);
         self.apply_breathing_pattern(
             BREATHING_PRESET_ID_COHERENT.to_string(),
@@ -2888,12 +1465,14 @@ impl App {
         self.apply_paused(false);
         self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
         if let Some(window) = self.window.as_ref() {
-            if let Some(monitor) = monitor {
-                let pos = default_corner_position(&monitor, self.settings.size);
-                window.set_outer_position(pos);
+            if let Some(monitor_snapshot) = monitor_snapshot {
+                let policy_position =
+                    default_corner_position(&monitor_snapshot, self.settings.size);
+                let pos = PhysicalPosition::new(policy_position.x, policy_position.y);
+                set_outer_position_physical(window, pos);
                 self.settings.physical_x = Some(pos.x);
                 self.settings.physical_y = Some(pos.y);
-                self.settings.monitor = Some(snapshot_monitor(monitor));
+                self.settings.monitor = Some(monitor_snapshot.persisted());
             }
         }
     }
@@ -2969,10 +1548,7 @@ impl App {
             }
             IpcCommand::ShowContextMenu { x, y } => {
                 self.telemetry_menu_action(MenuAction::ContextMenu, None);
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 self.show_native_context_menu(x, y);
-                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-                let _ = (x, y);
             }
             IpcCommand::Resize { delta, fine } => {
                 let next = apply_resize_step(self.settings.size, delta, fine);
@@ -2999,7 +1575,7 @@ impl App {
     }
 
     fn apply_size_presets_for_monitor(&self, monitor: &MonitorHandle) {
-        let presets = size_presets_for_monitor(monitor);
+        let presets = size_presets_for_monitor(&snapshot_monitor(monitor));
         self.apply_main_webview_state(serde_json::json!({
             "size_presets": presets,
         }));
@@ -3017,7 +1593,7 @@ impl App {
         self.window
             .as_ref()
             .and_then(|window| window.current_monitor())
-            .map(|monitor| size_presets_for_monitor(&monitor))
+            .map(|monitor| size_presets_for_monitor(&snapshot_monitor(&monitor)))
             .and_then(|presets| {
                 presets
                     .iter()
@@ -3028,24 +1604,21 @@ impl App {
             .and_then(size_target_label)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn current_size_presets(&self) -> [f64; 4] {
         self.window
             .as_ref()
             .and_then(|window| window.current_monitor())
-            .map(|monitor| size_presets_for_monitor(&monitor))
+            .map(|monitor| size_presets_for_monitor(&snapshot_monitor(&monitor)))
             .unwrap_or(DEFAULT_SIZE_PRESETS)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn show_native_context_menu(&mut self, x: i32, y: i32) {
         self.native_context_menu = NativeContextMenu::new(&self.settings);
         let Some(menu) = self.native_context_menu.as_ref() else {
             return;
         };
         #[cfg(debug_assertions)]
-        menu.simulate_pending_update
-            .set_checked(self.update_check.simulate_pending_update());
+        menu.sync_developer_controls(&self.update_check);
         let Some(window) = self.window.as_ref() else {
             return;
         };
@@ -3060,47 +1633,9 @@ impl App {
             self.settings.usage_data_sharing,
             self.settings.crash_reports_sharing,
         );
-
-        #[cfg(target_os = "macos")]
-        {
-            let view = match window.window_handle() {
-                Ok(handle) => match handle.as_raw() {
-                    RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr(),
-                    _ => return,
-                },
-                Err(error) => {
-                    log_stderr!("warning: failed to access window handle for native menu: {error}");
-                    return;
-                }
-            };
-            let position = MenuPhysicalPosition::new(x as f64, y as f64).into();
-            unsafe {
-                let _ = menu
-                    .root
-                    .show_context_menu_for_nsview(view.cast_const(), Some(position));
-            }
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            let hwnd = match window.window_handle() {
-                Ok(handle) => match handle.as_raw() {
-                    RawWindowHandle::Win32(handle) => handle.hwnd.get(),
-                    _ => return,
-                },
-                Err(error) => {
-                    log_stderr!("warning: failed to access window handle for native menu: {error}");
-                    return;
-                }
-            };
-            let position = MenuPhysicalPosition::new(x as f64, y as f64).into();
-            unsafe {
-                let _ = menu.root.show_context_menu_for_hwnd(hwnd, Some(position));
-            }
-        }
+        menu.show(window, x, y);
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn handle_native_menu_activation(&mut self, event_loop: &ActiveEventLoop, id: &str) {
         match id {
             MENU_ID_PAUSE => {
@@ -3248,13 +1783,13 @@ impl ApplicationHandler<AppEvent> for App {
             .set_usage_enabled(self.settings.usage_data_sharing);
         self.telemetry
             .set_crash_enabled(self.settings.crash_reports_sharing);
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
         self.reconcile_launch_at_login();
         if !settings_exist {
             if let Some(primary) = event_loop
                 .primary_monitor()
                 .or_else(|| event_loop.available_monitors().next())
             {
+                let primary = snapshot_monitor(&primary);
                 self.settings.size = default_size_for_monitor(&primary);
             }
         }
@@ -3266,25 +1801,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.snooze_deadline = None;
 
         let initial_window_size = self.widget_window_dimensions(self.settings.size);
-        let mut window_attributes = Window::default_attributes()
-            .with_title("downshift")
-            .with_decorations(false)
-            .with_transparent(true)
-            .with_resizable(false)
-            .with_min_inner_size(initial_window_size)
-            .with_max_inner_size(initial_window_size)
-            .with_window_level(WindowLevel::AlwaysOnTop)
-            .with_inner_size(initial_window_size);
-
-        #[cfg(target_os = "windows")]
-        {
-            // A transparent WebView2 child can retain the previous opaque
-            // DWM redirection bitmap after the host window is resized. The
-            // no-redirection path keeps the transparent surface current.
-            window_attributes = window_attributes
-                .with_no_redirection_bitmap(true)
-                .with_skip_taskbar(true);
-        }
+        let mut window_attributes = host::configure_main_window(initial_window_size);
 
         if let Some(position) = self.choose_initial_position(event_loop, self.settings.size) {
             window_attributes = window_attributes.with_position(position);
@@ -3292,7 +1809,7 @@ impl ApplicationHandler<AppEvent> for App {
             self.settings.physical_y = Some(position.y);
         }
 
-        let window = match event_loop.create_window(window_attributes) {
+        let window = match create_main_window(event_loop, window_attributes) {
             Ok(window) => window,
             Err(error) => {
                 self.telemetry.track_error(
@@ -3310,9 +1827,8 @@ impl ApplicationHandler<AppEvent> for App {
             }
         };
         let window_id = window.id();
-        #[cfg(target_os = "macos")]
-        configure_window_for_all_spaces(&window);
-        self.settings.monitor = window.current_monitor().map(snapshot_monitor);
+        host::configure_created_window(&window);
+        self.settings.monitor = window.current_monitor().as_ref().map(persisted_monitor);
 
         let startup_monitor = window
             .current_monitor()
@@ -3320,7 +1836,7 @@ impl ApplicationHandler<AppEvent> for App {
             .or_else(|| event_loop.available_monitors().next());
         let size_presets = startup_monitor
             .as_ref()
-            .map(size_presets_for_monitor)
+            .map(|monitor| size_presets_for_monitor(&snapshot_monitor(monitor)))
             .unwrap_or(DEFAULT_SIZE_PRESETS);
         let init_script = self.build_init_script(size_presets);
         let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
@@ -3337,20 +1853,7 @@ impl ApplicationHandler<AppEvent> for App {
             event_loop.exit();
             return;
         };
-        let webview_builder = WebViewBuilder::new()
-            .with_html(breath_html())
-            .with_transparent(true)
-            .with_initialization_script(&init_script)
-            .with_ipc_handler(move |request: wry::http::Request<String>| {
-                let payload = request.into_body();
-                let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
-            });
-        #[cfg(target_os = "windows")]
-        let webview_result = webview_builder.build(&window);
-        #[cfg(not(target_os = "windows"))]
-        let webview_result = webview_builder.build_as_child(&window);
-
-        let webview = match webview_result {
+        let webview = match build_main_webview(&window, breath_html(), &init_script, &ipc_proxy) {
             Ok(webview) => webview,
             Err(error) => {
                 self.telemetry.track_error(
@@ -3371,10 +1874,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        {
-            self.native_context_menu = NativeContextMenu::new(&self.settings);
-        }
+        self.native_context_menu = NativeContextMenu::new(&self.settings);
         self.sync_analytics_menu_state();
         self.sync_update_surfaces();
         emit_startup_telemetry(
@@ -3457,7 +1957,7 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = self.window.as_ref() {
                     let current_monitor = window.current_monitor();
-                    self.settings.monitor = current_monitor.clone().map(snapshot_monitor);
+                    self.settings.monitor = current_monitor.as_ref().map(persisted_monitor);
                     if let Some(monitor) = current_monitor {
                         self.apply_size_presets_for_monitor(&monitor);
                     }
@@ -3529,98 +2029,9 @@ impl ApplicationHandler<AppEvent> for App {
                     self.set_update_dialog_mode_result();
                 }
             }
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
         }
     }
-}
-
-fn snapshot_monitor(monitor: MonitorHandle) -> PersistedMonitor {
-    let size = monitor.size();
-    PersistedMonitor {
-        width: size.width,
-        height: size.height,
-        scale_factor: monitor.scale_factor(),
-    }
-}
-
-fn monitor_matches_persisted(monitor: &MonitorHandle, persisted: &PersistedMonitor) -> bool {
-    let size = monitor.size();
-    size.width == persisted.width
-        && size.height == persisted.height
-        && (monitor.scale_factor() - persisted.scale_factor).abs() < 0.01
-}
-
-fn position_fits_monitor(
-    position: PhysicalPosition<i32>,
-    size: f64,
-    monitor: &MonitorHandle,
-) -> bool {
-    let monitor_pos = monitor.position();
-    let monitor_size = monitor.size();
-    let window_size = physical_size_for_monitor(size, monitor);
-    let max_x = i64::from(monitor_pos.x) + i64::from(monitor_size.width) - i64::from(window_size);
-    let max_y = i64::from(monitor_pos.y) + i64::from(monitor_size.height) - i64::from(window_size);
-
-    i64::from(position.x) >= i64::from(monitor_pos.x)
-        && i64::from(position.y) >= i64::from(monitor_pos.y)
-        && i64::from(position.x) <= max_x
-        && i64::from(position.y) <= max_y
-}
-
-fn position_fits_monitor_legacy(
-    position: LogicalPosition<f64>,
-    size: f64,
-    monitor: &MonitorHandle,
-) -> bool {
-    let scale = monitor.scale_factor();
-    let monitor_pos = monitor.position().to_logical::<f64>(scale);
-    let monitor_size = monitor.size().to_logical::<f64>(scale);
-    let max_x = monitor_pos.x + monitor_size.width - size;
-    let max_y = monitor_pos.y + monitor_size.height - size;
-    position.x >= monitor_pos.x
-        && position.y >= monitor_pos.y
-        && position.x <= max_x
-        && position.y <= max_y
-}
-
-fn default_corner_position(monitor: &MonitorHandle, size: f64) -> PhysicalPosition<i32> {
-    let monitor_pos = monitor.position();
-    let monitor_size = monitor.size();
-    let margin = (f64::from(monitor_size.width.min(monitor_size.height))
-        * DEFAULT_EDGE_MARGIN_RATIO)
-        .round() as i32;
-    let window_size = physical_size_for_monitor(size, monitor);
-    PhysicalPosition::new(
-        monitor_pos.x + monitor_size.width as i32 - window_size - margin,
-        monitor_pos.y + margin,
-    )
-}
-
-fn default_size_for_monitor(monitor: &MonitorHandle) -> f64 {
-    let scale = monitor.scale_factor();
-    let size = monitor.size().to_logical::<f64>(scale);
-    let shorter_side = size.width.min(size.height);
-    clamp_size(shorter_side * DEFAULT_SIZE_SHORT_SIDE_RATIO)
-}
-
-fn physical_size_for_monitor(size: f64, monitor: &MonitorHandle) -> i32 {
-    (size * monitor.scale_factor()).round() as i32
-}
-
-fn logical_to_physical_position(
-    position: LogicalPosition<f64>,
-    scale_factor: f64,
-) -> PhysicalPosition<i32> {
-    PhysicalPosition::new(
-        (position.x * scale_factor).round() as i32,
-        (position.y * scale_factor).round() as i32,
-    )
-}
-
-fn heartbeat_interval() -> Duration {
-    let value = telemetry_heartbeat_interval_seconds().unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SEC);
-    Duration::from_secs(value)
 }
 
 fn report_abnormal_exit<T: TelemetryClient>(
@@ -3642,90 +2053,6 @@ fn report_abnormal_exit<T: TelemetryClient>(
     std::process::ExitCode::from(1)
 }
 
-fn parse_heartbeat_interval_seconds(raw: &str) -> u64 {
-    raw.trim()
-        .parse::<u64>()
-        .ok()
-        .map(|seconds| seconds.clamp(MIN_HEARTBEAT_INTERVAL_SEC, MAX_HEARTBEAT_INTERVAL_SEC))
-        .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SEC)
-}
-
-fn size_presets_for_monitor(monitor: &MonitorHandle) -> [f64; 4] {
-    let scale = monitor.scale_factor();
-    let logical = monitor.size().to_logical::<f64>(scale);
-    let shorter_side = logical.width.min(logical.height);
-    let mut presets = [0.0; 4];
-    for (index, ratio) in SIZE_PRESET_RATIOS.iter().enumerate() {
-        presets[index] = clamp_size((shorter_side * ratio).round());
-    }
-    presets
-}
-
-fn sync_child_webview_bounds(window: Option<&Window>, webview: Option<&WebView>, label: &str) {
-    let (Some(window), Some(webview)) = (window, webview) else {
-        return;
-    };
-    let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-    let bounds = Rect {
-        position: LogicalPosition::new(0, 0).into(),
-        size: LogicalSize::new(size.width, size.height).into(),
-    };
-    if let Err(error) = webview.set_bounds(bounds) {
-        log_stderr!("warning: failed to sync {label} bounds: {error}");
-    }
-}
-
-fn focus_existing_child_window(window: Option<&Window>) -> bool {
-    let Some(window) = window else {
-        return false;
-    };
-    window.focus_window();
-    true
-}
-
-fn clear_child_window(
-    window: &mut Option<Window>,
-    window_id: &mut Option<WindowId>,
-    webview: &mut Option<WebView>,
-) {
-    *webview = None;
-    *window = None;
-    *window_id = None;
-}
-
-fn create_fixed_child_window(
-    event_loop: &ActiveEventLoop,
-    event_loop_proxy: Option<&EventLoopProxy<AppEvent>>,
-    title: &str,
-    width: f64,
-    height: f64,
-    html: &str,
-    label: &str,
-) -> Result<(Window, WindowId, WebView), String> {
-    let attrs = Window::default_attributes()
-        .with_title(title)
-        .with_resizable(false)
-        .with_inner_size(LogicalSize::new(width, height))
-        .with_min_inner_size(LogicalSize::new(width, height))
-        .with_max_inner_size(LogicalSize::new(width, height));
-    let window = event_loop
-        .create_window(attrs)
-        .map_err(|error| format!("failed to create {label} window: {error}"))?;
-    let ipc_proxy = event_loop_proxy
-        .cloned()
-        .ok_or_else(|| format!("missing event loop proxy for {label} window"))?;
-    let window_id = window.id();
-    let webview = WebViewBuilder::new()
-        .with_html(html)
-        .with_ipc_handler(move |request: wry::http::Request<String>| {
-            let payload = request.into_body();
-            let _ = ipc_proxy.send_event(AppEvent::Ipc(payload));
-        })
-        .build_as_child(&window)
-        .map_err(|error| format!("failed to create {label} webview: {error}"))?;
-    Ok((window, window_id, webview))
-}
-
 fn handle_child_window_event(
     app: &mut App,
     event: WindowEvent,
@@ -3736,272 +2063,6 @@ fn handle_child_window_event(
         WindowEvent::CloseRequested => close(app),
         WindowEvent::Resized(_) => sync_bounds(app),
         _ => {}
-    }
-}
-
-#[cfg(unix)]
-fn instance_socket_path_for_executable(executable: &Path) -> Option<PathBuf> {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    executable.hash(&mut hasher);
-    let executable_hash = hasher.finish();
-    let mut path = dirs::config_dir()?;
-    path.push("downshift");
-    path.push(format!("instance-{executable_hash:016x}.sock"));
-    Some(path)
-}
-
-#[cfg(unix)]
-fn instance_socket_path() -> Option<PathBuf> {
-    let executable = std::env::current_exe().ok()?;
-    instance_socket_path_for_executable(&executable)
-}
-
-#[cfg(unix)]
-fn connect_to_existing_instance(path: &PathBuf, command: InstanceCommand) -> bool {
-    let Ok(mut stream) = UnixStream::connect(path) else {
-        return false;
-    };
-    stream.write_all(command.as_bytes()).is_ok()
-}
-
-#[cfg(unix)]
-fn spawn_instance_server(path: PathBuf, proxy: EventLoopProxy<AppEvent>) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    if path.exists() {
-        match connect_to_existing_instance(&path, InstanceCommand::Activate) {
-            true => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::AddrInUse,
-                    "instance already running",
-                ))
-            }
-            false => {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    }
-    let listener = UnixListener::bind(&path)?;
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(mut stream) = stream else {
-                continue;
-            };
-            let mut buffer = String::new();
-            if stream.read_to_string(&mut buffer).is_err() {
-                continue;
-            }
-            if matches!(
-                InstanceCommand::parse(&buffer),
-                Some(InstanceCommand::Activate)
-            ) {
-                let _ = proxy.send_event(AppEvent::InstanceActivate);
-            }
-        }
-    });
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-struct WindowsInstanceGuard {
-    mutex: windows_sys::Win32::Foundation::HANDLE,
-}
-
-#[cfg(target_os = "windows")]
-impl Drop for WindowsInstanceGuard {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = windows_sys::Win32::Foundation::CloseHandle(self.mutex);
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn windows_instance_pipe_name() -> Option<String> {
-    let executable = std::env::current_exe().ok()?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    executable.hash(&mut hasher);
-    Some(format!(r"\\.\pipe\downshift-{:#016x}", hasher.finish()))
-}
-
-#[cfg(target_os = "windows")]
-fn windows_wide(value: &str) -> Vec<u16> {
-    value.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-#[cfg(target_os = "windows")]
-fn connect_to_existing_windows_instance(pipe_name: &str, command: InstanceCommand) -> bool {
-    use windows_sys::Win32::Foundation::{GetLastError, ERROR_PIPE_BUSY, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, WriteFile, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        OPEN_EXISTING,
-    };
-    use windows_sys::Win32::System::Pipes::WaitNamedPipeW;
-
-    let pipe_name = windows_wide(pipe_name);
-    for _ in 0..20 {
-        let handle = unsafe {
-            CreateFileW(
-                pipe_name.as_ptr(),
-                FILE_GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                0,
-                std::ptr::null_mut(),
-            )
-        };
-        if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
-            let bytes = command.as_bytes();
-            let mut written = 0u32;
-            let result = unsafe {
-                WriteFile(
-                    handle,
-                    bytes.as_ptr().cast(),
-                    bytes.len() as u32,
-                    &mut written,
-                    std::ptr::null_mut(),
-                )
-            };
-            unsafe {
-                let _ = windows_sys::Win32::Foundation::CloseHandle(handle);
-            }
-            return result != 0 && written == bytes.len() as u32;
-        }
-
-        if unsafe { GetLastError() } == ERROR_PIPE_BUSY {
-            let _ = unsafe { WaitNamedPipeW(pipe_name.as_ptr(), 100) };
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    false
-}
-
-#[cfg(target_os = "windows")]
-fn spawn_windows_instance_server(
-    pipe_name: String,
-    proxy: EventLoopProxy<AppEvent>,
-) -> Result<(), String> {
-    use windows_sys::Win32::Foundation::{
-        GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
-    };
-    use windows_sys::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
-    use windows_sys::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE,
-        PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
-    };
-
-    let pipe_name_wide = windows_wide(&pipe_name);
-    std::thread::Builder::new()
-        .name("downshift-instance-server".to_string())
-        .spawn(move || loop {
-            let pipe = unsafe {
-                CreateNamedPipeW(
-                    pipe_name_wide.as_ptr(),
-                    PIPE_ACCESS_INBOUND,
-                    PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                    PIPE_UNLIMITED_INSTANCES,
-                    128,
-                    128,
-                    0,
-                    std::ptr::null(),
-                )
-            };
-            if pipe.is_null() || pipe == INVALID_HANDLE_VALUE {
-                log_stderr!("warning: failed to create Windows instance pipe");
-                return;
-            }
-
-            let connected = unsafe { ConnectNamedPipe(pipe, std::ptr::null_mut()) } != 0
-                || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
-            if connected {
-                let mut buffer = [0u8; 128];
-                let mut read = 0u32;
-                let result = unsafe {
-                    ReadFile(
-                        pipe,
-                        buffer.as_mut_ptr().cast(),
-                        buffer.len() as u32,
-                        &mut read,
-                        std::ptr::null_mut(),
-                    )
-                };
-                if result != 0 {
-                    let command = String::from_utf8_lossy(&buffer[..read as usize]);
-                    if matches!(
-                        InstanceCommand::parse(&command),
-                        Some(InstanceCommand::Activate)
-                    ) && proxy.send_event(AppEvent::InstanceActivate).is_err()
-                    {
-                        unsafe {
-                            let _ = windows_sys::Win32::Foundation::CloseHandle(pipe);
-                        }
-                        return;
-                    }
-                }
-            }
-            unsafe {
-                let _ = DisconnectNamedPipe(pipe);
-                let _ = windows_sys::Win32::Foundation::CloseHandle(pipe);
-            }
-        })
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(target_os = "windows")]
-fn start_windows_instance(
-    proxy: EventLoopProxy<AppEvent>,
-) -> Result<Option<WindowsInstanceGuard>, String> {
-    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
-    use windows_sys::Win32::System::Threading::CreateMutexW;
-
-    let pipe_name = windows_instance_pipe_name().ok_or_else(|| {
-        "failed to resolve executable path for Windows single-instance guard".to_string()
-    })?;
-    let mutex_name = format!("Local\\downshift-{:016x}", {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        pipe_name.hash(&mut hasher);
-        hasher.finish()
-    });
-    let mutex_name_wide = windows_wide(&mutex_name);
-    let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, mutex_name_wide.as_ptr()) };
-    if mutex.is_null() {
-        return Err("CreateMutexW returned a null handle".to_string());
-    }
-    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-        unsafe {
-            let _ = windows_sys::Win32::Foundation::CloseHandle(mutex);
-        }
-        let _ = connect_to_existing_windows_instance(&pipe_name, InstanceCommand::Activate);
-        return Ok(None);
-    }
-
-    spawn_windows_instance_server(pipe_name, proxy)?;
-    Ok(Some(WindowsInstanceGuard { mutex }))
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {
-    match id {
-        MENU_ID_SNOOZE_5 => Some(SNOOZE_PRESET_MINUTES[0]),
-        MENU_ID_SNOOZE_10 => Some(SNOOZE_PRESET_MINUTES[1]),
-        MENU_ID_SNOOZE_15 => Some(SNOOZE_PRESET_MINUTES[2]),
-        MENU_ID_SNOOZE_30 => Some(SNOOZE_PRESET_MINUTES[3]),
-        MENU_ID_SNOOZE_60 => Some(SNOOZE_PRESET_MINUTES[4]),
-        _ => None,
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn size_slot_for_menu_id(id: &str) -> Option<usize> {
-    match id {
-        MENU_ID_SIZE_S => Some(0),
-        MENU_ID_SIZE_M => Some(1),
-        MENU_ID_SIZE_L => Some(2),
-        MENU_ID_SIZE_XL => Some(3),
-        _ => None,
     }
 }
 
@@ -4033,8 +2094,7 @@ fn main() -> std::process::ExitCode {
     }));
 
     let mut event_loop_builder = EventLoop::<AppEvent>::with_user_event();
-    #[cfg(target_os = "macos")]
-    event_loop_builder.with_activation_policy(ActivationPolicy::Accessory);
+    configure_event_loop_builder(&mut event_loop_builder);
     let event_loop = match event_loop_builder.build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
@@ -4048,25 +2108,11 @@ fn main() -> std::process::ExitCode {
     };
     let event_loop_proxy = event_loop.create_proxy();
 
-    #[cfg(unix)]
-    if let Some(path) = instance_socket_path() {
-        if connect_to_existing_instance(&path, InstanceCommand::Activate) {
-            return std::process::ExitCode::SUCCESS;
-        }
-        if let Err(error) = spawn_instance_server(path, event_loop_proxy.clone()) {
-            if error.kind() == std::io::ErrorKind::AddrInUse {
-                return std::process::ExitCode::SUCCESS;
-            }
-            log_stderr!("warning: failed to start instance server: {error}");
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    let _windows_instance_guard = match start_windows_instance(event_loop_proxy.clone()) {
-        Ok(Some(guard)) => Some(guard),
-        Ok(None) => return std::process::ExitCode::SUCCESS,
+    let _instance_guard = match host::start_instance(event_loop_proxy.clone()) {
+        Ok(InstanceStart::Primary(guard)) => Some(guard),
+        Ok(InstanceStart::AlreadyRunning) => return std::process::ExitCode::SUCCESS,
         Err(error) => {
-            log_stderr!("warning: failed to start Windows instance guard: {error}");
+            log_stderr!("warning: {error}");
             None
         }
     };
@@ -4077,13 +2123,7 @@ fn main() -> std::process::ExitCode {
     }) {
         log_stderr!("warning: failed to install ctrl-c handler: {error}");
     }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        let menu_proxy = event_loop_proxy.clone();
-        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
-            let _ = menu_proxy.send_event(AppEvent::MenuActivated(event.id().as_ref().to_string()));
-        }));
-    }
+    install_menu_event_handler(event_loop_proxy.clone());
     let heartbeat_proxy = event_loop_proxy.clone();
     let heartbeat_interval = heartbeat_interval();
     std::thread::spawn(move || loop {
@@ -4146,6 +2186,8 @@ mod tests {
     use super::*;
     use downshift::telemetry::{Envelope, NoopSink, TelemetryError, TelemetrySink, TelemetryState};
     use serial_test::serial;
+    #[cfg(any(unix, target_os = "macos"))]
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
