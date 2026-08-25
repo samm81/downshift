@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+#![cfg_attr(target_os = "linux", allow(dead_code))]
 
 use downshift::telemetry::{
     menu_action_size_target, telemetry_state, ActivityState, ActivityTrigger, EventName,
@@ -667,6 +668,8 @@ fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
             Err(format!("clip.exe exited with status {status}"))
         };
     }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = text;
     #[allow(unreachable_code)]
     Err("clipboard copy is unsupported on this platform".to_string())
 }
@@ -2799,6 +2802,7 @@ impl App {
         }
     }
 
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn apply_size_slot_from_user_action(&mut self, size_slot: usize) {
         let presets = self.current_size_presets();
         let Some(size) = presets.get(size_slot).copied() else {

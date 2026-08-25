@@ -119,9 +119,9 @@ fi
 if [[ "$SYNC_CODEX_AUTH" == "1" ]]; then
   if [[ -f "$LOCAL_CODEX_AUTH" ]]; then
     echo "[bootstrap] syncing local codex auth to remote ~/.codex/auth.json"
-    cat "$LOCAL_CODEX_AUTH" |
-      "${SSH_CMD[@]}" "$REMOTE" \
-        "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; cat > \"\$HOME/.codex/auth.json\"; chmod 600 \"\$HOME/.codex/auth.json\"'"
+    "${SSH_CMD[@]}" "$REMOTE" \
+      "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; cat > \"\$HOME/.codex/auth.json\"; chmod 600 \"\$HOME/.codex/auth.json\"'" \
+      <"$LOCAL_CODEX_AUTH"
     echo "[bootstrap] codex auth sync complete"
   else
     echo "[bootstrap] warning: local codex auth not found: $LOCAL_CODEX_AUTH"
@@ -132,9 +132,9 @@ fi
 if [[ "$SYNC_CODEX_AGENTS" == "1" ]]; then
   if [[ -f "$LOCAL_CODEX_AGENTS" ]]; then
     echo "[bootstrap] syncing local codex agents doc to remote ~/.codex/AGENTS.md"
-    cat "$LOCAL_CODEX_AGENTS" |
-      "${SSH_CMD[@]}" "$REMOTE" \
-        "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; cat > \"\$HOME/.codex/AGENTS.md\"; chmod 644 \"\$HOME/.codex/AGENTS.md\"'"
+    "${SSH_CMD[@]}" "$REMOTE" \
+      "/bin/bash -lc 'mkdir -p \"\$HOME/.codex\"; cat > \"\$HOME/.codex/AGENTS.md\"; chmod 644 \"\$HOME/.codex/AGENTS.md\"'" \
+      <"$LOCAL_CODEX_AGENTS"
     echo "[bootstrap] codex agents sync complete"
   else
     echo "[bootstrap] warning: local codex agents doc not found: $LOCAL_CODEX_AGENTS"
@@ -149,9 +149,9 @@ if [[ "$SYNC_GIT_CONFIG" == "1" ]]; then
     exit 1
   fi
 
-  cat "$LOCAL_GIT_CONFIG" |
-    "${SSH_CMD[@]}" "$REMOTE" \
-      "/bin/bash -lc 'cat > \"\$HOME/.gitconfig\"'"
+  "${SSH_CMD[@]}" "$REMOTE" \
+    "/bin/bash -lc 'cat > \"\$HOME/.gitconfig\"'" \
+    <"$LOCAL_GIT_CONFIG"
   "${SSH_CMD[@]}" "$REMOTE" \
     "/bin/bash -lc 'git config --global commit.gpgsign false; git config --global --unset-all user.signingkey || true; git config --global tag.gpgsign false; git config --global --unset commit.template'"
   echo "[bootstrap] git config sync complete"
