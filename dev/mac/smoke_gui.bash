@@ -491,7 +491,7 @@ main() {
   smoke_input left-click "$tray_center_x" "$tray_center_y"
   sleep 0.5
   screencapture -x "$out_dir/follow-tray-disable-menu.png"
-  smoke_input menu-click "follow cursor" "$APP_PID"
+  smoke_input menu-click "return to fixed mode" "$APP_PID"
   sleep 0.8
   read_window_bounds || die "could not read the Downshift window after disabling follow-cursor mode"
   if ! awk \

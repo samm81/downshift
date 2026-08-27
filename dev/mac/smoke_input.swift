@@ -25,7 +25,7 @@ func axElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
     guard let value = axAttribute(element, attribute) else {
         return nil
     }
-    return value as! AXUIElement
+    return (value as! AXUIElement)
 }
 
 func axChildren(_ element: AXUIElement) -> [AXUIElement] {
