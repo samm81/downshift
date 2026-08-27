@@ -25,13 +25,7 @@ func axChildren(_ element: AXUIElement) -> [AXUIElement] {
     guard let value = axAttribute(element, kAXChildrenAttribute) else {
         return []
     }
-    if let children = value as? [AXUIElement] {
-        return children
-    }
-    if let children = value as? NSArray {
-        return children.compactMap { $0 as? AXUIElement }
-    }
-    return []
+    return value as? [AXUIElement] ?? []
 }
 
 func statusItem(in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
