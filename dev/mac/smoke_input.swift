@@ -107,11 +107,11 @@ func windowBounds(for processID: Int32) -> CGRect? {
         kCGNullWindowID
     ) as? [[String: Any]] ?? []
 
-    var best: CGRect?
+    var bestForProcess: CGRect?
+    var bestForOwner: CGRect?
     for info in windows {
-        guard let ownerProcessID = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
-              ownerProcessID == processID,
-              (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+        guard let owner = info[kCGWindowOwnerName as String] as? String,
+              ["Downshift", "downshift"].contains(owner),
               let bounds = info[kCGWindowBounds as String] as? [String: Any],
               let x = number(bounds["X"]),
               let y = number(bounds["Y"]),
@@ -124,11 +124,16 @@ func windowBounds(for processID: Int32) -> CGRect? {
         }
 
         let candidate = CGRect(x: x, y: y, width: width, height: height)
-        if best == nil || candidate.width * candidate.height > best!.width * best!.height {
-            best = candidate
+        if bestForOwner == nil || candidate.width * candidate.height > bestForOwner!.width * bestForOwner!.height {
+            bestForOwner = candidate
+        }
+        if let ownerProcessID = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+           ownerProcessID == processID,
+           bestForProcess == nil || candidate.width * candidate.height > bestForProcess!.width * bestForProcess!.height {
+            bestForProcess = candidate
         }
     }
-    return best
+    return bestForProcess ?? bestForOwner
 }
 
 func postMouse(_ type: CGEventType, x: Double, y: Double, button: CGMouseButton) {
