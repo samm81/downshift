@@ -67,6 +67,7 @@ pub enum MenuAction {
     ContextMenu,
     AnalyticsMenu,
     FollowCursor,
+    TrayMenu,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -956,6 +957,13 @@ mod tests {
         let heartbeat =
             serde_json::to_string(&EventName::SessionHeartbeat).expect("serialize event name");
         assert_eq!(heartbeat, "\"session_heartbeat\"");
+    }
+
+    #[test]
+    fn menu_action_serializes_tray_menu() {
+        let tray_menu =
+            serde_json::to_string(&MenuAction::TrayMenu).expect("serialize menu action");
+        assert_eq!(tray_menu, "\"tray_menu\"");
     }
 
     #[test]

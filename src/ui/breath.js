@@ -469,7 +469,7 @@
     followCursorButton.disabled = state.followCursorActive;
     followCursorButton.textContent = `follow cursor${state.followCursorActive ? " ✓" : ""}`;
     followCursorButton.title = state.followCursorActive
-      ? "cursor halo is active; restart downshift to return to fixed mode"
+      ? "cursor halo is active; use the tray icon to return to fixed mode"
       : "surround the mouse cursor with a breathing halo";
   }
 

@@ -49,6 +49,7 @@ pub(crate) enum AppEvent {
     // Menu events are produced only by hosts that expose native menus. Keeping
     // the event in the shared protocol lets the event loop stay platform-neutral.
     MenuActivated(String),
+    TrayIconClicked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

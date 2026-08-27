@@ -564,6 +564,7 @@ impl NativeContextMenu {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn sync_from_settings(
         &self,
         settings: &Settings,
@@ -579,13 +580,14 @@ impl NativeContextMenu {
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
         self.follow_cursor.set_checked(follow_cursor_active);
-        self.follow_cursor.set_text(if follow_cursor_available {
-            "follow cursor"
-        } else {
+        self.follow_cursor.set_text(if !follow_cursor_available {
             follow_cursor_unavailable_reason
+        } else if follow_cursor_active {
+            "return to fixed mode"
+        } else {
+            "follow cursor"
         });
-        self.follow_cursor
-            .set_enabled(follow_cursor_available && !follow_cursor_active);
+        self.follow_cursor.set_enabled(follow_cursor_available);
         self.launch_at_login.set_checked(settings.launch_at_login);
         self.launch_at_login.set_enabled(true);
         self.snooze_menu.set_enabled(true);
@@ -637,6 +639,10 @@ impl NativeContextMenu {
         self.file_bug_github.set_enabled(true);
         self.file_bug_email.set_enabled(true);
         self.analytics_menu.set_enabled(true);
+    }
+
+    pub(crate) fn clone_for_tray(&self) -> Box<dyn muda::ContextMenu> {
+        Box::new(self.root.clone())
     }
 
     pub(crate) fn sync_consent(&self, usage_enabled: bool, crash_enabled: bool) {
@@ -708,6 +714,7 @@ impl NativeContextMenu {
         None
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn sync_from_settings(
         &self,
         _settings: &Settings,

@@ -29,11 +29,12 @@ use host::InstanceStart;
 use host::NativeContextMenu;
 use host::{
     build_main_webview, clear_child_window, configure_event_loop_builder, copy_text_to_clipboard,
-    create_fixed_child_window, create_main_window, current_os_version, enforce_fixed_size,
-    focus_existing_child_window, install_menu_event_handler, logical_outer_position,
-    native_menu_available, open_external_url, persisted_monitor, set_outer_position,
-    set_outer_position_physical, set_visible, show_without_focus, snapshot_monitor,
-    sync_child_webview_bounds, sync_main_webview_bounds,
+    create_fixed_child_window, create_main_window, create_tray_icon, current_os_version,
+    enforce_fixed_size, focus_existing_child_window, install_menu_event_handler,
+    install_tray_event_handler, logical_outer_position, native_menu_available, open_external_url,
+    persisted_monitor, set_outer_position, set_outer_position_physical, set_visible,
+    show_without_focus, snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
+    update_tray_menu, TrayIconHandle,
 };
 use std::panic::PanicHookInfo;
 use std::path::PathBuf;
@@ -106,6 +107,7 @@ struct App {
     update_dialog_window_id: Option<WindowId>,
     update_dialog_webview: Option<WebView>,
     native_context_menu: Option<NativeContextMenu>,
+    tray_icon: Option<TrayIconHandle>,
     startup_error: Option<String>,
     settings: Settings,
     config_path: Option<std::path::PathBuf>,
@@ -197,6 +199,7 @@ impl Default for App {
             update_dialog_window_id: None,
             update_dialog_webview: None,
             native_context_menu: None,
+            tray_icon: None,
             startup_error: None,
             settings: Settings::default(),
             config_path: None,
@@ -780,6 +783,21 @@ impl App {
                 self.follow_cursor_unavailable_reason,
             );
         }
+    }
+
+    fn sync_tray_menu(&self) {
+        update_tray_menu(self.tray_icon.as_ref(), self.native_context_menu.as_ref());
+    }
+
+    fn rebuild_native_context_menu(&mut self) {
+        self.native_context_menu = NativeContextMenu::new(&self.settings);
+        #[cfg(debug_assertions)]
+        if let Some(menu) = self.native_context_menu.as_ref() {
+            menu.sync_developer_controls(&self.update_check);
+        }
+        self.sync_update_menu_state();
+        self.sync_analytics_menu_state();
+        self.sync_tray_menu();
     }
 
     fn sync_update_state_to_webview(&self) {
@@ -1546,7 +1564,7 @@ impl App {
             let next_y = (center_y - target_dimensions.height / 2.0).round() as i32;
             window.set_outer_position(LogicalPosition::new(next_x, next_y));
             if !self.follow_cursor_active {
-                if let Some(physical) = window.outer_position().ok() {
+                if let Ok(physical) = window.outer_position() {
                     self.settings.physical_x = Some(physical.x);
                     self.settings.physical_y = Some(physical.y);
                 }
@@ -1570,9 +1588,9 @@ impl App {
         }));
     }
 
-    fn sync_breathing_pattern_surfaces(&self) {
+    fn sync_breathing_pattern_surfaces(&mut self) {
         self.sync_breathing_pattern_to_webview();
-        self.sync_update_menu_state();
+        self.rebuild_native_context_menu();
         self.sync_breathing_pattern_editor_state();
     }
 
@@ -2067,29 +2085,13 @@ impl App {
     }
 
     fn show_native_context_menu(&mut self, x: i32, y: i32) {
-        self.native_context_menu = NativeContextMenu::new(&self.settings);
+        self.rebuild_native_context_menu();
         let Some(menu) = self.native_context_menu.as_ref() else {
             return;
         };
-        #[cfg(debug_assertions)]
-        menu.sync_developer_controls(&self.update_check);
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        menu.sync_from_settings(
-            &self.settings,
-            self.current_size_presets(),
-            &self.updates.menu_label(),
-            self.updates.ignore_current_update_enabled(),
-            self.updates.is_ignoring_current_update(),
-            self.follow_cursor_active,
-            self.follow_cursor_supported,
-            self.follow_cursor_unavailable_reason,
-        );
-        menu.sync_consent(
-            self.settings.usage_data_sharing,
-            self.settings.crash_reports_sharing,
-        );
         menu.show(window, x, y);
     }
 
@@ -2098,7 +2100,7 @@ impl App {
             MENU_ID_PAUSE => {
                 self.set_paused_from_user_action(!self.settings.paused);
             }
-            MENU_ID_FOLLOW_CURSOR => self.set_follow_cursor(event_loop, true),
+            MENU_ID_FOLLOW_CURSOR => self.set_follow_cursor(event_loop, !self.follow_cursor_active),
             MENU_ID_SNOOZE_5 | MENU_ID_SNOOZE_10 | MENU_ID_SNOOZE_15 | MENU_ID_SNOOZE_30
             | MENU_ID_SNOOZE_60 => {
                 let Some(minutes) = snooze_minutes_for_menu_id(id) else {
@@ -2340,8 +2342,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
-        self.native_context_menu = NativeContextMenu::new(&self.settings);
-        self.sync_analytics_menu_state();
+        self.rebuild_native_context_menu();
         self.sync_update_surfaces();
         emit_startup_telemetry(
             &self.telemetry,
@@ -2357,6 +2358,20 @@ impl ApplicationHandler<AppEvent> for App {
                 }),
             );
             self.telemetry_install_first_run = false;
+        }
+        match create_tray_icon(self.native_context_menu.as_ref()) {
+            Ok(tray_icon) => self.tray_icon = tray_icon,
+            Err(error) => {
+                self.telemetry.track_error(
+                    EventName::AppError,
+                    serde_json::json!({
+                        "category": "tray_icon_create",
+                        "severity": "warn",
+                        "recoverable": true,
+                    }),
+                );
+                log_stderr!("warning: failed to create tray icon: {error}");
+            }
         }
         self.enforce_fixed_widget_size();
         self.sync_webview_bounds();
@@ -2512,6 +2527,9 @@ impl ApplicationHandler<AppEvent> for App {
                     self.set_update_dialog_mode_result();
                 }
             }
+            AppEvent::TrayIconClicked => {
+                self.telemetry_menu_action(MenuAction::TrayMenu, None);
+            }
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
         }
     }
@@ -2607,6 +2625,7 @@ fn main() -> std::process::ExitCode {
         log_stderr!("warning: failed to install ctrl-c handler: {error}");
     }
     install_menu_event_handler(event_loop_proxy.clone());
+    install_tray_event_handler(event_loop_proxy.clone());
     let heartbeat_proxy = event_loop_proxy.clone();
     let heartbeat_interval = heartbeat_interval();
     std::thread::spawn(move || loop {
@@ -3249,15 +3268,17 @@ mod tests {
 
     #[test]
     fn follow_cursor_uses_rem_sized_artwork() {
-        let mut app = App::default();
-        app.animation_bounds = AnimationBounds {
-            x: 3.0,
-            y: 4.0,
-            width: 94.0,
-            height: 92.0,
-            badge_visible: true,
+        let app = App {
+            animation_bounds: AnimationBounds {
+                x: 3.0,
+                y: 4.0,
+                width: 94.0,
+                height: 92.0,
+                badge_visible: true,
+            },
+            follow_cursor_active: true,
+            ..App::default()
         };
-        app.follow_cursor_active = true;
 
         let artwork_size = app.artwork_size_for_window();
         let dimensions = app.animation_window_dimensions_for(artwork_size, app.animation_bounds);
@@ -3270,10 +3291,12 @@ mod tests {
 
     #[test]
     fn follow_cursor_position_does_not_persist_manual_position() {
-        let mut app = App::default();
+        let mut app = App {
+            follow_cursor_active: true,
+            ..App::default()
+        };
         app.settings.physical_x = Some(120);
         app.settings.physical_y = Some(240);
-        app.follow_cursor_active = true;
 
         app.update_position_from_physical(PhysicalPosition::new(900, 700));
 
@@ -3283,8 +3306,10 @@ mod tests {
 
     #[test]
     fn follow_cursor_blocks_manual_drag_ipc() {
-        let mut app = App::default();
-        app.follow_cursor_active = true;
+        let mut app = App {
+            follow_cursor_active: true,
+            ..App::default()
+        };
 
         app.start_manual_drag(40, 60);
 
