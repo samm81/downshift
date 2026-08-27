@@ -28,6 +28,25 @@ func axChildren(_ element: AXUIElement) -> [AXUIElement] {
     return value as? [AXUIElement] ?? []
 }
 
+func menuItem(in element: AXUIElement, matching targetTitle: String, depth: Int = 0) -> AXUIElement? {
+    guard depth <= 12 else {
+        return nil
+    }
+
+    let role = axString(element, kAXRoleAttribute)
+    let title = axString(element, kAXTitleAttribute)?.lowercased()
+    if role == "AXMenuItem" && title == targetTitle.lowercased() {
+        return element
+    }
+
+    for child in axChildren(element) {
+        if let match = menuItem(in: child, matching: targetTitle, depth: depth + 1) {
+            return match
+        }
+    }
+    return nil
+}
+
 func statusItem(in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
     guard depth <= 10 else {
         return nil
@@ -265,6 +284,35 @@ case "tray-click":
     }
     guard AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else {
         fail("could not press the Downshift status item")
+    }
+
+case "menu-click":
+    let title = requireArgument(arguments, 1, "menu item title")
+    let processID = arguments.indices.contains(2) ? Int32(arguments[2]) : nil
+    var item: AXUIElement?
+    if let processID {
+        item = menuItem(
+            in: AXUIElementCreateApplication(processID),
+            matching: title
+        )
+    }
+    if item == nil {
+        let applications = NSWorkspace.shared.runningApplications.filter { application in
+            application.activationPolicy != .prohibited
+        }
+        for application in applications {
+            let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+            if let match = menuItem(in: applicationElement, matching: title) {
+                item = match
+                break
+            }
+        }
+    }
+    guard let item else {
+        fail("could not locate menu item '\(title)'")
+    }
+    guard AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else {
+        fail("could not press menu item '\(title)'")
     }
 
 case "allow-screen-capture":

@@ -451,9 +451,7 @@ main() {
   smoke_input right-click "$fixed_center_x" "$fixed_center_y"
   sleep 0.5
   screencapture -x "$out_dir/follow-context-menu.png"
-  smoke_input key home
-  smoke_input key down
-  smoke_input key return
+  smoke_input menu-click "follow cursor" "$APP_PID"
   sleep 0.8
 
   smoke_input move "$follow_cursor_x1" "$follow_cursor_y1"
@@ -481,9 +479,7 @@ main() {
   smoke_input tray-click
   sleep 0.5
   screencapture -x "$out_dir/follow-tray-menu.png"
-  smoke_input key home
-  smoke_input key down
-  smoke_input key return
+  smoke_input menu-click "follow cursor" "$APP_PID"
   sleep 0.8
   read_window_bounds || die "could not read the Downshift window after disabling follow-cursor mode"
   if ! awk \
