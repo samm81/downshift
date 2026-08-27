@@ -146,7 +146,7 @@ it:
 - fails if the app process or a visible app window does not appear
 - triggers the macos capture prompt with a warmup screenshot, waits briefly for the ui to settle, then captures a short screenshot sequence with `dev/mac/smoke_gui.bash`
 - exercises native widget-context-menu pause/reset and five-minute snooze/resume through a second launch
-- exercises follow-cursor movement, status-item menu, and status-item right-click paths
+- exercises the status-item menu and both status-item click paths, then enables follow-cursor mode through the native menu, verifies pointer movement, and disables it through the tray
 - crops the top menu bar out of each screenshot, then computes per-frame png diffs with ImageMagick `compare`
 - uploads `logs/latest-gui-smoke/` and the timestamped `logs/gui-smoke-*` directory as workflow artifacts
 

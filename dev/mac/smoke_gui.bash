@@ -447,10 +447,25 @@ main() {
   local follow_cursor_x2=$((fixed_center_x - 420))
   local follow_cursor_y2=$((fixed_center_y + 280))
 
-  log "opening the native widget menu at ${fixed_center_x},${fixed_center_y}"
-  smoke_input right-click "$fixed_center_x" "$fixed_center_y"
+  wait_for_tray_rect || die "could not locate the Downshift status item"
+  local tray_center_x=$((TRAY_X + TRAY_WIDTH / 2))
+  local tray_center_y=$((TRAY_Y + TRAY_HEIGHT / 2))
+  log "right-clicking the status item at ${tray_center_x},${tray_center_y}"
+  smoke_input right-click "$tray_center_x" "$tray_center_y"
   sleep 0.5
-  screencapture -x "$out_dir/follow-context-menu.png"
+  screencapture -x "$out_dir/tray-menu-right-click.png"
+  smoke_input key escape
+
+  log "left-clicking the status item at ${tray_center_x},${tray_center_y}"
+  smoke_input left-click "$tray_center_x" "$tray_center_y"
+  sleep 0.5
+  screencapture -x "$out_dir/tray-menu-left-click.png"
+  smoke_input key escape
+
+  log "opening the status-item menu through Accessibility to enable follow-cursor mode"
+  smoke_input tray-click
+  sleep 0.5
+  screencapture -x "$out_dir/follow-tray-menu.png"
   smoke_input menu-click "follow cursor" "$APP_PID"
   sleep 0.8
 
@@ -466,19 +481,16 @@ main() {
   fi
   log "follow-cursor movement passed: ${follow_window_x1},${follow_window_y1} -> ${WINDOW_X},${WINDOW_Y}"
 
-  wait_for_tray_rect || die "could not locate the Downshift status item"
-  local tray_center_x=$((TRAY_X + TRAY_WIDTH / 2))
-  local tray_center_y=$((TRAY_Y + TRAY_HEIGHT / 2))
-  log "right-clicking the status item at ${tray_center_x},${tray_center_y}"
+  log "right-clicking the status item while follow-cursor mode is active"
   smoke_input right-click "$tray_center_x" "$tray_center_y"
   sleep 0.5
   screencapture -x "$out_dir/follow-tray-context-menu.png"
   smoke_input key escape
 
-  log "opening the status-item menu through Accessibility"
+  log "opening the status-item menu through Accessibility to disable follow-cursor mode"
   smoke_input tray-click
   sleep 0.5
-  screencapture -x "$out_dir/follow-tray-menu.png"
+  screencapture -x "$out_dir/follow-tray-disable-menu.png"
   smoke_input menu-click "follow cursor" "$APP_PID"
   sleep 0.8
   read_window_bounds || die "could not read the Downshift window after disabling follow-cursor mode"
