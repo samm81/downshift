@@ -105,10 +105,12 @@ delivery behavior:
     - `quit`
     - `context_menu`
     - `analytics_menu`
+    - `follow_cursor`
     - `launch_at_login`
   - extra properties:
     - `size_target` for size changes; values are `S`, `M`, `L`, `XL`
     - `enabled` for `launch_at_login`
+    - `enabled` for `follow_cursor`
 - `breathing_pattern_changed`
   - emitted when the breathing-pattern editor or preset selection changes pattern state
   - `action` values observed in code:

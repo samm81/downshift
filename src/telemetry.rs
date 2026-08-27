@@ -66,6 +66,7 @@ pub enum MenuAction {
     Quit,
     ContextMenu,
     AnalyticsMenu,
+    FollowCursor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

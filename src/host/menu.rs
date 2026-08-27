@@ -18,6 +18,7 @@ use downshift::Settings;
 use downshift::{built_in_breathing_presets, BreathingPattern, BREATHING_PRESET_ID_COHERENT};
 
 pub(crate) const MENU_ID_PAUSE: &str = "pause";
+pub(crate) const MENU_ID_FOLLOW_CURSOR: &str = "follow_cursor";
 pub(crate) const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
 pub(crate) const MENU_ID_SNOOZE_5: &str = "snooze_5";
 pub(crate) const MENU_ID_SNOOZE_10: &str = "snooze_10";
@@ -76,6 +77,7 @@ macro_rules! log_stderr {
 pub(crate) struct NativeContextMenu {
     root: Submenu,
     pause: CheckMenuItem,
+    follow_cursor: CheckMenuItem,
     launch_at_login: CheckMenuItem,
     snooze_menu: Submenu,
     snooze_5: MenuItem,
@@ -133,6 +135,8 @@ impl NativeContextMenu {
             })
             .collect::<Vec<_>>();
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
+        let follow_cursor =
+            CheckMenuItem::with_id(MENU_ID_FOLLOW_CURSOR, "follow cursor", true, false, None);
         let launch_at_login =
             CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, true, None);
         let snooze_5 = MenuItem::with_id(MENU_ID_SNOOZE_5, "snooze for 5 minutes", true, None);
@@ -480,6 +484,7 @@ impl NativeContextMenu {
         #[allow(unused_mut)]
         let mut root_items: Vec<&dyn IsMenuItem> = vec![
             &pause,
+            &follow_cursor,
             &separator_one,
             &snooze_submenu,
             &separator_two,
@@ -513,6 +518,7 @@ impl NativeContextMenu {
         Some(Self {
             root,
             pause,
+            follow_cursor,
             launch_at_login,
             snooze_menu: snooze_submenu,
             snooze_5,
@@ -565,10 +571,21 @@ impl NativeContextMenu {
         update_label: &str,
         update_ignore_enabled: bool,
         update_ignore_checked: bool,
+        follow_cursor_active: bool,
+        follow_cursor_available: bool,
+        follow_cursor_unavailable_reason: &str,
     ) {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
+        self.follow_cursor.set_checked(follow_cursor_active);
+        self.follow_cursor.set_text(if follow_cursor_available {
+            "follow cursor"
+        } else {
+            follow_cursor_unavailable_reason
+        });
+        self.follow_cursor
+            .set_enabled(follow_cursor_available && !follow_cursor_active);
         self.launch_at_login.set_checked(settings.launch_at_login);
         self.launch_at_login.set_enabled(true);
         self.snooze_menu.set_enabled(true);
@@ -698,6 +715,9 @@ impl NativeContextMenu {
         _update_label: &str,
         _update_ignore_enabled: bool,
         _update_ignore_checked: bool,
+        _follow_cursor_active: bool,
+        _follow_cursor_available: bool,
+        _follow_cursor_unavailable_reason: &str,
     ) {
     }
 

@@ -865,6 +865,7 @@ dependencies = [
  "dirs 5.0.1",
  "muda",
  "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
  "semver",
  "sentry",
  "serde",

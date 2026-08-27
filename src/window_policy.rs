@@ -1,4 +1,6 @@
 use downshift::{clamp_size, PersistedMonitor, Settings, DEFAULT_SIZE};
+use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
+use winit::monitor::MonitorHandle;
 
 use crate::app_core::{
     DEFAULT_EDGE_MARGIN_RATIO, DEFAULT_SIZE_SHORT_SIDE_RATIO, SIZE_PRESET_RATIOS,
@@ -28,6 +30,100 @@ impl LogicalPoint {
     }
 }
 
+pub(crate) const FOLLOW_CURSOR_GAP_PX: f64 = 8.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScreenRect {
+    pub(crate) left: i32,
+    pub(crate) top: i32,
+    pub(crate) right: i32,
+    pub(crate) bottom: i32,
+}
+
+impl ScreenRect {
+    pub(crate) fn from_monitor(monitor: &MonitorHandle) -> Self {
+        let position = monitor.position();
+        let size = monitor.size();
+        Self {
+            left: position.x,
+            top: position.y,
+            right: position
+                .x
+                .saturating_add(size.width.min(i32::MAX as u32) as i32),
+            bottom: position
+                .y
+                .saturating_add(size.height.min(i32::MAX as u32) as i32),
+        }
+    }
+
+    pub(crate) fn contains(self, point: PhysicalPosition<i32>) -> bool {
+        point.x >= self.left && point.x < self.right && point.y >= self.top && point.y < self.bottom
+    }
+
+    pub(crate) fn clamp_window_origin(
+        self,
+        desired_x: i32,
+        desired_y: i32,
+        width: i32,
+        height: i32,
+    ) -> PhysicalPosition<i32> {
+        let max_x = self.right.saturating_sub(width).max(self.left);
+        let max_y = self.bottom.saturating_sub(height).max(self.top);
+        PhysicalPosition::new(
+            desired_x.clamp(self.left, max_x),
+            desired_y.clamp(self.top, max_y),
+        )
+    }
+}
+
+pub(crate) fn follow_window_origin(
+    cursor: PhysicalPosition<i32>,
+    work_area: ScreenRect,
+    scale_factor: f64,
+    cursor_height_logical: f64,
+    window_dimensions: LogicalSize<f64>,
+    shape_center: LogicalPosition<f64>,
+    baseline_offset_logical: f64,
+) -> PhysicalPosition<i32> {
+    let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let width = (window_dimensions.width.max(1.0) * scale_factor)
+        .round()
+        .max(1.0) as i32;
+    let height = (window_dimensions.height.max(1.0) * scale_factor)
+        .round()
+        .max(1.0) as i32;
+    let shape_center_x = (shape_center.x.max(0.0) * scale_factor).round() as i32;
+    let cursor_height = (cursor_height_logical.max(0.0) * scale_factor).round() as i32;
+    let baseline_offset = (baseline_offset_logical.max(0.0) * scale_factor).round() as i32;
+    let gap = (FOLLOW_CURSOR_GAP_PX * scale_factor).round().max(0.0) as i32;
+    let height_from_baseline = height.saturating_sub(baseline_offset);
+    let available_below = work_area
+        .bottom
+        .saturating_sub(cursor.y.saturating_add(cursor_height).saturating_add(gap));
+    let available_above = cursor.y.saturating_sub(gap).saturating_sub(work_area.top);
+    let fit_below = available_below >= height_from_baseline;
+    let fit_above = available_above >= height_from_baseline;
+    let place_below = fit_below || !fit_above;
+    let desired_x = cursor.x.saturating_sub(shape_center_x);
+    let desired_y = if place_below {
+        cursor
+            .y
+            .saturating_add(cursor_height)
+            .saturating_add(gap)
+            .saturating_sub(baseline_offset)
+    } else {
+        cursor
+            .y
+            .saturating_sub(gap)
+            .saturating_sub(height_from_baseline)
+    };
+    work_area.clamp_window_origin(desired_x, desired_y, width, height)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct MonitorSnapshot {
     pub(crate) position: PhysicalPoint,
@@ -44,6 +140,48 @@ impl MonitorSnapshot {
             scale_factor: self.scale_factor,
         }
     }
+
+    pub(crate) fn contains_logical(self, point: LogicalPoint) -> bool {
+        if !point.x.is_finite()
+            || !point.y.is_finite()
+            || !self.scale_factor.is_finite()
+            || self.scale_factor <= 0.0
+        {
+            return false;
+        }
+        let origin_x = f64::from(self.position.x) / self.scale_factor;
+        let origin_y = f64::from(self.position.y) / self.scale_factor;
+        let width = f64::from(self.width) / self.scale_factor;
+        let height = f64::from(self.height) / self.scale_factor;
+        point.x >= origin_x
+            && point.x < origin_x + width
+            && point.y >= origin_y
+            && point.y < origin_y + height
+    }
+}
+
+pub(crate) fn logical_cursor_to_physical(
+    point: LogicalPoint,
+    monitor: &MonitorSnapshot,
+) -> Option<PhysicalPoint> {
+    if !point.x.is_finite()
+        || !point.y.is_finite()
+        || !monitor.scale_factor.is_finite()
+        || monitor.scale_factor <= 0.0
+    {
+        return None;
+    }
+    let origin_x = f64::from(monitor.position.x) / monitor.scale_factor;
+    let origin_y = f64::from(monitor.position.y) / monitor.scale_factor;
+    let relative_x = ((point.x - origin_x) * monitor.scale_factor).round();
+    let relative_y = ((point.y - origin_y) * monitor.scale_factor).round();
+    if !relative_x.is_finite() || !relative_y.is_finite() {
+        return None;
+    }
+    Some(PhysicalPoint::new(
+        monitor.position.x.saturating_add(relative_x as i32),
+        monitor.position.y.saturating_add(relative_y as i32),
+    ))
 }
 
 pub(crate) fn monitor_matches_persisted(
@@ -239,5 +377,137 @@ mod tests {
             crate::app_core::drag_position((100.0, 200.0), (10.0, 20.0), (25.0, 5.0)),
             (115, 185)
         );
+    }
+
+    #[test]
+    fn logical_cursor_conversion_tracks_scaled_multi_monitor_layouts() {
+        let left = MonitorSnapshot {
+            position: PhysicalPoint::new(-1920, 0),
+            width: 1920,
+            height: 1080,
+            scale_factor: 1.0,
+        };
+        let right = MonitorSnapshot {
+            position: PhysicalPoint::new(0, 0),
+            width: 3840,
+            height: 2160,
+            scale_factor: 2.0,
+        };
+
+        let left_cursor = LogicalPoint::new(-960.0, 540.0);
+        assert!(left.contains_logical(left_cursor));
+        assert_eq!(
+            logical_cursor_to_physical(left_cursor, &left),
+            Some(PhysicalPoint::new(-960, 540))
+        );
+
+        let right_cursor = LogicalPoint::new(960.0, 540.0);
+        assert!(!left.contains_logical(right_cursor));
+        assert!(right.contains_logical(right_cursor));
+        assert_eq!(
+            logical_cursor_to_physical(right_cursor, &right),
+            Some(PhysicalPoint::new(1920, 1080))
+        );
+    }
+
+    #[test]
+    fn follow_window_origin_prefers_below_when_space_is_available() {
+        let origin = follow_window_origin(
+            PhysicalPosition::new(500, 200),
+            ScreenRect {
+                left: 0,
+                top: 0,
+                right: 1000,
+                bottom: 800,
+            },
+            1.0,
+            32.0,
+            LogicalSize::new(100.0, 132.0),
+            LogicalPosition::new(50.0, 66.0),
+            2.0,
+        );
+
+        assert_eq!(origin, PhysicalPosition::new(450, 238));
+    }
+
+    #[test]
+    fn follow_window_origin_flips_above_near_bottom_edge() {
+        let origin = follow_window_origin(
+            PhysicalPosition::new(500, 760),
+            ScreenRect {
+                left: 0,
+                top: 0,
+                right: 1000,
+                bottom: 800,
+            },
+            1.0,
+            32.0,
+            LogicalSize::new(100.0, 132.0),
+            LogicalPosition::new(50.0, 66.0),
+            2.0,
+        );
+
+        assert_eq!(origin, PhysicalPosition::new(450, 622));
+    }
+
+    #[test]
+    fn follow_window_origin_clamps_to_negative_monitor_edges() {
+        let origin = follow_window_origin(
+            PhysicalPosition::new(-1910, -500),
+            ScreenRect {
+                left: -1920,
+                top: -1080,
+                right: 0,
+                bottom: 0,
+            },
+            1.0,
+            32.0,
+            LogicalSize::new(100.0, 132.0),
+            LogicalPosition::new(50.0, 66.0),
+            2.0,
+        );
+
+        assert_eq!(origin, PhysicalPosition::new(-1920, -462));
+    }
+
+    #[test]
+    fn follow_window_origin_scales_gap_and_window_geometry() {
+        let origin = follow_window_origin(
+            PhysicalPosition::new(1000, 400),
+            ScreenRect {
+                left: 0,
+                top: 0,
+                right: 2000,
+                bottom: 1600,
+            },
+            2.0,
+            32.0,
+            LogicalSize::new(100.0, 132.0),
+            LogicalPosition::new(50.0, 66.0),
+            2.0,
+        );
+
+        assert_eq!(origin, PhysicalPosition::new(900, 476));
+    }
+
+    #[test]
+    fn follow_window_origin_anchors_artwork_below_cursor() {
+        let origin = follow_window_origin(
+            PhysicalPosition::new(500, 200),
+            ScreenRect {
+                left: 0,
+                top: 0,
+                right: 1000,
+                bottom: 800,
+            },
+            1.0,
+            24.0,
+            LogicalSize::new(16.0, 24.0),
+            LogicalPosition::new(8.0, 2.0),
+            2.0,
+        );
+
+        assert_eq!(origin, PhysicalPosition::new(492, 230));
+        assert_eq!(origin.y + 2, 232);
     }
 }

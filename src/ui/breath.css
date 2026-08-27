@@ -140,6 +140,15 @@ body {
   background: rgb(124 182 255 / 25%);
 }
 
+.menu button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.menu button:disabled:hover {
+  background: transparent;
+}
+
 .menu .divider {
   border-top: 1px solid rgb(255 255 255 / 12%);
   margin: 6px 0;

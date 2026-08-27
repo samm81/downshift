@@ -21,6 +21,6 @@ pub(crate) use platform::{
 
 pub(crate) use menu::{install_event_handler as install_menu_event_handler, NativeContextMenu};
 pub(crate) use window::{
-    enforce_fixed_size, logical_outer_position, resize_preserving_center, set_outer_position,
-    set_outer_position_physical, set_visible, show_without_focus,
+    enforce_fixed_size, logical_outer_position, set_outer_position, set_outer_position_physical,
+    set_visible, show_without_focus,
 };

@@ -393,6 +393,9 @@ pub enum IpcCommand {
         screen_y: i32,
     },
     EndDrag,
+    SetFollowCursor {
+        enabled: bool,
+    },
     SetAnimationBounds {
         x: f64,
         y: f64,
@@ -828,6 +831,11 @@ mod tests {
         let drag_end: IpcCommand =
             serde_json::from_str(r#"{"cmd":"end_drag"}"#).expect("valid end_drag command");
         assert_eq!(drag_end, IpcCommand::EndDrag);
+
+        let follow_cursor: IpcCommand =
+            serde_json::from_str(r#"{"cmd":"set_follow_cursor","enabled":true}"#)
+                .expect("valid set_follow_cursor command");
+        assert_eq!(follow_cursor, IpcCommand::SetFollowCursor { enabled: true });
 
         let animation_bounds: IpcCommand = serde_json::from_str(
             r#"{"cmd":"set_animation_bounds","x":12.5,"y":24.0,"width":48.0,"height":32.0,"badge_visible":false}"#,
