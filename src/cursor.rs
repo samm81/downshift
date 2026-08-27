@@ -34,15 +34,6 @@ impl fmt::Display for CursorError {
 pub trait CursorSource {
     fn sample(&mut self) -> Result<CursorPosition, CursorError>;
 
-    /// Return the native cursor height in logical units (points/DIPs).
-    ///
-    /// Providers that can report a position but not a cursor size may keep the
-    /// default error. The app has a conservative logical-unit fallback for
-    /// that case.
-    fn cursor_height_logical(&self) -> Result<f64, CursorError> {
-        Err(CursorError::Unavailable("cursor height is unavailable"))
-    }
-
     fn is_supported(&self) -> bool;
 
     fn unavailable_reason(&self) -> &'static str;
@@ -63,10 +54,6 @@ impl CursorProvider {
 impl CursorSource for CursorProvider {
     fn sample(&mut self) -> Result<CursorPosition, CursorError> {
         self.backend.sample()
-    }
-
-    fn cursor_height_logical(&self) -> Result<f64, CursorError> {
-        self.backend.cursor_height_logical()
     }
 
     fn is_supported(&self) -> bool {
@@ -147,16 +134,6 @@ impl Backend {
             Self::Unsupported(reason) => Err(CursorError::Unavailable(reason)),
         }
     }
-
-    fn cursor_height_logical(&self) -> Result<f64, CursorError> {
-        match self {
-            #[cfg(target_os = "macos")]
-            Self::Macos => sample_macos_cursor_height(),
-            #[cfg(target_os = "windows")]
-            Self::Windows => sample_windows_cursor_height(),
-            Self::Unsupported(reason) => Err(CursorError::Unavailable(reason)),
-        }
-    }
 }
 
 #[cfg(target_os = "macos")]
@@ -183,27 +160,6 @@ fn sample_macos_cursor() -> Result<CursorPosition, CursorError> {
     })
 }
 
-#[cfg(target_os = "macos")]
-fn sample_macos_cursor_height() -> Result<f64, CursorError> {
-    use objc2_app_kit::NSCursor;
-    use objc2_foundation::MainThreadMarker;
-
-    let Some(_) = MainThreadMarker::new() else {
-        return Err(CursorError::Query(
-            "failed to obtain the macOS main-thread marker".to_string(),
-        ));
-    };
-    let cursor = NSCursor::arrowCursor();
-    let height = unsafe { cursor.image().size().height };
-    if height.is_finite() && height > 0.0 {
-        Ok(height)
-    } else {
-        Err(CursorError::Query(
-            "macOS returned an invalid cursor height".to_string(),
-        ))
-    }
-}
-
 #[cfg(target_os = "windows")]
 fn sample_windows_cursor() -> Result<CursorPosition, CursorError> {
     use windows_sys::Win32::Foundation::POINT;
@@ -220,22 +176,4 @@ fn sample_windows_cursor() -> Result<CursorPosition, CursorError> {
         y: f64::from(point.y),
         space: CoordinateSpace::Physical,
     })
-}
-
-#[cfg(target_os = "windows")]
-fn sample_windows_cursor_height() -> Result<f64, CursorError> {
-    use windows_sys::Win32::UI::HiDpi::GetSystemMetricsForDpi;
-    use windows_sys::Win32::UI::WindowsAndMessaging::SM_CYCURSOR;
-
-    // Query at the base DPI so the result is a logical DIP size. Winit then
-    // applies the active monitor's scale factor once when creating the native
-    // window, which keeps this stable on high-DPI displays.
-    let height = unsafe { GetSystemMetricsForDpi(SM_CYCURSOR, 96) };
-    if height > 0 {
-        Ok(f64::from(height))
-    } else {
-        Err(CursorError::Query(
-            "GetSystemMetricsForDpi(SM_CYCURSOR) failed".to_string(),
-        ))
-    }
 }

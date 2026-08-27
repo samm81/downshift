@@ -258,6 +258,17 @@
     state.sizePresets = [64, 96, 128, 160];
   }
 
+  const cssRootFontSizeLogical = (() => {
+    const value = Number.parseFloat(
+      window.getComputedStyle(document.documentElement).fontSize,
+    );
+    return Number.isFinite(value) && value > 0 ? value : 16;
+  })();
+
+  function cssRem(value) {
+    return `${value / cssRootFontSizeLogical}rem`;
+  }
+
   function post(payload) {
     if (window.ipc && typeof window.ipc.postMessage === "function") {
       window.ipc.postMessage(JSON.stringify(payload));
@@ -270,15 +281,25 @@
     const maximum = maximumAnimationBounds || bounds;
     document.documentElement.style.setProperty(
       "--artwork-size",
-      `${artworkSize}px`,
+      cssRem(artworkSize),
     );
     document.documentElement.style.setProperty(
       "--artwork-left",
-      `${animationBoundsPaddingPx + (maximum.width / 2 - (bounds.x + bounds.width / 2)) / viewBoxUnitsPerPixel}px`,
+      cssRem(
+        animationBoundsPaddingPx +
+          (maximum.width / 2 - (bounds.x + bounds.width / 2)) /
+            viewBoxUnitsPerPixel,
+      ),
     );
     document.documentElement.style.setProperty(
       "--artwork-top",
-      `${state.followCursorActive ? animationBoundsPaddingPx - bounds.y / viewBoxUnitsPerPixel : animationBoundsPaddingPx + (maximum.height - (bounds.y + bounds.height)) / viewBoxUnitsPerPixel}px`,
+      cssRem(
+        state.followCursorActive
+          ? animationBoundsPaddingPx - bounds.y / viewBoxUnitsPerPixel
+          : animationBoundsPaddingPx +
+              (maximum.height - (bounds.y + bounds.height)) /
+                viewBoxUnitsPerPixel,
+      ),
     );
   }
 

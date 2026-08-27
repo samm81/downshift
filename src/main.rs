@@ -53,7 +53,6 @@ use update_check::{UpdateCheckResult, UpdateCheckService, UpdateCheckSource};
 
 const ANIMATION_BOUNDS_PADDING_PX: f64 = 2.0;
 const ANIMATION_VIEWBOX_SIZE: f64 = 100.0;
-const FOLLOW_CURSOR_HEIGHT_FALLBACK_LOGICAL: f64 = 32.0;
 const FOLLOW_CURSOR_POLL_INTERVAL: Duration = Duration::from_millis(33);
 
 macro_rules! log_stderr {
@@ -129,7 +128,6 @@ struct App {
     follow_cursor_active: bool,
     follow_cursor_supported: bool,
     follow_cursor_unavailable_reason: &'static str,
-    follow_cursor_height_logical: Option<f64>,
     cursor_source: Option<Box<dyn CursorSource>>,
     follow_cursor_previous_position: Option<PhysicalPosition<i32>>,
     follow_cursor_placement: Option<FollowPlacement>,
@@ -224,7 +222,6 @@ impl Default for App {
             follow_cursor_supported: false,
             follow_cursor_unavailable_reason:
                 "cursor following is unavailable until the app window is ready",
-            follow_cursor_height_logical: None,
             cursor_source: None,
             follow_cursor_previous_position: None,
             follow_cursor_placement: None,
@@ -488,16 +485,8 @@ impl App {
         LogicalSize::new(width, height)
     }
 
-    fn follow_cursor_total_height_logical(&self) -> f64 {
-        self.follow_cursor_height_logical
-            .unwrap_or(FOLLOW_CURSOR_HEIGHT_FALLBACK_LOGICAL)
-    }
-
     fn follow_cursor_artwork_size(&self) -> f64 {
-        let content_height = (self.follow_cursor_total_height_logical()
-            - ANIMATION_BOUNDS_PADDING_PX * 2.0)
-            .max(1.0);
-        content_height * ANIMATION_VIEWBOX_SIZE / self.animation_bounds.height.max(1.0)
+        FOLLOW_CURSOR_ARTWORK_SIZE_LOGICAL
     }
 
     fn artwork_size_for_window(&self) -> f64 {
@@ -514,23 +503,20 @@ impl App {
         bounds: AnimationBounds,
     ) -> LogicalSize<f64> {
         let view_box_scale = artwork_size / ANIMATION_VIEWBOX_SIZE;
+        let badge_reserve = if self.follow_cursor_active {
+            0.0
+        } else if bounds.badge_visible {
+            UPDATE_BADGE_WINDOW_RESERVE_PX
+        } else {
+            0.0
+        };
         LogicalSize::new(
             (bounds.width * view_box_scale + ANIMATION_BOUNDS_PADDING_PX * 2.0)
                 .ceil()
                 .max(1.0),
-            if self.follow_cursor_active {
-                self.follow_cursor_total_height_logical()
-            } else {
-                (bounds.height * view_box_scale
-                    + ANIMATION_BOUNDS_PADDING_PX * 2.0
-                    + if bounds.badge_visible {
-                        UPDATE_BADGE_WINDOW_RESERVE_PX
-                    } else {
-                        0.0
-                    })
+            (bounds.height * view_box_scale + ANIMATION_BOUNDS_PADDING_PX * 2.0 + badge_reserve)
                 .ceil()
-                .max(1.0)
-            },
+                .max(1.0),
         )
     }
 
@@ -1417,7 +1403,6 @@ impl App {
             placement.cursor,
             placement.monitor.work_area,
             placement.monitor.scale_factor,
-            self.follow_cursor_total_height_logical(),
             target_dimensions,
             shape_center,
             ANIMATION_BOUNDS_PADDING_PX,
@@ -2297,20 +2282,6 @@ impl ApplicationHandler<AppEvent> for App {
         } else {
             cursor_provider.unavailable_reason()
         };
-        self.follow_cursor_height_logical = if self.follow_cursor_supported {
-            cursor_provider
-                .cursor_height_logical()
-                .ok()
-                .filter(|height| height.is_finite() && *height > 0.0)
-        } else {
-            None
-        };
-        if self.follow_cursor_supported && self.follow_cursor_height_logical.is_none() {
-            log_stderr!(
-                "warning: native cursor height unavailable; using {:.0} logical-unit fallback",
-                FOLLOW_CURSOR_HEIGHT_FALLBACK_LOGICAL
-            );
-        }
         self.cursor_source = Some(Box::new(cursor_provider));
         host::configure_created_window(&window);
         self.settings.monitor = window.current_monitor().as_ref().map(persisted_monitor);
@@ -3267,7 +3238,7 @@ mod tests {
     }
 
     #[test]
-    fn follow_cursor_uses_the_native_cursor_height() {
+    fn follow_cursor_uses_rem_sized_artwork() {
         let mut app = App::default();
         app.animation_bounds = AnimationBounds {
             x: 3.0,
@@ -3277,13 +3248,13 @@ mod tests {
             badge_visible: true,
         };
         app.follow_cursor_active = true;
-        app.follow_cursor_height_logical = Some(24.0);
 
         let artwork_size = app.artwork_size_for_window();
         let dimensions = app.animation_window_dimensions_for(artwork_size, app.animation_bounds);
 
-        assert_eq!(dimensions.height, 24.0);
-        assert!(artwork_size < app.settings.size);
+        assert_eq!(artwork_size, FOLLOW_CURSOR_ARTWORK_SIZE_LOGICAL);
+        assert_eq!(dimensions.height, 56.0);
+        assert!(dimensions.height > ANIMATION_BOUNDS_PADDING_PX * 2.0);
     }
 
     #[test]

@@ -30,7 +30,16 @@ impl LogicalPoint {
     }
 }
 
-pub(crate) const FOLLOW_CURSOR_GAP_PX: f64 = 8.0;
+// These values are CSS logical units. The embedded webview uses a 16-unit
+// root font size for one rem, and winit applies the monitor scale factor when
+// converting the resulting logical geometry to physical pixels.
+pub(crate) const CSS_ROOT_FONT_SIZE_LOGICAL: f64 = 16.0;
+pub(crate) const FOLLOW_CURSOR_OFFSET_REM: f64 = 0.5;
+pub(crate) const FOLLOW_CURSOR_OFFSET_LOGICAL: f64 =
+    FOLLOW_CURSOR_OFFSET_REM * CSS_ROOT_FONT_SIZE_LOGICAL;
+pub(crate) const FOLLOW_CURSOR_ARTWORK_SIZE_REM: f64 = 3.5;
+pub(crate) const FOLLOW_CURSOR_ARTWORK_SIZE_LOGICAL: f64 =
+    FOLLOW_CURSOR_ARTWORK_SIZE_REM * CSS_ROOT_FONT_SIZE_LOGICAL;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScreenRect {
@@ -80,7 +89,6 @@ pub(crate) fn follow_window_origin(
     cursor: PhysicalPosition<i32>,
     work_area: ScreenRect,
     scale_factor: f64,
-    cursor_height_logical: f64,
     window_dimensions: LogicalSize<f64>,
     shape_center: LogicalPosition<f64>,
     baseline_offset_logical: f64,
@@ -97,28 +105,34 @@ pub(crate) fn follow_window_origin(
         .round()
         .max(1.0) as i32;
     let shape_center_x = (shape_center.x.max(0.0) * scale_factor).round() as i32;
-    let cursor_height = (cursor_height_logical.max(0.0) * scale_factor).round() as i32;
     let baseline_offset = (baseline_offset_logical.max(0.0) * scale_factor).round() as i32;
-    let gap = (FOLLOW_CURSOR_GAP_PX * scale_factor).round().max(0.0) as i32;
+    let offset = (FOLLOW_CURSOR_OFFSET_LOGICAL * scale_factor)
+        .round()
+        .max(0.0) as i32;
     let height_from_baseline = height.saturating_sub(baseline_offset);
     let available_below = work_area
         .bottom
-        .saturating_sub(cursor.y.saturating_add(cursor_height).saturating_add(gap));
-    let available_above = cursor.y.saturating_sub(gap).saturating_sub(work_area.top);
+        .saturating_sub(cursor.y.saturating_add(offset));
+    let available_above = cursor
+        .y
+        .saturating_sub(offset)
+        .saturating_sub(work_area.top);
     let fit_below = available_below >= height_from_baseline;
     let fit_above = available_above >= height_from_baseline;
     let place_below = fit_below || !fit_above;
-    let desired_x = cursor.x.saturating_sub(shape_center_x);
+    let desired_x = cursor
+        .x
+        .saturating_add(offset)
+        .saturating_sub(shape_center_x);
     let desired_y = if place_below {
         cursor
             .y
-            .saturating_add(cursor_height)
-            .saturating_add(gap)
+            .saturating_add(offset)
             .saturating_sub(baseline_offset)
     } else {
         cursor
             .y
-            .saturating_sub(gap)
+            .saturating_sub(offset)
             .saturating_sub(height_from_baseline)
     };
     work_area.clamp_window_origin(desired_x, desired_y, width, height)
@@ -421,13 +435,12 @@ mod tests {
                 bottom: 800,
             },
             1.0,
-            32.0,
             LogicalSize::new(100.0, 132.0),
             LogicalPosition::new(50.0, 66.0),
             2.0,
         );
 
-        assert_eq!(origin, PhysicalPosition::new(450, 238));
+        assert_eq!(origin, PhysicalPosition::new(458, 206));
     }
 
     #[test]
@@ -441,13 +454,12 @@ mod tests {
                 bottom: 800,
             },
             1.0,
-            32.0,
             LogicalSize::new(100.0, 132.0),
             LogicalPosition::new(50.0, 66.0),
             2.0,
         );
 
-        assert_eq!(origin, PhysicalPosition::new(450, 622));
+        assert_eq!(origin, PhysicalPosition::new(458, 622));
     }
 
     #[test]
@@ -461,17 +473,16 @@ mod tests {
                 bottom: 0,
             },
             1.0,
-            32.0,
             LogicalSize::new(100.0, 132.0),
             LogicalPosition::new(50.0, 66.0),
             2.0,
         );
 
-        assert_eq!(origin, PhysicalPosition::new(-1920, -462));
+        assert_eq!(origin, PhysicalPosition::new(-1920, -494));
     }
 
     #[test]
-    fn follow_window_origin_scales_gap_and_window_geometry() {
+    fn follow_window_origin_scales_rem_offset_and_window_geometry() {
         let origin = follow_window_origin(
             PhysicalPosition::new(1000, 400),
             ScreenRect {
@@ -481,13 +492,12 @@ mod tests {
                 bottom: 1600,
             },
             2.0,
-            32.0,
             LogicalSize::new(100.0, 132.0),
             LogicalPosition::new(50.0, 66.0),
             2.0,
         );
 
-        assert_eq!(origin, PhysicalPosition::new(900, 476));
+        assert_eq!(origin, PhysicalPosition::new(916, 412));
     }
 
     #[test]
@@ -501,13 +511,12 @@ mod tests {
                 bottom: 800,
             },
             1.0,
-            24.0,
             LogicalSize::new(16.0, 24.0),
             LogicalPosition::new(8.0, 2.0),
             2.0,
         );
 
-        assert_eq!(origin, PhysicalPosition::new(492, 230));
-        assert_eq!(origin.y + 2, 232);
+        assert_eq!(origin, PhysicalPosition::new(500, 206));
+        assert_eq!(origin.y + 2, 208);
     }
 }
