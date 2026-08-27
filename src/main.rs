@@ -3342,12 +3342,12 @@ mod tests {
     }
 
     #[test]
-    fn follow_cursor_ui_assets_include_toggle_and_vertical_mirror() {
+    fn follow_cursor_ui_assets_include_toggle_and_upright_artwork() {
         let html = breath_html();
         assert!(html.contains("cursor-halo"));
         assert!(html.contains("menu-follow-cursor"));
         assert!(html.contains("set_follow_cursor"));
-        assert!(html.contains("100 - y"));
+        assert!(!html.contains("100 - y"));
     }
 
     #[test]

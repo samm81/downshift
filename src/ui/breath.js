@@ -148,10 +148,7 @@
     );
     breathHitTarget.setAttribute(
       "y",
-      (state.followCursorActive
-        ? 100 - polygonBaseline
-        : polygonBaseline - targetHeight
-      ).toFixed(3),
+      (polygonBaseline - targetHeight).toFixed(3),
     );
     breathHitTarget.setAttribute("width", targetWidth.toFixed(3));
     breathHitTarget.setAttribute("height", targetHeight.toFixed(3));
@@ -172,10 +169,7 @@
         progress <= terminalShapeFraction
           ? terminalPointsForProgress(vertexCount, terminalProgress)
           : polygonPointsForProgress(layerIndex, vertexCount, polygonProgress);
-      const orientedPoints = state.followCursorActive
-        ? points.map(([x, y]) => [x, 100 - y])
-        : points;
-      polygon.setAttribute("d", pathData(orientedPoints));
+      polygon.setAttribute("d", pathData(points));
     });
     applyCursorHalo(progress);
     updateBreathingHitTarget(progress);
