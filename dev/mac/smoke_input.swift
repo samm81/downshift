@@ -9,15 +9,15 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-func axAttribute(_ element: AXUIElement, _ attribute: CFString) -> CFTypeRef? {
+func axAttribute(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
     var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else {
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
         return nil
     }
     return value
 }
 
-func axString(_ element: AXUIElement, _ attribute: CFString) -> String? {
+func axString(_ element: AXUIElement, _ attribute: String) -> String? {
     axAttribute(element, attribute) as? String
 }
 
@@ -177,32 +177,46 @@ func requireArgument(_ arguments: [String], _ index: Int, _ description: String)
     return arguments[index]
 }
 
+func requireInt32(_ arguments: [String], _ index: Int, _ description: String) -> Int32 {
+    guard let value = Int32(requireArgument(arguments, index, description)) else {
+        fail("invalid \(description)")
+    }
+    return value
+}
+
+func requireDouble(_ arguments: [String], _ index: Int, _ description: String) -> Double {
+    guard let value = Double(requireArgument(arguments, index, description)) else {
+        fail("invalid \(description)")
+    }
+    return value
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 let command = requireArgument(arguments, 0, "command")
 
 switch command {
 case "window-bounds":
-    let processID = Int32(requireArgument(arguments, 1, "process id")) ?? fail("invalid process id")
+    let processID = requireInt32(arguments, 1, "process id")
     guard let bounds = windowBounds(for: processID) else {
         fail("could not find a visible app window for process \(processID)")
     }
     print("\(Int(bounds.origin.x.rounded())) \(Int(bounds.origin.y.rounded())) \(Int(bounds.width.rounded())) \(Int(bounds.height.rounded()))")
 
 case "right-click":
-    let x = Double(requireArgument(arguments, 1, "x coordinate")) ?? fail("invalid x coordinate")
-    let y = Double(requireArgument(arguments, 2, "y coordinate")) ?? fail("invalid y coordinate")
+    let x = requireDouble(arguments, 1, "x coordinate")
+    let y = requireDouble(arguments, 2, "y coordinate")
     postMouse(.rightMouseDown, x: x, y: y, button: .right)
     postMouse(.rightMouseUp, x: x, y: y, button: .right)
 
 case "left-click":
-    let x = Double(requireArgument(arguments, 1, "x coordinate")) ?? fail("invalid x coordinate")
-    let y = Double(requireArgument(arguments, 2, "y coordinate")) ?? fail("invalid y coordinate")
+    let x = requireDouble(arguments, 1, "x coordinate")
+    let y = requireDouble(arguments, 2, "y coordinate")
     postMouse(.leftMouseDown, x: x, y: y, button: .left)
     postMouse(.leftMouseUp, x: x, y: y, button: .left)
 
 case "move":
-    let x = Double(requireArgument(arguments, 1, "x coordinate")) ?? fail("invalid x coordinate")
-    let y = Double(requireArgument(arguments, 2, "y coordinate")) ?? fail("invalid y coordinate")
+    let x = requireDouble(arguments, 1, "x coordinate")
+    let y = requireDouble(arguments, 2, "y coordinate")
     postMouse(.mouseMoved, x: x, y: y, button: .left)
 
 case "key":
@@ -218,7 +232,7 @@ case "tray-click":
     guard let item = systemStatusItem() else {
         fail("could not locate the Downshift status item; Accessibility access may be unavailable")
     }
-    guard AXUIElementPerformAction(item, kAXPressAction) == .success else {
+    guard AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else {
         fail("could not press the Downshift status item")
     }
 
