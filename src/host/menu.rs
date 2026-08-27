@@ -1,5 +1,7 @@
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
+#[cfg(target_os = "windows")]
+use muda::Menu;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::{
     CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
@@ -642,6 +644,25 @@ impl NativeContextMenu {
     }
 
     pub(crate) fn clone_for_tray(&self) -> Box<dyn muda::ContextMenu> {
+        #[cfg(target_os = "windows")]
+        {
+            let tray_menu = Menu::new();
+            for item in self.root.items() {
+                let item: &dyn IsMenuItem = match &item {
+                    muda::MenuItemKind::MenuItem(item) => item,
+                    muda::MenuItemKind::Submenu(item) => item,
+                    muda::MenuItemKind::Predefined(item) => item,
+                    muda::MenuItemKind::Check(item) => item,
+                    muda::MenuItemKind::Icon(item) => item,
+                };
+                tray_menu
+                    .append(item)
+                    .expect("native context menu items should be valid for the tray menu");
+            }
+            Box::new(tray_menu)
+        }
+
+        #[cfg(not(target_os = "windows"))]
         Box::new(self.root.clone())
     }
 
