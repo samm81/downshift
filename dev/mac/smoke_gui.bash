@@ -243,7 +243,7 @@ wait_for_window_bounds() {
 
 read_tray_rect() {
   local bounds
-  bounds="$(smoke_follow_input tray-rect 2>/dev/null)" || return 1
+  bounds="$(smoke_follow_input tray-rect)" || return 1
   read -r TRAY_X TRAY_Y TRAY_WIDTH TRAY_HEIGHT <<<"$bounds"
   [[ "$TRAY_X" =~ ^-?[0-9]+$ && "$TRAY_Y" =~ ^-?[0-9]+$ && "$TRAY_WIDTH" =~ ^[0-9]+$ && "$TRAY_HEIGHT" =~ ^[0-9]+$ ]]
 }
