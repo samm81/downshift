@@ -60,8 +60,7 @@ func statusItem(in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
     }
 
     let role = axString(element, kAXRoleAttribute)
-    let searchableText = [
-        axString(element, kAXTitleAttribute),
+    let metadataText = [
         axString(element, kAXDescriptionAttribute),
         axString(element, kAXValueAttribute),
         axString(element, "AXHelp"),
@@ -73,7 +72,8 @@ func statusItem(in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
             menuItem(in: element, matching: "follow cursor") != nil
             || axElement(element, "AXMenu")
                 .flatMap { menuItem(in: $0, matching: "follow cursor") } != nil
-        if searchableText.contains(where: { $0.contains("downshift") }) || hasFollowCursorMenuItem {
+        let hasDownshiftMetadata = metadataText.contains(where: { $0.contains("downshift") })
+        if hasDownshiftMetadata || hasFollowCursorMenuItem {
             return element
         }
     }
