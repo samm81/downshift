@@ -462,8 +462,8 @@ main() {
   screencapture -x "$out_dir/tray-menu-left-click.png"
   smoke_input key escape
 
-  log "opening the status-item menu through Accessibility to enable follow-cursor mode"
-  smoke_input tray-click
+  log "opening the status-item menu with a native left click"
+  smoke_input left-click "$tray_center_x" "$tray_center_y"
   sleep 0.5
   screencapture -x "$out_dir/follow-tray-menu.png"
   smoke_input menu-click "follow cursor" "$APP_PID"
@@ -487,8 +487,8 @@ main() {
   screencapture -x "$out_dir/follow-tray-context-menu.png"
   smoke_input key escape
 
-  log "opening the status-item menu through Accessibility to disable follow-cursor mode"
-  smoke_input tray-click
+  log "opening the status-item menu with a native left click to disable follow-cursor mode"
+  smoke_input left-click "$tray_center_x" "$tray_center_y"
   sleep 0.5
   screencapture -x "$out_dir/follow-tray-disable-menu.png"
   smoke_input menu-click "follow cursor" "$APP_PID"
