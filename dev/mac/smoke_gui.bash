@@ -442,10 +442,10 @@ main() {
   log "second launch resumed the snoozed widget"
   local fixed_center_x=$((fixed_window_x + fixed_window_width / 2))
   local fixed_center_y=$((fixed_window_y + fixed_window_height / 2))
-  local follow_cursor_x1=$((fixed_center_x + 140))
-  local follow_cursor_y1=$((fixed_center_y + 100))
-  local follow_cursor_x2=$((fixed_center_x + 280))
-  local follow_cursor_y2=$((fixed_center_y + 190))
+  local follow_cursor_x1=$((fixed_center_x - 260))
+  local follow_cursor_y1=$((fixed_center_y + 160))
+  local follow_cursor_x2=$((fixed_center_x - 420))
+  local follow_cursor_y2=$((fixed_center_y + 280))
 
   log "opening the native widget menu at ${fixed_center_x},${fixed_center_y}"
   smoke_input right-click "$fixed_center_x" "$fixed_center_y"
