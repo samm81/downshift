@@ -266,7 +266,21 @@ wait_for_window_near_cursor() {
   local tolerance="${3:-80}"
   local tries=0
   while ((tries < 40)); do
-    if read_window_bounds && awk "BEGIN { exit !((abs(($WINDOW_X + $WINDOW_WIDTH / 2) - $cursor_x) <= $tolerance) && (abs(($WINDOW_Y + $WINDOW_HEIGHT / 2) - $cursor_y) <= $tolerance)) }"; then
+    if read_window_bounds && awk \
+      -v window_x="$WINDOW_X" \
+      -v window_y="$WINDOW_Y" \
+      -v window_width="$WINDOW_WIDTH" \
+      -v window_height="$WINDOW_HEIGHT" \
+      -v cursor_x="$cursor_x" \
+      -v cursor_y="$cursor_y" \
+      -v tolerance="$tolerance" \
+      'BEGIN {
+        dx = window_x + window_width / 2 - cursor_x
+        dy = window_y + window_height / 2 - cursor_y
+        if (dx < 0) dx = -dx
+        if (dy < 0) dy = -dy
+        exit !(dx <= tolerance && dy <= tolerance)
+      }'; then
       return 0
     fi
     tries=$((tries + 1))
@@ -472,7 +486,18 @@ main() {
   smoke_input key return
   sleep 0.8
   read_window_bounds || die "could not read the Downshift window after disabling follow-cursor mode"
-  if ! awk "BEGIN { exit !((abs($WINDOW_X - $fixed_window_x) <= 20) && (abs($WINDOW_Y - $fixed_window_y) <= 20)) }"; then
+  if ! awk \
+    -v window_x="$WINDOW_X" \
+    -v window_y="$WINDOW_Y" \
+    -v fixed_window_x="$fixed_window_x" \
+    -v fixed_window_y="$fixed_window_y" \
+    'BEGIN {
+      dx = window_x - fixed_window_x
+      dy = window_y - fixed_window_y
+      if (dx < 0) dx = -dx
+      if (dy < 0) dy = -dy
+      exit !(dx <= 20 && dy <= 20)
+    }'; then
     die "status-item menu did not return the widget to fixed mode"
   fi
   log "status-item menu and follow-cursor disable passed"
