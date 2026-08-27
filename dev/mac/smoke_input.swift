@@ -52,6 +52,38 @@ func statusItem(in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
     return nil
 }
 
+func pressAllowButton(in element: AXUIElement, depth: Int = 0) -> Bool {
+    guard depth <= 12 else {
+        return false
+    }
+
+    let role = axString(element, kAXRoleAttribute)
+    let title = axString(element, kAXTitleAttribute)?.lowercased()
+    if role == "AXButton" && title == "allow" {
+        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+    }
+
+    for child in axChildren(element) {
+        if pressAllowButton(in: child, depth: depth + 1) {
+            return true
+        }
+    }
+    return false
+}
+
+func pressVisibleAllowButton() -> Bool {
+    let applications = NSWorkspace.shared.runningApplications.filter { application in
+        application.localizedName != nil && application.activationPolicy != .prohibited
+    }
+    for application in applications {
+        let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+        if pressAllowButton(in: applicationElement) {
+            return true
+        }
+    }
+    return false
+}
+
 func systemStatusItem() -> AXUIElement? {
     let processNames = Set(["SystemUIServer", "ControlCenter"])
     let applications = NSWorkspace.shared.runningApplications.filter { application in
@@ -233,6 +265,11 @@ case "tray-click":
     }
     guard AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else {
         fail("could not press the Downshift status item")
+    }
+
+case "allow-screen-capture":
+    guard pressVisibleAllowButton() else {
+        fail("could not find a visible screen-capture Allow button")
     }
 
 default:
