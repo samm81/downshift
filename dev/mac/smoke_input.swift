@@ -21,6 +21,13 @@ func axString(_ element: AXUIElement, _ attribute: String) -> String? {
     axAttribute(element, attribute) as? String
 }
 
+func axElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+    guard let value = axAttribute(element, attribute) else {
+        return nil
+    }
+    return value as AXUIElement
+}
+
 func axChildren(_ element: AXUIElement) -> [AXUIElement] {
     guard let value = axAttribute(element, kAXChildrenAttribute) else {
         return []
@@ -64,7 +71,7 @@ func statusItem(in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
     if role == "AXMenuBarItem" {
         let hasFollowCursorMenuItem =
             menuItem(in: element, matching: "follow cursor") != nil
-            || (axAttribute(element, "AXMenu") as? AXUIElement)
+            || axElement(element, "AXMenu")
                 .flatMap { menuItem(in: $0, matching: "follow cursor") } != nil
         if searchableText.contains(where: { $0.contains("downshift") }) || hasFollowCursorMenuItem {
             return element
