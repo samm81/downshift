@@ -34,12 +34,18 @@ impl LogicalPoint {
 // root font size for one rem, and winit applies the monitor scale factor when
 // converting the resulting logical geometry to physical pixels.
 pub(crate) const CSS_ROOT_FONT_SIZE_LOGICAL: f64 = 16.0;
-pub(crate) const FOLLOW_CURSOR_OFFSET_REM: f64 = 0.5;
+pub(crate) const FOLLOW_CURSOR_OFFSET_REM: f64 = 0.25;
 pub(crate) const FOLLOW_CURSOR_OFFSET_LOGICAL: f64 =
     FOLLOW_CURSOR_OFFSET_REM * CSS_ROOT_FONT_SIZE_LOGICAL;
-pub(crate) const FOLLOW_CURSOR_ARTWORK_SIZE_REM: f64 = 3.5;
+pub(crate) const FOLLOW_CURSOR_ARTWORK_SIZE_REM: f64 = 3.0;
 pub(crate) const FOLLOW_CURSOR_ARTWORK_SIZE_LOGICAL: f64 =
     FOLLOW_CURSOR_ARTWORK_SIZE_REM * CSS_ROOT_FONT_SIZE_LOGICAL;
+pub(crate) const FOLLOW_CURSOR_HALO_SIZE_REM: f64 = 3.5;
+pub(crate) const FOLLOW_CURSOR_HALO_SIZE_LOGICAL: f64 =
+    FOLLOW_CURSOR_HALO_SIZE_REM * CSS_ROOT_FONT_SIZE_LOGICAL;
+pub(crate) const FOLLOW_CURSOR_WINDOW_SIZE_REM: f64 = 4.0;
+pub(crate) const FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL: f64 =
+    FOLLOW_CURSOR_WINDOW_SIZE_REM * CSS_ROOT_FONT_SIZE_LOGICAL;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScreenRect {
@@ -90,8 +96,7 @@ pub(crate) fn follow_window_origin(
     work_area: ScreenRect,
     scale_factor: f64,
     window_dimensions: LogicalSize<f64>,
-    shape_center: LogicalPosition<f64>,
-    baseline_offset_logical: f64,
+    anchor_center: LogicalPosition<f64>,
 ) -> PhysicalPosition<i32> {
     let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
         scale_factor
@@ -104,37 +109,19 @@ pub(crate) fn follow_window_origin(
     let height = (window_dimensions.height.max(1.0) * scale_factor)
         .round()
         .max(1.0) as i32;
-    let shape_center_x = (shape_center.x.max(0.0) * scale_factor).round() as i32;
-    let baseline_offset = (baseline_offset_logical.max(0.0) * scale_factor).round() as i32;
+    let anchor_center_x = (anchor_center.x.max(0.0) * scale_factor).round() as i32;
+    let anchor_center_y = (anchor_center.y.max(0.0) * scale_factor).round() as i32;
     let offset = (FOLLOW_CURSOR_OFFSET_LOGICAL * scale_factor)
         .round()
         .max(0.0) as i32;
-    let height_from_baseline = height.saturating_sub(baseline_offset);
-    let available_below = work_area
-        .bottom
-        .saturating_sub(cursor.y.saturating_add(offset));
-    let available_above = cursor
-        .y
-        .saturating_sub(offset)
-        .saturating_sub(work_area.top);
-    let fit_below = available_below >= height_from_baseline;
-    let fit_above = available_above >= height_from_baseline;
-    let place_below = fit_below || !fit_above;
     let desired_x = cursor
         .x
         .saturating_add(offset)
-        .saturating_sub(shape_center_x);
-    let desired_y = if place_below {
-        cursor
-            .y
-            .saturating_add(offset)
-            .saturating_sub(baseline_offset)
-    } else {
-        cursor
-            .y
-            .saturating_sub(offset)
-            .saturating_sub(height_from_baseline)
-    };
+        .saturating_sub(anchor_center_x);
+    let desired_y = cursor
+        .y
+        .saturating_add(offset)
+        .saturating_sub(anchor_center_y);
     work_area.clamp_window_origin(desired_x, desired_y, width, height)
 }
 
@@ -425,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn follow_window_origin_prefers_below_when_space_is_available() {
+    fn follow_window_origin_centers_halo_on_cursor() {
         let origin = follow_window_origin(
             PhysicalPosition::new(500, 200),
             ScreenRect {
@@ -435,18 +422,23 @@ mod tests {
                 bottom: 800,
             },
             1.0,
-            LogicalSize::new(100.0, 132.0),
-            LogicalPosition::new(50.0, 66.0),
-            2.0,
+            LogicalSize::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+            ),
+            LogicalPosition::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+            ),
         );
 
-        assert_eq!(origin, PhysicalPosition::new(458, 206));
+        assert_eq!(origin, PhysicalPosition::new(472, 172));
     }
 
     #[test]
-    fn follow_window_origin_flips_above_near_bottom_edge() {
+    fn follow_window_origin_clamps_halo_to_monitor_edges() {
         let origin = follow_window_origin(
-            PhysicalPosition::new(500, 760),
+            PhysicalPosition::new(990, 790),
             ScreenRect {
                 left: 0,
                 top: 0,
@@ -454,12 +446,17 @@ mod tests {
                 bottom: 800,
             },
             1.0,
-            LogicalSize::new(100.0, 132.0),
-            LogicalPosition::new(50.0, 66.0),
-            2.0,
+            LogicalSize::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+            ),
+            LogicalPosition::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+            ),
         );
 
-        assert_eq!(origin, PhysicalPosition::new(458, 622));
+        assert_eq!(origin, PhysicalPosition::new(936, 736));
     }
 
     #[test]
@@ -473,16 +470,21 @@ mod tests {
                 bottom: 0,
             },
             1.0,
-            LogicalSize::new(100.0, 132.0),
-            LogicalPosition::new(50.0, 66.0),
-            2.0,
+            LogicalSize::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+            ),
+            LogicalPosition::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+            ),
         );
 
-        assert_eq!(origin, PhysicalPosition::new(-1920, -494));
+        assert_eq!(origin, PhysicalPosition::new(-1920, -528));
     }
 
     #[test]
-    fn follow_window_origin_scales_rem_offset_and_window_geometry() {
+    fn follow_window_origin_scales_rem_halo_geometry() {
         let origin = follow_window_origin(
             PhysicalPosition::new(1000, 400),
             ScreenRect {
@@ -492,31 +494,16 @@ mod tests {
                 bottom: 1600,
             },
             2.0,
-            LogicalSize::new(100.0, 132.0),
-            LogicalPosition::new(50.0, 66.0),
-            2.0,
+            LogicalSize::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+            ),
+            LogicalPosition::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL / 2.0,
+            ),
         );
 
-        assert_eq!(origin, PhysicalPosition::new(916, 412));
-    }
-
-    #[test]
-    fn follow_window_origin_anchors_artwork_below_cursor() {
-        let origin = follow_window_origin(
-            PhysicalPosition::new(500, 200),
-            ScreenRect {
-                left: 0,
-                top: 0,
-                right: 1000,
-                bottom: 800,
-            },
-            1.0,
-            LogicalSize::new(16.0, 24.0),
-            LogicalPosition::new(8.0, 2.0),
-            2.0,
-        );
-
-        assert_eq!(origin, PhysicalPosition::new(500, 206));
-        assert_eq!(origin.y + 2, 208);
+        assert_eq!(origin, PhysicalPosition::new(944, 344));
     }
 }

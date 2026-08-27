@@ -502,10 +502,14 @@ impl App {
         artwork_size: f64,
         bounds: AnimationBounds,
     ) -> LogicalSize<f64> {
+        if self.follow_cursor_active {
+            return LogicalSize::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+            );
+        }
         let view_box_scale = artwork_size / ANIMATION_VIEWBOX_SIZE;
-        let badge_reserve = if self.follow_cursor_active {
-            0.0
-        } else if bounds.badge_visible {
+        let badge_reserve = if bounds.badge_visible {
             UPDATE_BADGE_WINDOW_RESERVE_PX
         } else {
             0.0
@@ -789,6 +793,8 @@ impl App {
             "follow_cursor_available": self.follow_cursor_supported,
             "follow_cursor_unavailable_reason": self.follow_cursor_unavailable_reason,
             "artwork_size": self.artwork_size_for_window(),
+            "follow_cursor_halo_size": FOLLOW_CURSOR_HALO_SIZE_LOGICAL,
+            "follow_cursor_window_size": FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
         }));
     }
 
@@ -1305,6 +1311,8 @@ impl App {
           "follow_cursor_unavailable_reason": self.follow_cursor_unavailable_reason,
           "update_tooltip": UPDATE_TOOLTIP,
           "artwork_size": self.artwork_size_for_window(),
+          "follow_cursor_halo_size": FOLLOW_CURSOR_HALO_SIZE_LOGICAL,
+          "follow_cursor_window_size": FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
           "size_presets": size_presets,
            "use_native_menu": native_menu_available(),
         });
@@ -1398,14 +1406,16 @@ impl App {
         let artwork_size = self.artwork_size_for_window();
         let target_dimensions =
             self.animation_window_dimensions_for(artwork_size, self.animation_bounds);
-        let shape_center = self.animation_shape_bottom_center(artwork_size, self.animation_bounds);
+        let window_center = LogicalPosition::new(
+            target_dimensions.width / 2.0,
+            target_dimensions.height / 2.0,
+        );
         follow_window_origin(
             placement.cursor,
             placement.monitor.work_area,
             placement.monitor.scale_factor,
             target_dimensions,
-            shape_center,
-            ANIMATION_BOUNDS_PADDING_PX,
+            window_center,
         )
     }
 
@@ -3253,8 +3263,9 @@ mod tests {
         let dimensions = app.animation_window_dimensions_for(artwork_size, app.animation_bounds);
 
         assert_eq!(artwork_size, FOLLOW_CURSOR_ARTWORK_SIZE_LOGICAL);
-        assert_eq!(dimensions.height, 56.0);
-        assert!(dimensions.height > ANIMATION_BOUNDS_PADDING_PX * 2.0);
+        assert_eq!(dimensions.width, FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL);
+        assert_eq!(dimensions.height, FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL);
+        assert!(dimensions.height > artwork_size);
     }
 
     #[test]
@@ -3333,6 +3344,7 @@ mod tests {
     #[test]
     fn follow_cursor_ui_assets_include_toggle_and_vertical_mirror() {
         let html = breath_html();
+        assert!(html.contains("cursor-halo"));
         assert!(html.contains("menu-follow-cursor"));
         assert!(html.contains("set_follow_cursor"));
         assert!(html.contains("100 - y"));

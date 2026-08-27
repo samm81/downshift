@@ -1,5 +1,6 @@
 (() => {
   const ball = document.getElementById("ball");
+  const cursorHalo = document.getElementById("cursor-halo");
   const breathArt = document.getElementById("breath-art");
   const breathGeometry = breathArt.querySelector(".breath-geometry");
   const breathPolygons = Array.from(
@@ -176,6 +177,7 @@
         : points;
       polygon.setAttribute("d", pathData(orientedPoints));
     });
+    applyCursorHalo(progress);
     updateBreathingHitTarget(progress);
     if (syncBounds) {
       syncAnimationBounds();
@@ -241,6 +243,16 @@
       init.follow_cursor_unavailable_reason ||
         "cursor following is unavailable on this platform",
     ),
+    followCursorHaloSize:
+      Number.isFinite(Number(init.follow_cursor_halo_size)) &&
+      Number(init.follow_cursor_halo_size) > 0
+        ? Number(init.follow_cursor_halo_size)
+        : 56,
+    followCursorWindowSize:
+      Number.isFinite(Number(init.follow_cursor_window_size)) &&
+      Number(init.follow_cursor_window_size) > 0
+        ? Number(init.follow_cursor_window_size)
+        : 64,
     artworkSize:
       Number.isFinite(Number(init.artwork_size)) &&
       Number(init.artwork_size) > 0
@@ -269,6 +281,18 @@
     return `${value / cssRootFontSizeLogical}rem`;
   }
 
+  function applyCursorHalo(progress) {
+    const normalizedProgress = Math.min(Math.max(Number(progress) || 0, 0), 1);
+    const scale = 0.9 + normalizedProgress * 0.14;
+    const opacity = 0.52 + normalizedProgress * 0.18;
+    cursorHalo.style.setProperty(
+      "--cursor-halo-size",
+      cssRem(state.followCursorHaloSize),
+    );
+    cursorHalo.style.setProperty("--cursor-halo-scale", scale.toFixed(3));
+    cursorHalo.style.setProperty("--cursor-halo-opacity", opacity.toFixed(3));
+  }
+
   function post(payload) {
     if (window.ipc && typeof window.ipc.postMessage === "function") {
       window.ipc.postMessage(JSON.stringify(payload));
@@ -279,6 +303,11 @@
     const artworkSize = Math.max(state.artworkSize, 1);
     const viewBoxUnitsPerPixel = 100 / artworkSize;
     const maximum = maximumAnimationBounds || bounds;
+    const followWindowCenter = state.followCursorWindowSize / 2;
+    const followArtworkCenterX =
+      (bounds.x + bounds.width / 2) / viewBoxUnitsPerPixel;
+    const followArtworkCenterY =
+      (bounds.y + bounds.height / 2) / viewBoxUnitsPerPixel;
     document.documentElement.style.setProperty(
       "--artwork-size",
       cssRem(artworkSize),
@@ -286,16 +315,18 @@
     document.documentElement.style.setProperty(
       "--artwork-left",
       cssRem(
-        animationBoundsPaddingPx +
-          (maximum.width / 2 - (bounds.x + bounds.width / 2)) /
-            viewBoxUnitsPerPixel,
+        state.followCursorActive
+          ? followWindowCenter - followArtworkCenterX
+          : animationBoundsPaddingPx +
+              (maximum.width / 2 - (bounds.x + bounds.width / 2)) /
+                viewBoxUnitsPerPixel,
       ),
     );
     document.documentElement.style.setProperty(
       "--artwork-top",
       cssRem(
         state.followCursorActive
-          ? animationBoundsPaddingPx - bounds.y / viewBoxUnitsPerPixel
+          ? followWindowCenter - followArtworkCenterY
           : animationBoundsPaddingPx +
               (maximum.height - (bounds.y + bounds.height)) /
                 viewBoxUnitsPerPixel,
@@ -415,6 +446,7 @@
   }
 
   function applyBallState() {
+    document.body.classList.toggle("follow-cursor", state.followCursorActive);
     ball.classList.toggle("paused", state.paused);
     pauseButton.textContent = state.paused ? "resume" : "pause";
     applyFollowCursorButton();
@@ -443,8 +475,8 @@
     followCursorButton.disabled = state.followCursorActive;
     followCursorButton.textContent = `follow cursor${state.followCursorActive ? " ✓" : ""}`;
     followCursorButton.title = state.followCursorActive
-      ? "follow cursor is active; restart downshift to return to fixed mode"
-      : "place the breathing cue below the mouse cursor";
+      ? "cursor halo is active; restart downshift to return to fixed mode"
+      : "surround the mouse cursor with a breathing halo";
   }
 
   function applyAnalyticsButtons() {
@@ -598,6 +630,20 @@
     }
     if (Object.prototype.hasOwnProperty.call(next, "follow_cursor_active")) {
       state.followCursorActive = Boolean(next.follow_cursor_active);
+    }
+    if (Object.prototype.hasOwnProperty.call(next, "follow_cursor_halo_size")) {
+      const haloSize = Number(next.follow_cursor_halo_size);
+      if (Number.isFinite(haloSize) && haloSize > 0) {
+        state.followCursorHaloSize = haloSize;
+      }
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(next, "follow_cursor_window_size")
+    ) {
+      const windowSize = Number(next.follow_cursor_window_size);
+      if (Number.isFinite(windowSize) && windowSize > 0) {
+        state.followCursorWindowSize = windowSize;
+      }
     }
     if (Object.prototype.hasOwnProperty.call(next, "follow_cursor_available")) {
       state.followCursorAvailable = Boolean(next.follow_cursor_available);
