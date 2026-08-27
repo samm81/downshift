@@ -114,13 +114,22 @@ func pressVisibleAllowButton() -> Bool {
 func systemStatusItem() -> AXUIElement? {
     let processNames = Set(["SystemUIServer", "ControlCenter"])
     let applications = NSWorkspace.shared.runningApplications.filter { application in
+        application.localizedName != nil
+    }
+    let preferredApplications = applications.filter { application in
         guard let name = application.localizedName else {
             return false
         }
         return processNames.contains(name)
     }
+    let fallbackApplications = applications.filter { application in
+        guard let name = application.localizedName else {
+            return true
+        }
+        return !processNames.contains(name)
+    }
 
-    for application in applications {
+    for application in preferredApplications + fallbackApplications {
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
         if let match = statusItem(in: applicationElement) {
             return match
