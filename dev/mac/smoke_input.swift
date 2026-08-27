@@ -57,10 +57,18 @@ func statusItem(in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
         axString(element, kAXTitleAttribute),
         axString(element, kAXDescriptionAttribute),
         axString(element, kAXValueAttribute),
+        axString(element, "AXHelp"),
+        axString(element, "AXIdentifier"),
     ]
     .compactMap { $0?.lowercased() }
-    if role == "AXMenuBarItem" && searchableText.contains(where: { $0.contains("downshift") }) {
-        return element
+    if role == "AXMenuBarItem" {
+        let hasFollowCursorMenuItem =
+            menuItem(in: element, matching: "follow cursor") != nil
+            || (axAttribute(element, "AXMenu") as? AXUIElement)
+                .flatMap { menuItem(in: $0, matching: "follow cursor") } != nil
+        if searchableText.contains(where: { $0.contains("downshift") }) || hasFollowCursorMenuItem {
+            return element
+        }
     }
 
     for child in axChildren(element) {
