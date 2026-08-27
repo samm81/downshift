@@ -49,10 +49,12 @@ jobs:
       - name: build macOS app bundle without telemetry
         run: make app-no-telemetry MACOS_TARGET="${{ steps.target.outputs.value }}"
 
-      - name: type-check macOS GUI smoke input helper
-        run: swiftc -typecheck dev/mac/smoke_snooze_input.swift
+      - name: type-check macOS GUI smoke input helpers
+        run: |
+          swiftc -typecheck dev/mac/smoke_snooze_input.swift
+          swiftc -typecheck dev/mac/smoke_input.swift
 
-      - name: run macOS snooze and reset GUI smoke
+      - name: run macOS follow-cursor, tray, snooze, and reset GUI smoke
         run: ./dev/mac/smoke_gui.bash 2 0.5
         env:
           DOWNSHIFT_APP_PATH: ${{ github.workspace }}/dist/Downshift.app

@@ -39,6 +39,20 @@ jobs:
       - name: check Windows web tooling
         run: npm run check:windows
 
+      - name: check Windows GUI smoke script syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path .\windows\smoke-ui.ps1),
+            [ref]$null,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
+
       - name: build Windows x64
         run: cargo build --locked --release --target x86_64-pc-windows-msvc
 
