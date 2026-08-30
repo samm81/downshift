@@ -51,6 +51,10 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 ## testing
 
 - by default, add or update tests in conjunction with code changes; do not treat tests as optional follow-up work.
+- make smoke tests flake-resistant: poll for observable state transitions instead of using fixed sleeps for readiness, and verify that the expected platform-native menu or dialog is open before interacting with it.
+- preserve failure evidence for every smoke test: keep logs and capture a diagnostic screenshot (or equivalent artifact) on failure, and configure CI to upload that evidence with `always()`.
+- every new feature must include smoke-test coverage in the same change; do not defer smoke tests to a later change.
+- keep smoke-test coverage in parity between macOS and Windows: each feature-level smoke scenario added or changed for one platform must have an equivalent scenario added or changed for the other platform in the same change.
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - `npm run check` is lint/format only and does not run rust tests.
 - artifact-based mac gui verification is available through the `gui-smoke-macos` github actions workflow; it can target a specific release tag or the latest published dmg, launches `Downshift.app`, checks for a visible app window, triggers a warmup capture, and records cropped screenshot plus diff artifacts.

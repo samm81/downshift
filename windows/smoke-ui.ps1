@@ -51,8 +51,47 @@ public static class DownshiftSmokeNative
         public int Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct MENUITEMINFO
+    {
+        public uint CbSize;
+        public uint FMask;
+        public uint FType;
+        public uint FState;
+        public uint WId;
+        public IntPtr HSubMenu;
+        public IntPtr HbmpChecked;
+        public IntPtr HbmpUnchecked;
+        public IntPtr DwItemData;
+        public IntPtr DwTypeData;
+        public uint Cch;
+        public IntPtr HbmpItem;
+    }
+
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetMenu(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int GetMenuItemCount(IntPtr hMenu);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetMenuItemInfo(
+        IntPtr hMenu,
+        uint item,
+        bool fByPosition,
+        ref MENUITEMINFO menuItemInfo
+    );
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMenuItemRect(
+        IntPtr hWnd,
+        IntPtr hMenu,
+        uint item,
+        out RECT rect
+    );
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
@@ -117,6 +156,7 @@ public static class DownshiftSmokeNative
     private const byte Escape = 0x1B;
     private const int SwHide = 0;
     private const int SwRestore = 9;
+    private const uint MiimString = 0x00000040;
 
     private static string ReadWindowText(IntPtr hWnd)
     {
@@ -130,6 +170,33 @@ public static class DownshiftSmokeNative
         var className = new StringBuilder(256);
         GetClassName(hWnd, className, className.Capacity);
         return className.ToString();
+    }
+
+    private static string ReadMenuItemText(IntPtr hMenu, uint position)
+    {
+        const int textCapacity = 512;
+        var itemInfo = new MENUITEMINFO
+        {
+            CbSize = (uint)Marshal.SizeOf<MENUITEMINFO>(),
+            FMask = MiimString,
+            DwTypeData = Marshal.StringToHGlobalUni(new string('\0', textCapacity)),
+            Cch = textCapacity,
+        };
+        try
+        {
+            if (!GetMenuItemInfo(hMenu, position, true, ref itemInfo))
+            {
+                return string.Empty;
+            }
+            return Marshal.PtrToStringUni(
+                itemInfo.DwTypeData,
+                (int)Math.Min(itemInfo.Cch, (uint)textCapacity)
+            ) ?? string.Empty;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(itemInfo.DwTypeData);
+        }
     }
 
     private static IntPtr[] FindWindows(Func<IntPtr, bool> predicate)
@@ -174,6 +241,37 @@ public static class DownshiftSmokeNative
             return new int[0];
         }
         return new[] { rect.Left, rect.Top, rect.Right, rect.Bottom };
+    }
+
+    public static bool IsVisible(IntPtr hWnd)
+    {
+        return IsWindowVisible(hWnd);
+    }
+
+    public static int[] GetMenuItemRectByText(IntPtr popupHandle, string targetText)
+    {
+        var hMenu = GetMenu(popupHandle);
+        if (hMenu == IntPtr.Zero)
+        {
+            return new int[0];
+        }
+
+        var itemCount = GetMenuItemCount(hMenu);
+        for (uint position = 0; position < itemCount; position++)
+        {
+            var text = ReadMenuItemText(hMenu, position);
+            if (!string.Equals(text, targetText, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            RECT rect;
+            if (GetMenuItemRect(popupHandle, hMenu, position, out rect))
+            {
+                return new[] { rect.Left, rect.Top, rect.Right, rect.Bottom };
+            }
+        }
+        return new int[0];
     }
 
     public static bool FocusWindow(IntPtr hWnd)
@@ -454,6 +552,58 @@ function Open-MainMenu {
     return Wait-MainPopup
 }
 
+function Get-MenuItemPointByText {
+    param(
+        [Parameter(Mandatory = $true)]$Popup,
+        [Parameter(Mandatory = $true)][string]$Text
+    )
+    $values = [DownshiftSmokeNative]::GetMenuItemRectByText($Popup.Handle, $Text)
+    if ($values.Count -ne 4) {
+        return $null
+    }
+    return [PSCustomObject]@{
+        X = [int][Math]::Round(($values[0] + $values[2]) / 2)
+        Y = [int][Math]::Round(($values[1] + $values[3]) / 2)
+    }
+}
+
+function Wait-MenuItemPointByText {
+    param(
+        [Parameter(Mandatory = $true)]$Popup,
+        [Parameter(Mandatory = $true)][string]$Text,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $point = Get-MenuItemPointByText -Popup $Popup -Text $Text
+        if ($null -ne $point) {
+            return $point
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Timed out waiting for menu item '$Text'."
+}
+
+function Move-ToMenuItemByText {
+    param(
+        [Parameter(Mandatory = $true)]$Popup,
+        [Parameter(Mandatory = $true)][string]$Text
+    )
+    $point = Wait-MenuItemPointByText -Popup $Popup -Text $Text
+    [DownshiftSmokeNative]::MovePointer($point.X, $point.Y)
+    Start-Sleep -Milliseconds 350
+}
+
+function Click-MenuItemByText {
+    param(
+        [Parameter(Mandatory = $true)]$Popup,
+        [Parameter(Mandatory = $true)][string]$Text
+    )
+    $point = Wait-MenuItemPointByText -Popup $Popup -Text $Text
+    [DownshiftSmokeNative]::LeftClick($point.X, $point.Y)
+    Start-Sleep -Milliseconds 500
+}
+
 function Move-ToMainMenuItem {
     param(
         [Parameter(Mandatory = $true)]$Popup,
@@ -615,6 +765,36 @@ function Wait-WindowWidthNear {
     throw "Timed out waiting for window width to return near $Width pixels."
 }
 
+function Wait-WindowVisible {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$Handle,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        if ([DownshiftSmokeNative]::IsVisible($Handle)) {
+            return
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Timed out waiting for the Downshift window to become visible.'
+}
+
+function Wait-WindowHidden {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$Handle,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        if (-not [DownshiftSmokeNative]::IsVisible($Handle)) {
+            return
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Timed out waiting for the Downshift window to hide.'
+}
+
 function Select-SizeMenuSlot {
     param(
         [Parameter(Mandatory = $true)][IntPtr]$WindowHandle,
@@ -663,6 +843,7 @@ function Is-WebView2Installed {
 $appProcess = $null
 $windowHandle = [IntPtr]::Zero
 $hiddenCiConsoles = @()
+$smokeSucceeded = $false
 $settingsPath = Get-SettingsPath
 $settingsExisted = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $runValue = Get-RunValue
@@ -727,6 +908,38 @@ try {
     Log-Message "size resize sequence passed: $($initialRect.Width) -> $($largeRect.Width) -> $($smallRect.Width) -> $($restoredRect.Width)"
 
     $mainPopup = Open-MainMenu -WindowHandle $windowHandle
+    Move-ToMenuItemByText -Popup $mainPopup -Text 'snooze'
+    $snoozeSubmenu = Wait-SubmenuPopup -MainPopup $mainPopup
+    Click-MenuItemByText -Popup $snoozeSubmenu -Text 'snooze for 5 minutes'
+    Wait-WindowHidden -Handle $windowHandle
+    Capture-Checkpoint -Name 'snoozed'
+    $activationProcess = New-IsolatedProcess -Path $BinaryPath
+    if (-not $activationProcess.WaitForExit(10000)) {
+        $activationProcess.Kill()
+        throw 'The activation launch did not exit after resuming from snooze.'
+    }
+    if ($activationProcess.ExitCode -ne 0) {
+        throw "The activation launch exited with code $($activationProcess.ExitCode)."
+    }
+    Wait-WindowVisible -Handle $windowHandle
+    $settingsText = Get-Content -LiteralPath $settingsPath -Raw
+    if ($settingsText -notmatch '(?m)^paused = false$') {
+        throw 'Snooze activation did not restore paused = false.'
+    }
+    Capture-Checkpoint -Name 'snooze-resumed' -WindowHandle $windowHandle
+    Log-Message 'snooze hides the widget and second-instance activation resumes it'
+
+    $mainPopup = Open-MainMenu -WindowHandle $windowHandle
+    Click-MenuItemByText -Popup $mainPopup -Text 'reset'
+    $resetRect = Wait-WindowWidthNear -Handle $windowHandle -Width $initialRect.Width
+    $settingsText = Get-Content -LiteralPath $settingsPath -Raw
+    if ($settingsText -notmatch '(?m)^paused = false$') {
+        throw 'Reset did not persist paused = false.'
+    }
+    Capture-Checkpoint -Name 'reset' -WindowHandle $windowHandle
+    Log-Message "reset restored the initial widget width: $($resetRect.Width)"
+
+    $mainPopup = Open-MainMenu -WindowHandle $windowHandle
     Capture-Checkpoint -Name '02-context-menu'
 
     Click-MainMenuItem -Popup $mainPopup -TextIndex 0
@@ -784,6 +997,8 @@ try {
         'second_instance=passed',
         'size_resize_sequence=passed',
         'pause_resume=passed',
+        'snooze_resume=passed',
+        'reset=passed',
         'clipboard_copy=passed',
         'breathing_submenu_screenshot=passed',
         'updates_dialog=passed',
@@ -791,8 +1006,17 @@ try {
         'run_log=' + $runLogPath
     )
     Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.txt') -Value $resultLines -Encoding UTF8
+    $smokeSucceeded = $true
     Log-Message "GUI smoke passed; result written to $(Join-Path $OutputDirectory 'result.txt')"
 } finally {
+    if (-not $smokeSucceeded) {
+        try {
+            Capture-Checkpoint -Name 'failure' -WindowHandle $windowHandle
+            Log-Message 'captured failure evidence'
+        } catch {
+            Log-Message "warning: failed to capture failure evidence: $($_.Exception.Message)"
+        }
+    }
     foreach ($handle in $hiddenCiConsoles) {
         [DownshiftSmokeNative]::RestoreWindow($handle)
     }
