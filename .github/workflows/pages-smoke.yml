@@ -23,6 +23,12 @@ on:
       - ".github/workflows/pages-deploy.yml"
   workflow_dispatch:
   workflow_call:
+    inputs:
+      release_tag:
+        description: stable release tag expected on the deployed site
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -55,10 +61,11 @@ jobs:
 
       - name: verify deployed Pages manifest
         if: >-
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          github.event_name == 'workflow_call'
+          inputs.release_tag != '' ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
         env:
           PAGES_URL: https://getdownshift.app
+          EXPECTED_RELEASE_TAG: ${{ inputs.release_tag || '' }}
         run: |
           set -euo pipefail
           for attempt in {1..18}; do
@@ -90,4 +97,16 @@ jobs:
           if grep -Fq "api.github.com" "$RUNNER_TEMP/deployed-index.html"; then
               echo "error: deployed Pages site still references api.github.com"
               exit 1
+          fi
+          if [[ -n "$EXPECTED_RELEASE_TAG" ]]; then
+            DEPLOYED_VERSION="$(
+              node -e \
+                'const fs = require("node:fs"); console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version)' \
+                "$RUNNER_TEMP/deployed-release.json"
+            )"
+            if [[ "$DEPLOYED_VERSION" != "$EXPECTED_RELEASE_TAG" ]]; then
+              echo "error: deployed Pages manifest is $DEPLOYED_VERSION; expected $EXPECTED_RELEASE_TAG"
+              exit 1
+            fi
+            echo "deployed Pages manifest matches $EXPECTED_RELEASE_TAG"
           fi

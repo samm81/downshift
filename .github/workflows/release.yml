@@ -209,11 +209,13 @@ jobs:
       release_tag: ${{ needs.resolve.outputs.tag }}
 
   pages-smoke:
-    needs: deploy-pages
+    needs: [resolve, deploy-pages]
     if: ${{ needs.deploy-pages.result == 'success' }}
     uses: ./.github/workflows/pages-smoke.yml
     permissions:
       contents: read
+    with:
+      release_tag: ${{ needs.resolve.outputs.tag }}
 
   release-result:
     needs:
