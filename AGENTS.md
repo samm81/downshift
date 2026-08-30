@@ -21,6 +21,16 @@ all actual development work happens on the macos checkout.
 - use PowerShell only for genuinely Windows-specific operations, such as Windows packaging, installer validation, or Windows-only system integration
 - keep Unix scripts and configuration portable across Linux, macOS, and WSL, including consistent LF line endings
 
+## workspace lifecycle
+
+- Never create, remove, switch, or otherwise manage Codex workspaces or git worktrees on your own. Workspaces and worktrees must always be created and managed by Codex.
+- Do not use `git worktree add`, manually create a replacement workspace directory, or create a feature-worktree workaround from the agent.
+- Work only in the workspace provided by Codex. Do not create or check out new feature or release branches yourself.
+- If the current workspace is the default workspace and the user asks to begin a substantial chunk of work, stop before making changes. Remind the user that starting a new Codex workspace may be preferable for isolation, then ask whether the agent should proceed in the current workspace or wait for a new Codex-managed workspace.
+- Treat multi-file features, refactors, migrations, release work, and other changes likely to span multiple commits as substantial. Small read-only investigations and narrowly scoped edits may proceed without this pause.
+- If the user explicitly chooses the current workspace, proceed there without creating another workspace or worktree. If they choose a new workspace, wait for Codex to provide it before continuing.
+- When working in a non-default Codex-managed workspace, do not create additional workspaces or worktrees; use the workspace provided for the task.
+
 ## bootstrap policy (linux-driven)
 
 the linux environment is allowed and expected to bootstrap the remote macos machine for this repo.
@@ -51,6 +61,8 @@ once the environment is ready, the agent should proceed with normal repo tasks (
 ## testing
 
 - by default, add or update tests in conjunction with code changes; do not treat tests as optional follow-up work.
+- every new feature must include smoke-test coverage in the same change; do not defer smoke tests to a later change.
+- keep smoke-test coverage in parity between macOS and Windows: each feature-level smoke scenario added or changed for one platform must have an equivalent scenario added or changed for the other platform in the same change.
 - prefer `cargo test` as the default test command; it covers unit tests and non-gui integration tests.
 - `npm run check` is lint/format only and does not run rust tests.
 - artifact-based mac gui verification is available through the `gui-smoke-macos` github actions workflow; it can target a specific release tag or the latest published dmg, launches `Downshift.app`, checks for a visible app window, triggers a warmup capture, and records cropped screenshot plus diff artifacts.
