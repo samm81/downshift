@@ -420,6 +420,10 @@ main() {
   screencapture -x "$out_dir/reset.png"
   log "native reset restored the visible active widget"
   read_window_bounds || die "could not read the widget bounds after reset"
+  fixed_window_x="$WINDOW_X"
+  fixed_window_y="$WINDOW_Y"
+  fixed_window_width="$WINDOW_WIDTH"
+  fixed_window_height="$WINDOW_HEIGHT"
   local snooze_click_x=$((WINDOW_X + WINDOW_WIDTH / 2))
   local snooze_click_y=$((WINDOW_Y + WINDOW_HEIGHT - 6))
 
