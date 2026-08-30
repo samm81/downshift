@@ -843,6 +843,7 @@ function Is-WebView2Installed {
 $appProcess = $null
 $windowHandle = [IntPtr]::Zero
 $hiddenCiConsoles = @()
+$smokeSucceeded = $false
 $settingsPath = Get-SettingsPath
 $settingsExisted = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $runValue = Get-RunValue
@@ -1005,8 +1006,17 @@ try {
         'run_log=' + $runLogPath
     )
     Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.txt') -Value $resultLines -Encoding UTF8
+    $smokeSucceeded = $true
     Log-Message "GUI smoke passed; result written to $(Join-Path $OutputDirectory 'result.txt')"
 } finally {
+    if (-not $smokeSucceeded) {
+        try {
+            Capture-Checkpoint -Name 'failure' -WindowHandle $windowHandle
+            Log-Message 'captured failure evidence'
+        } catch {
+            Log-Message "warning: failed to capture failure evidence: $($_.Exception.Message)"
+        }
+    }
     foreach ($handle in $hiddenCiConsoles) {
         [DownshiftSmokeNative]::RestoreWindow($handle)
     }

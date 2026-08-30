@@ -4,6 +4,7 @@ set -euo pipefail
 APP_NAME="Downshift"
 APP_BUNDLE_NAME="${APP_NAME}.app"
 REPO_SLUG="${DOWNSHIFT_RELEASE_REPO:-samm81/downshift}"
+SMOKE_OUT_DIR=""
 
 log() {
   printf '[smoke-gui] %s\n' "$*"
@@ -55,6 +56,28 @@ cleanup() {
   fi
 }
 
+capture_failure_evidence() {
+  local status="$1"
+  if [[ -z "$SMOKE_OUT_DIR" ]]; then
+    return 0
+  fi
+
+  printf 'exit_status=%s\n' "$status" >"$SMOKE_OUT_DIR/failure.txt" || true
+  if have screencapture; then
+    screencapture -x "$SMOKE_OUT_DIR/failure.png" >/dev/null 2>&1 || true
+  fi
+  log "saved failure evidence to $SMOKE_OUT_DIR"
+}
+
+on_exit() {
+  local status="$?"
+  trap - EXIT
+  if ((status != 0)); then
+    capture_failure_evidence "$status"
+  fi
+  cleanup
+  exit "$status"
+}
 require_github_auth() {
   gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
 }
@@ -175,6 +198,15 @@ smoke_input() {
   swift "$repo_root/dev/mac/smoke_snooze_input.swift" "$@"
 }
 
+wait_for_native_menu_item() {
+  local title="$1"
+  if smoke_input menu-visible "$title" "$APP_PID" >/dev/null 2>&1; then
+    log "native context menu contains '$title'"
+    return 0
+  fi
+  return 1
+}
+
 read_window_bounds() {
   local bounds
   bounds="$(smoke_input window-bounds "$APP_PID")" || return 1
@@ -235,8 +267,9 @@ main() {
   fi
 
   mkdir -p "$out_dir" "$crop_dir" "$diff_dir"
+  SMOKE_OUT_DIR="$out_dir"
   exec > >(tee "$run_log") 2>&1
-  trap cleanup EXIT
+  trap on_exit EXIT
 
   if [[ -n "${DOWNSHIFT_APP_PATH:-}" ]]; then
     prepare_app_bundle
@@ -308,16 +341,19 @@ main() {
 
   log "pausing and resetting the widget through its native context menu"
   smoke_input right-click "$context_click_x" "$context_click_y"
-  sleep 0.5
+  wait_for_native_menu_item "pause" || die "native pause menu did not open"
   screencapture -x "$out_dir/reset-context-menu.png"
   smoke_input menu-click "pause" "$APP_PID"
-  sleep 0.5
-  screencapture -x "$out_dir/reset-paused.png"
+
   smoke_input right-click "$context_click_x" "$context_click_y"
-  sleep 0.5
+  wait_for_native_menu_item "paused" || die "pause did not update the native menu state"
+  smoke_input key escape
+  screencapture -x "$out_dir/reset-paused.png"
+
+  smoke_input right-click "$context_click_x" "$context_click_y"
+  wait_for_native_menu_item "reset" || die "native reset menu did not open"
   smoke_input menu-click "reset" "$APP_PID"
   wait_for_window_bounds || die "reset did not leave the widget visible"
-  sleep 1
   screencapture -x "$out_dir/reset.png"
   log "native reset restored the visible active widget"
   read_window_bounds || die "could not read the widget bounds after reset"
@@ -326,11 +362,12 @@ main() {
 
   log "snoozing the widget for five minutes through its native context menu"
   smoke_input right-click "$snooze_click_x" "$snooze_click_y"
-  sleep 0.5
+  wait_for_native_menu_item "snooze" || die "native snooze menu did not open"
   screencapture -x "$out_dir/snooze-context-menu.png"
   smoke_input key home
   smoke_input key down
   smoke_input key right
+  wait_for_native_menu_item "snooze for 5 minutes" || die "native snooze submenu did not open"
   smoke_input key return
   wait_for_no_window || die "snooze did not hide the widget"
   screencapture -x "$out_dir/snoozed.png"

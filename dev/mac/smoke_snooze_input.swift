@@ -48,12 +48,10 @@ func menuItem(in element: AXUIElement, matching targetTitle: String, depth: Int 
 
 func findMenuItem(named title: String, processID: Int32?) -> AXUIElement? {
     if let processID {
-        if let item = menuItem(
+        return menuItem(
             in: AXUIElementCreateApplication(processID),
             matching: title
-        ) {
-            return item
-        }
+        )
     }
 
     let applications = NSWorkspace.shared.runningApplications.filter { application in
@@ -65,6 +63,21 @@ func findMenuItem(named title: String, processID: Int32?) -> AXUIElement? {
             return item
         }
     }
+    return nil
+}
+
+func waitForMenuItem(
+    named title: String,
+    processID: Int32?,
+    timeout: TimeInterval = 5.0
+) -> AXUIElement? {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        if let item = findMenuItem(named: title, processID: processID) {
+            return item
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+    } while Date() < deadline
     return nil
 }
 
@@ -211,12 +224,27 @@ case "right-click":
 case "key":
     postKey(keyCode(named: requireArgument(arguments, 1, "key name")))
 
+case "menu-visible":
+    let title = requireArgument(arguments, 1, "menu item title")
+    let processID = arguments.indices.contains(2) ? Int32(arguments[2]) : nil
+    let timeout = arguments.indices.contains(3)
+        ? requireDouble(arguments, 3, "menu wait timeout")
+        : 5.0
+    guard waitForMenuItem(
+        named: title,
+        processID: processID,
+        timeout: timeout
+    ) != nil else {
+        fail("timed out waiting for native menu item '\(title)'")
+    }
+    print("visible")
+
 case "menu-click":
     let title = requireArgument(arguments, 1, "menu item title")
     let processID = arguments.indices.contains(2) ? Int32(arguments[2]) : nil
-    let item = findMenuItem(named: title, processID: processID)
+    let item = waitForMenuItem(named: title, processID: processID)
     guard let item else {
-        fail("could not locate menu item '\(title)'")
+        fail("timed out waiting for native menu item '\(title)'")
     }
     guard AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else {
         fail("could not press menu item '\(title)'")
