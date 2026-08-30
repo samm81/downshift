@@ -431,7 +431,7 @@ main() {
   smoke_input key down
   smoke_input key right
   wait_for_native_menu_item "snooze for 5 minutes" || die "native snooze submenu did not open"
-  smoke_input key return
+  smoke_input menu-click "snooze for 5 minutes" "$APP_PID"
   wait_for_no_window || die "snooze did not hide the widget"
   screencapture -x "$out_dir/snoozed.png"
   log "snooze hid the widget"
