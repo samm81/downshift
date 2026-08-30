@@ -24,8 +24,11 @@ require_macos() {
 
 ensure_tools() {
   local missing=()
-  local tools=(compare hdiutil magick open pgrep screencapture swift)
-  if [[ -z "${DOWNSHIFT_RELEASE_DMG_PATH:-}" ]]; then
+  local tools=(compare magick open pgrep screencapture swift)
+  if [[ -z "${DOWNSHIFT_APP_PATH:-}" ]]; then
+    tools+=(hdiutil)
+  fi
+  if [[ -z "${DOWNSHIFT_RELEASE_DMG_PATH:-}" && -z "${DOWNSHIFT_APP_PATH:-}" ]]; then
     tools+=(gh)
   fi
   for tool in "${tools[@]}"; do
@@ -88,9 +91,33 @@ mount_release_dmg() {
   [[ -d "$APP_PATH" ]] || die "mounted dmg does not contain ${APP_BUNDLE_NAME}"
 }
 
+prepare_app_bundle() {
+  if [[ -n "${DOWNSHIFT_APP_PATH:-}" ]]; then
+    APP_PATH="$(cd "${DOWNSHIFT_APP_PATH}" && pwd)"
+    [[ -d "$APP_PATH" ]] || die "provided app path does not exist: ${APP_PATH}"
+    DMG_PATH=""
+    MOUNT_POINT=""
+    RELEASE_TAG="${DOWNSHIFT_RELEASE_TAG:-local}"
+    log "using provided app bundle: ${APP_PATH}"
+    return 0
+  fi
+
+  mount_release_dmg
+  log "mounted dmg at ${MOUNT_POINT}"
+}
+
 launch_app_bundle() {
   log "launching ${APP_PATH}"
   open -a "$APP_PATH"
+}
+
+activate_running_instance() {
+  local executable="${APP_PATH}/Contents/MacOS/downshift"
+  [[ -x "$executable" ]] || die "app bundle executable is not runnable: ${executable}"
+  log "launching a second instance through ${executable}"
+  if ! "$executable" >/dev/null 2>&1; then
+    die "second app launch failed"
+  fi
 }
 
 find_app_pid() {
@@ -144,6 +171,41 @@ wait_for_window() {
   return 1
 }
 
+smoke_input() {
+  swift "$repo_root/dev/mac/smoke_snooze_input.swift" "$@"
+}
+
+read_window_bounds() {
+  local bounds
+  bounds="$(smoke_input window-bounds "$APP_PID")" || return 1
+  read -r WINDOW_X WINDOW_Y WINDOW_WIDTH WINDOW_HEIGHT <<<"$bounds"
+  [[ "$WINDOW_X" =~ ^-?[0-9]+$ && "$WINDOW_Y" =~ ^-?[0-9]+$ && "$WINDOW_WIDTH" =~ ^[0-9]+$ && "$WINDOW_HEIGHT" =~ ^[0-9]+$ ]]
+}
+
+wait_for_window_bounds() {
+  local tries=0
+  while ((tries < 40)); do
+    if read_window_bounds && ((WINDOW_WIDTH >= 50 && WINDOW_HEIGHT >= 50)); then
+      return 0
+    fi
+    tries=$((tries + 1))
+    sleep 0.25
+  done
+  return 1
+}
+
+wait_for_no_window() {
+  local tries=0
+  while ((tries < 40)); do
+    if ! read_window_bounds 2>/dev/null; then
+      return 0
+    fi
+    tries=$((tries + 1))
+    sleep 0.25
+  done
+  return 1
+}
+
 main() {
   require_macos
   ensure_tools
@@ -176,7 +238,9 @@ main() {
   exec > >(tee "$run_log") 2>&1
   trap cleanup EXIT
 
-  if [[ -n "${DOWNSHIFT_RELEASE_DMG_PATH:-}" ]]; then
+  if [[ -n "${DOWNSHIFT_APP_PATH:-}" ]]; then
+    prepare_app_bundle
+  elif [[ -n "${DOWNSHIFT_RELEASE_DMG_PATH:-}" ]]; then
     DMG_PATH="${DOWNSHIFT_RELEASE_DMG_PATH}"
     [[ -f "$DMG_PATH" ]] || die "provided dmg path does not exist: ${DMG_PATH}"
     RELEASE_TAG="${DOWNSHIFT_RELEASE_TAG:-}"
@@ -191,8 +255,9 @@ main() {
     log "downloaded dmg: ${DMG_PATH}"
   fi
 
-  mount_release_dmg
-  log "mounted dmg at ${MOUNT_POINT}"
+  if [[ -z "${DOWNSHIFT_APP_PATH:-}" ]]; then
+    prepare_app_bundle
+  fi
 
   launch_app_bundle
   wait_for_app_process || die "app process did not appear after launch"
@@ -207,6 +272,15 @@ main() {
   log "triggering macos capture prompt with warmup screenshot"
   screencapture -x "$warmup_capture"
   log "saved $warmup_capture"
+  local allow_attempt=1
+  while ((allow_attempt <= 10)); do
+    if smoke_input allow-screen-capture 2>/dev/null; then
+      log "dismissed screen-capture permission prompt"
+      break
+    fi
+    sleep 0.5
+    allow_attempt=$((allow_attempt + 1))
+  done
   log "waiting ${settle_delay_seconds}s for animation and prompts to settle"
   sleep "$settle_delay_seconds"
   log "capturing full-screen screenshots"
@@ -223,6 +297,48 @@ main() {
     fi
     i=$((i + 1))
   done
+
+  wait_for_window_bounds || die "could not read the visible Downshift window bounds"
+  local fixed_window_x="$WINDOW_X"
+  local fixed_window_y="$WINDOW_Y"
+  local fixed_window_width="$WINDOW_WIDTH"
+  local fixed_window_height="$WINDOW_HEIGHT"
+  local context_click_x=$((fixed_window_x + fixed_window_width / 2))
+  local context_click_y=$((fixed_window_y + fixed_window_height - 6))
+
+  log "pausing and resetting the widget through its native context menu"
+  smoke_input right-click "$context_click_x" "$context_click_y"
+  sleep 0.5
+  screencapture -x "$out_dir/reset-context-menu.png"
+  smoke_input menu-click "pause" "$APP_PID"
+  sleep 0.5
+  screencapture -x "$out_dir/reset-paused.png"
+  smoke_input right-click "$context_click_x" "$context_click_y"
+  smoke_input menu-click "reset" "$APP_PID"
+  wait_for_window_bounds || die "reset did not leave the widget visible"
+  sleep 1
+  screencapture -x "$out_dir/reset.png"
+  log "native reset restored the visible active widget"
+  read_window_bounds || die "could not read the widget bounds after reset"
+  local snooze_click_x=$((WINDOW_X + WINDOW_WIDTH / 2))
+  local snooze_click_y=$((WINDOW_Y + WINDOW_HEIGHT - 6))
+
+  log "snoozing the widget for five minutes through its native context menu"
+  smoke_input right-click "$snooze_click_x" "$snooze_click_y"
+  sleep 0.5
+  screencapture -x "$out_dir/snooze-context-menu.png"
+  smoke_input key home
+  smoke_input key down
+  smoke_input key right
+  smoke_input key return
+  wait_for_no_window || die "snooze did not hide the widget"
+  screencapture -x "$out_dir/snoozed.png"
+  log "snooze hid the widget"
+
+  activate_running_instance
+  wait_for_window_bounds || die "second launch did not resume the snoozed widget"
+  screencapture -x "$out_dir/snooze-resumed.png"
+  log "second launch resumed the snoozed widget"
 
   local diff_nonzero_pairs=0
   local diff_total_pairs=0
@@ -278,6 +394,8 @@ diff_total_pairs=$diff_total_pairs
 diff_nonzero_pairs=$diff_nonzero_pairs
 max_diff_pixels=$max_diff_pixels
 motion_observed=$motion_observed
+reset=passed
+snooze_resume=passed
 run_log=$run_log
 EOF
 

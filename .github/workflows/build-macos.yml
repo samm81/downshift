@@ -30,7 +30,7 @@ jobs:
 
       - name: install web and shell tooling
         run: |
-          brew install shellcheck shfmt
+          brew install imagemagick shellcheck shfmt
           npm ci
 
       - name: cache Cargo
@@ -49,6 +49,15 @@ jobs:
       - name: build macOS app bundle without telemetry
         run: make app-no-telemetry MACOS_TARGET="${{ steps.target.outputs.value }}"
 
+      - name: type-check macOS GUI smoke input helper
+        run: swiftc -typecheck dev/mac/smoke_snooze_input.swift
+
+      - name: run macOS snooze and reset GUI smoke
+        run: ./dev/mac/smoke_gui.bash 2 0.5
+        env:
+          DOWNSHIFT_APP_PATH: ${{ github.workspace }}/dist/Downshift.app
+          DOWNSHIFT_RELEASE_TAG: ci-build
+
       - name: run macOS target tests
         run: cargo test --locked --target "${{ steps.target.outputs.value }}"
 
@@ -60,5 +69,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: macos-app-smoke
-          path: dist/Downshift.app
+          path: |
+            dist/Downshift.app
+            logs/gui-smoke-*
           if-no-files-found: warn

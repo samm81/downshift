@@ -273,7 +273,10 @@ function Invoke-InteractiveInstall {
 
                 $nextButton = [DownshiftInstallerSmokeNative]::FindVisibleChildByText($wizardHandle, 'Next')
                 if ($nextButton -eq [IntPtr]::Zero) {
-                    throw 'The Inno Setup wizard exposed neither Next nor Install.'
+                    Save-Screen (Join-Path $OutputDirectory "wizard-$('{0:D2}' -f $step)-waiting.png")
+                    Log-Message 'installer wizard is waiting for a transient page to finish'
+                    Start-Sleep -Milliseconds 500
+                    continue
                 }
                 Save-Screen (Join-Path $OutputDirectory "wizard-$('{0:D2}' -f $step)-next.png")
                 Click-WizardButton -WizardHandle $wizardHandle -ButtonText 'Next'
