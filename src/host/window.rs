@@ -7,10 +7,6 @@ pub(crate) fn logical_outer_position(window: Option<&Window>) -> Option<LogicalP
     Some(physical.to_logical(window.scale_factor()))
 }
 
-pub(crate) fn physical_outer_position(window: &Window) -> Option<PhysicalPosition<i32>> {
-    window.outer_position().ok()
-}
-
 pub(crate) fn set_outer_position(window: &Window, position: LogicalPosition<i32>) {
     window.set_outer_position(position);
 }
@@ -38,22 +34,4 @@ pub(crate) fn enforce_fixed_size(window: &Window, target_dimensions: LogicalSize
     if width_mismatch || height_mismatch {
         let _ = window.request_inner_size(target_dimensions);
     }
-}
-
-pub(crate) fn resize_preserving_center(
-    window: &Window,
-    target_dimensions: LogicalSize<f64>,
-) -> Option<PhysicalPosition<i32>> {
-    let old_dimensions = window.inner_size().to_logical::<f64>(window.scale_factor());
-    window.set_min_inner_size(Some(target_dimensions));
-    window.set_max_inner_size(Some(target_dimensions));
-    let _ = window.request_inner_size(target_dimensions);
-
-    let current_pos = logical_outer_position(Some(window))?;
-    let center_x = current_pos.x + old_dimensions.width / 2.0;
-    let center_y = current_pos.y + old_dimensions.height / 2.0;
-    let next_x = (center_x - target_dimensions.width / 2.0).round() as i32;
-    let next_y = (center_y - target_dimensions.height / 2.0).round() as i32;
-    set_outer_position(window, LogicalPosition::new(next_x, next_y));
-    physical_outer_position(window)
 }

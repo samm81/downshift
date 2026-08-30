@@ -66,6 +66,16 @@ public static class DownshiftSmokeNative
         public IntPtr DwTypeData;
         public uint Cch;
         public IntPtr HbmpItem;
+
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NOTIFYICONIDENTIFIER
+    {
+        public int CbSize;
+        public IntPtr HWnd;
+        public uint Uid;
+        public Guid GuidItem;
     }
 
     [DllImport("user32.dll")]
@@ -91,6 +101,12 @@ public static class DownshiftSmokeNative
         IntPtr hMenu,
         uint item,
         out RECT rect
+    );
+
+    [DllImport("shell32.dll")]
+    private static extern int Shell_NotifyIconGetRect(
+        ref NOTIFYICONIDENTIFIER identifier,
+        out RECT iconRect
     );
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -233,6 +249,22 @@ public static class DownshiftSmokeNative
         });
     }
 
+    public static IntPtr[] FindWindowsByClassForProcess(string className, int processId)
+    {
+        var windows = new List<IntPtr>();
+        EnumWindows((hWnd, _) =>
+        {
+            uint actualProcessId;
+            GetWindowThreadProcessId(hWnd, out actualProcessId);
+            if (actualProcessId == (uint)processId && ReadClassName(hWnd) == className)
+            {
+                windows.Add(hWnd);
+            }
+            return true;
+        }, IntPtr.Zero);
+        return windows.ToArray();
+    }
+
     public static int[] GetRectValues(IntPtr hWnd)
     {
         RECT rect;
@@ -269,6 +301,31 @@ public static class DownshiftSmokeNative
             if (GetMenuItemRect(popupHandle, hMenu, position, out rect))
             {
                 return new[] { rect.Left, rect.Top, rect.Right, rect.Bottom };
+            }
+        }
+        return new int[0];
+    }
+
+    public static int[] GetTrayIconRect(int processId)
+    {
+        foreach (var hWnd in FindWindowsByClassForProcess("tray_icon_app", processId))
+        {
+            for (uint uid = 1; uid <= 64; uid++)
+            {
+                var identifier = new NOTIFYICONIDENTIFIER
+                {
+                    CbSize = Marshal.SizeOf<NOTIFYICONIDENTIFIER>(),
+                    HWnd = hWnd,
+                    Uid = uid,
+                    GuidItem = Guid.Empty,
+                };
+                RECT rect;
+                if (Shell_NotifyIconGetRect(ref identifier, out rect) >= 0 &&
+                    rect.Right > rect.Left &&
+                    rect.Bottom > rect.Top)
+                {
+                    return new[] { rect.Left, rect.Top, rect.Right, rect.Bottom };
+                }
             }
         }
         return new int[0];
@@ -354,8 +411,20 @@ public static class DownshiftSmokeNative
 
     public static void PressEscape()
     {
-        keybd_event(Escape, 0, 0, UIntPtr.Zero);
-        keybd_event(Escape, 0, KeyUp, UIntPtr.Zero);
+        PressKey(Escape);
+    }
+
+    public static void PressKey(byte virtualKey)
+    {
+        keybd_event(virtualKey, 0, 0, UIntPtr.Zero);
+        keybd_event(virtualKey, 0, KeyUp, UIntPtr.Zero);
+    }
+
+    public static void SelectSecondMenuItem()
+    {
+        PressKey(0x24);
+        PressKey(0x28);
+        PressKey(0x0D);
     }
 
     public static void CloseWindow(IntPtr hWnd)
@@ -438,6 +507,61 @@ function Wait-MainPopup {
         Start-Sleep -Milliseconds 50
     } while ([DateTime]::UtcNow -lt $deadline)
     throw 'Timed out waiting for the native context menu.'
+}
+
+function Get-TrayIconRectObject {
+    param([Parameter(Mandatory = $true)][int]$ProcessId)
+    $values = [DownshiftSmokeNative]::GetTrayIconRect($ProcessId)
+    if ($values.Count -ne 4) {
+        return $null
+    }
+    return [PSCustomObject]@{
+        Left = $values[0]
+        Top = $values[1]
+        Right = $values[2]
+        Bottom = $values[3]
+        Width = $values[2] - $values[0]
+        Height = $values[3] - $values[1]
+    }
+}
+
+function Wait-TrayIconRect {
+    param(
+        [Parameter(Mandatory = $true)][int]$ProcessId,
+        [int]$TimeoutMilliseconds = 5000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $rect = Get-TrayIconRectObject -ProcessId $ProcessId
+        if ($null -ne $rect) {
+            return $rect
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Timed out waiting for the Downshift notification-area icon.'
+}
+
+function Open-TrayMenu {
+    param(
+        [Parameter(Mandatory = $true)][int]$ProcessId,
+        [switch]$LeftClick
+    )
+    $rect = Wait-TrayIconRect -ProcessId $ProcessId
+    $x = [int][Math]::Round(($rect.Left + $rect.Right) / 2)
+    $y = [int][Math]::Round(($rect.Top + $rect.Bottom) / 2)
+    $button = if ($LeftClick) { 'left' } else { 'right' }
+    Log-Message "$button-clicking tray icon at $x,$y"
+    if ($LeftClick) {
+        [DownshiftSmokeNative]::LeftClick($x, $y)
+    } else {
+        [DownshiftSmokeNative]::RightClick($x, $y)
+    }
+    return Wait-MainPopup
+}
+
+function Select-SecondMenuItemByKeyboard {
+    [DownshiftSmokeNative]::SelectSecondMenuItem()
+    Start-Sleep -Milliseconds 500
 }
 
 function Wait-WindowTitle {
@@ -795,6 +919,51 @@ function Wait-WindowHidden {
     throw 'Timed out waiting for the Downshift window to hide.'
 }
 
+function Wait-WindowNearCursor {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$Handle,
+        [Parameter(Mandatory = $true)][int]$CursorX,
+        [Parameter(Mandatory = $true)][int]$CursorY,
+        [int]$Tolerance = 32,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $rect = Get-WindowRectObject $Handle
+        if ($null -ne $rect) {
+            $centerX = ($rect.Left + $rect.Right) / 2
+            $centerY = ($rect.Top + $rect.Bottom) / 2
+            if ([Math]::Abs($centerX - $CursorX) -le $Tolerance -and
+                [Math]::Abs($centerY - $CursorY) -le $Tolerance) {
+                return $rect
+            }
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Timed out waiting for the widget to follow the cursor at $CursorX,$CursorY."
+}
+
+function Wait-WindowPositionNear {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$Handle,
+        [Parameter(Mandatory = $true)][int]$Left,
+        [Parameter(Mandatory = $true)][int]$Top,
+        [int]$Tolerance = 4,
+        [int]$TimeoutMilliseconds = 3000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $rect = Get-WindowRectObject $Handle
+        if ($null -ne $rect -and
+            [Math]::Abs($rect.Left - $Left) -le $Tolerance -and
+            [Math]::Abs($rect.Top - $Top) -le $Tolerance) {
+            return $rect
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Timed out waiting for the widget to return near $Left,$Top."
+}
+
 function Select-SizeMenuSlot {
     param(
         [Parameter(Mandatory = $true)][IntPtr]$WindowHandle,
@@ -984,6 +1153,49 @@ try {
     [DownshiftSmokeNative]::CloseWindow($updatesHandle)
     Log-Message 'updates dialog opened and closed'
 
+    $trayPopup = Open-TrayMenu -ProcessId $appProcess.Id
+    Capture-Checkpoint -Name '08-tray-menu-right-click'
+    [DownshiftSmokeNative]::PressEscape()
+    if ($appProcess.HasExited) {
+        throw 'Downshift exited after opening the tray menu with a right-click.'
+    }
+    $trayPopup = Open-TrayMenu -ProcessId $appProcess.Id -LeftClick
+    Capture-Checkpoint -Name '09-tray-menu-left-click'
+    [DownshiftSmokeNative]::PressEscape()
+    Log-Message 'tray icon left/right menu opening passed'
+
+    $fixedBeforeFollow = Get-WindowRectObject $windowHandle
+    $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $followCursorX1 = $screen.Left + [int]($screen.Width * 0.35)
+    $followCursorY1 = $screen.Top + [int]($screen.Height * 0.35)
+    $followCursorX2 = $screen.Left + [int]($screen.Width * 0.65)
+    $followCursorY2 = $screen.Top + [int]($screen.Height * 0.62)
+
+    $mainPopup = Open-MainMenu -WindowHandle $windowHandle
+    Click-MainMenuItem -Popup $mainPopup -TextIndex 1
+    [DownshiftSmokeNative]::MovePointer($followCursorX1, $followCursorY1)
+    $followRect1 = Wait-WindowNearCursor -Handle $windowHandle -CursorX $followCursorX1 -CursorY $followCursorY1 -Tolerance 48
+    Capture-Checkpoint -Name '10-follow-cursor' -WindowHandle $windowHandle
+    [DownshiftSmokeNative]::MovePointer($followCursorX2, $followCursorY2)
+    $followRect2 = Wait-WindowNearCursor -Handle $windowHandle -CursorX $followCursorX2 -CursorY $followCursorY2 -Tolerance 48
+    if ($followRect1.Left -eq $followRect2.Left -and $followRect1.Top -eq $followRect2.Top) {
+        throw 'Follow-cursor mode did not move the widget after the pointer moved.'
+    }
+    Log-Message "follow-cursor movement passed: $($followRect1.Left),$($followRect1.Top) -> $($followRect2.Left),$($followRect2.Top)"
+
+    $trayPopup = Open-TrayMenu -ProcessId $appProcess.Id
+    Capture-Checkpoint -Name '11-follow-tray-menu'
+    Select-SecondMenuItemByKeyboard
+    $restoredRect = Wait-WindowPositionNear -Handle $windowHandle -Left $fixedBeforeFollow.Left -Top $fixedBeforeFollow.Top
+    [DownshiftSmokeNative]::MovePointer($followCursorX1, $followCursorY1)
+    Start-Sleep -Milliseconds 350
+    $stationaryRect = Get-WindowRectObject $windowHandle
+    if ([Math]::Abs($stationaryRect.Left - $restoredRect.Left) -gt 4 -or
+        [Math]::Abs($stationaryRect.Top - $restoredRect.Top) -gt 4) {
+        throw 'Tray menu did not return the widget to fixed mode.'
+    }
+    Log-Message 'follow-cursor enable, movement, and tray disable passed'
+
     $currentRunValue = Get-RunValue
     if ($null -eq $currentRunValue -or $currentRunValue.Trim('"') -ne $BinaryPath) {
         throw "Launch-at-login registry value did not point to the test binary: '$currentRunValue'."
@@ -1002,6 +1214,9 @@ try {
         'clipboard_copy=passed',
         'breathing_submenu_screenshot=passed',
         'updates_dialog=passed',
+        'tray_menu_left_right=passed',
+        'follow_cursor_movement=passed',
+        'follow_cursor_tray_disable=passed',
         'launch_at_login=passed',
         'run_log=' + $runLogPath
     )

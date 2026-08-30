@@ -1,5 +1,6 @@
 (() => {
   const ball = document.getElementById("ball");
+  const cursorHalo = document.getElementById("cursor-halo");
   const breathArt = document.getElementById("breath-art");
   const breathGeometry = breathArt.querySelector(".breath-geometry");
   const breathPolygons = Array.from(
@@ -9,6 +10,7 @@
   const breathHitTarget = document.getElementById("breath-hit-target");
   const menu = document.getElementById("menu");
   const pauseButton = document.getElementById("menu-pause");
+  const followCursorButton = document.getElementById("menu-follow-cursor");
   const resetButton = document.getElementById("menu-reset");
   const quitButton = document.getElementById("menu-quit");
   const updatePrimaryButton = document.getElementById("menu-update-primary");
@@ -46,6 +48,10 @@
   const init = window.__BB_INIT__ || {
     paused: false,
     use_native_menu: false,
+    follow_cursor_active: false,
+    follow_cursor_available: false,
+    follow_cursor_unavailable_reason:
+      "cursor following is unavailable on this platform",
   };
   const useNativeMenu = Boolean(init.use_native_menu);
   let animationFrameId = null;
@@ -165,6 +171,7 @@
           : polygonPointsForProgress(layerIndex, vertexCount, polygonProgress);
       polygon.setAttribute("d", pathData(points));
     });
+    applyCursorHalo(progress);
     updateBreathingHitTarget(progress);
     if (syncBounds) {
       syncAnimationBounds();
@@ -224,6 +231,22 @@
     updateShowBadge: Boolean(init.update_show_badge),
     updateIgnoreCurrentEnabled: Boolean(init.update_ignore_current_enabled),
     updateIgnoreCurrentChecked: Boolean(init.update_ignore_current_checked),
+    followCursorActive: Boolean(init.follow_cursor_active),
+    followCursorAvailable: Boolean(init.follow_cursor_available),
+    followCursorUnavailableReason: String(
+      init.follow_cursor_unavailable_reason ||
+        "cursor following is unavailable on this platform",
+    ),
+    followCursorHaloSize:
+      Number.isFinite(Number(init.follow_cursor_halo_size)) &&
+      Number(init.follow_cursor_halo_size) > 0
+        ? Number(init.follow_cursor_halo_size)
+        : 56,
+    followCursorWindowSize:
+      Number.isFinite(Number(init.follow_cursor_window_size)) &&
+      Number(init.follow_cursor_window_size) > 0
+        ? Number(init.follow_cursor_window_size)
+        : 64,
     artworkSize:
       Number.isFinite(Number(init.artwork_size)) &&
       Number(init.artwork_size) > 0
@@ -241,6 +264,29 @@
     state.sizePresets = [64, 96, 128, 160];
   }
 
+  const cssRootFontSizeLogical = (() => {
+    const value = Number.parseFloat(
+      window.getComputedStyle(document.documentElement).fontSize,
+    );
+    return Number.isFinite(value) && value > 0 ? value : 16;
+  })();
+
+  function cssRem(value) {
+    return `${value / cssRootFontSizeLogical}rem`;
+  }
+
+  function applyCursorHalo(progress) {
+    const normalizedProgress = Math.min(Math.max(Number(progress) || 0, 0), 1);
+    const scale = 0.9 + normalizedProgress * 0.14;
+    const opacity = 0.52 + normalizedProgress * 0.18;
+    cursorHalo.style.setProperty(
+      "--cursor-halo-size",
+      cssRem(state.followCursorHaloSize),
+    );
+    cursorHalo.style.setProperty("--cursor-halo-scale", scale.toFixed(3));
+    cursorHalo.style.setProperty("--cursor-halo-opacity", opacity.toFixed(3));
+  }
+
   function post(payload) {
     if (window.ipc && typeof window.ipc.postMessage === "function") {
       window.ipc.postMessage(JSON.stringify(payload));
@@ -251,17 +297,34 @@
     const artworkSize = Math.max(state.artworkSize, 1);
     const viewBoxUnitsPerPixel = 100 / artworkSize;
     const maximum = maximumAnimationBounds || bounds;
+    const followWindowCenter = state.followCursorWindowSize / 2;
+    const followArtworkCenterX =
+      (bounds.x + bounds.width / 2) / viewBoxUnitsPerPixel;
+    const followArtworkCenterY =
+      (bounds.y + bounds.height / 2) / viewBoxUnitsPerPixel;
     document.documentElement.style.setProperty(
       "--artwork-size",
-      `${artworkSize}px`,
+      cssRem(artworkSize),
     );
     document.documentElement.style.setProperty(
       "--artwork-left",
-      `${animationBoundsPaddingPx + (maximum.width / 2 - (bounds.x + bounds.width / 2)) / viewBoxUnitsPerPixel}px`,
+      cssRem(
+        state.followCursorActive
+          ? followWindowCenter - followArtworkCenterX
+          : animationBoundsPaddingPx +
+              (maximum.width / 2 - (bounds.x + bounds.width / 2)) /
+                viewBoxUnitsPerPixel,
+      ),
     );
     document.documentElement.style.setProperty(
       "--artwork-top",
-      `${animationBoundsPaddingPx + (maximum.height - (bounds.y + bounds.height)) / viewBoxUnitsPerPixel}px`,
+      cssRem(
+        state.followCursorActive
+          ? followWindowCenter - followArtworkCenterY
+          : animationBoundsPaddingPx +
+              (maximum.height - (bounds.y + bounds.height)) /
+                viewBoxUnitsPerPixel,
+      ),
     );
   }
 
@@ -377,8 +440,10 @@
   }
 
   function applyBallState() {
+    document.body.classList.toggle("follow-cursor", state.followCursorActive);
     ball.classList.toggle("paused", state.paused);
     pauseButton.textContent = state.paused ? "resume" : "pause";
+    applyFollowCursorButton();
     updatePrimaryButton.textContent = state.updateLabel;
     updatePrimaryButton.dataset.newVersion = state.updateHasNewVersion
       ? "1"
@@ -387,7 +452,25 @@
     updateIgnoreCurrentButton.textContent =
       `do not remind me about the current update again ${state.updateIgnoreCurrentChecked ? "✓" : ""}`.trim();
     syncAnimationPauseState();
-    positionBadge();
+    if (state.followCursorActive) {
+      dismissBadge(false);
+    } else {
+      positionBadge();
+    }
+  }
+
+  function applyFollowCursorButton() {
+    if (!state.followCursorAvailable) {
+      followCursorButton.disabled = true;
+      followCursorButton.textContent = `follow cursor (${state.followCursorUnavailableReason})`;
+      followCursorButton.title = state.followCursorUnavailableReason;
+      return;
+    }
+    followCursorButton.disabled = state.followCursorActive;
+    followCursorButton.textContent = `follow cursor${state.followCursorActive ? " ✓" : ""}`;
+    followCursorButton.title = state.followCursorActive
+      ? "cursor halo is active; use the tray icon to return to fixed mode"
+      : "surround the mouse cursor with a breathing halo";
   }
 
   function applyAnalyticsButtons() {
@@ -488,6 +571,10 @@
   }
 
   function applyUpdateBadge(animateIn) {
+    if (state.followCursorActive) {
+      dismissBadge(false);
+      return;
+    }
     if (!state.updateShowBadge) {
       dismissBadge(false);
       return;
@@ -534,6 +621,37 @@
           applyArtworkLayout(currentAnimationBounds);
         }
       }
+    }
+    if (Object.prototype.hasOwnProperty.call(next, "follow_cursor_active")) {
+      state.followCursorActive = Boolean(next.follow_cursor_active);
+    }
+    if (Object.prototype.hasOwnProperty.call(next, "follow_cursor_halo_size")) {
+      const haloSize = Number(next.follow_cursor_halo_size);
+      if (Number.isFinite(haloSize) && haloSize > 0) {
+        state.followCursorHaloSize = haloSize;
+      }
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(next, "follow_cursor_window_size")
+    ) {
+      const windowSize = Number(next.follow_cursor_window_size);
+      if (Number.isFinite(windowSize) && windowSize > 0) {
+        state.followCursorWindowSize = windowSize;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(next, "follow_cursor_available")) {
+      state.followCursorAvailable = Boolean(next.follow_cursor_available);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(
+        next,
+        "follow_cursor_unavailable_reason",
+      )
+    ) {
+      state.followCursorUnavailableReason = String(
+        next.follow_cursor_unavailable_reason ||
+          "cursor following is unavailable on this platform",
+      );
     }
     if (Object.prototype.hasOwnProperty.call(next, "size_presets")) {
       const values = Array.isArray(next.size_presets)
@@ -617,6 +735,14 @@
     applyBallState();
     applyAnalyticsButtons();
     showMenu(event.clientX, event.clientY);
+  });
+
+  followCursorButton.addEventListener("click", () => {
+    if (!state.followCursorAvailable || state.followCursorActive) {
+      return;
+    }
+    post({ cmd: "set_follow_cursor", enabled: true });
+    hideMenu();
   });
 
   pauseButton.addEventListener("click", () => {

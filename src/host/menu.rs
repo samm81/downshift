@@ -1,5 +1,7 @@
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
+#[cfg(target_os = "windows")]
+use muda::Menu;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::{
     CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
@@ -18,6 +20,7 @@ use downshift::Settings;
 use downshift::{built_in_breathing_presets, BreathingPattern, BREATHING_PRESET_ID_COHERENT};
 
 pub(crate) const MENU_ID_PAUSE: &str = "pause";
+pub(crate) const MENU_ID_FOLLOW_CURSOR: &str = "follow_cursor";
 pub(crate) const MENU_ID_SNOOZE_ROOT: &str = "snooze_root";
 pub(crate) const MENU_ID_SNOOZE_5: &str = "snooze_5";
 pub(crate) const MENU_ID_SNOOZE_10: &str = "snooze_10";
@@ -76,6 +79,7 @@ macro_rules! log_stderr {
 pub(crate) struct NativeContextMenu {
     root: Submenu,
     pause: CheckMenuItem,
+    follow_cursor: CheckMenuItem,
     launch_at_login: CheckMenuItem,
     snooze_menu: Submenu,
     snooze_5: MenuItem,
@@ -133,6 +137,8 @@ impl NativeContextMenu {
             })
             .collect::<Vec<_>>();
         let pause = CheckMenuItem::with_id(MENU_ID_PAUSE, "paused", true, false, None);
+        let follow_cursor =
+            CheckMenuItem::with_id(MENU_ID_FOLLOW_CURSOR, "follow cursor", true, false, None);
         let launch_at_login =
             CheckMenuItem::with_id(MENU_ID_LAUNCH_AT_LOGIN, "start at login", true, true, None);
         let snooze_5 = MenuItem::with_id(MENU_ID_SNOOZE_5, "snooze for 5 minutes", true, None);
@@ -480,6 +486,7 @@ impl NativeContextMenu {
         #[allow(unused_mut)]
         let mut root_items: Vec<&dyn IsMenuItem> = vec![
             &pause,
+            &follow_cursor,
             &separator_one,
             &snooze_submenu,
             &separator_two,
@@ -513,6 +520,7 @@ impl NativeContextMenu {
         Some(Self {
             root,
             pause,
+            follow_cursor,
             launch_at_login,
             snooze_menu: snooze_submenu,
             snooze_5,
@@ -558,6 +566,7 @@ impl NativeContextMenu {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn sync_from_settings(
         &self,
         settings: &Settings,
@@ -565,10 +574,22 @@ impl NativeContextMenu {
         update_label: &str,
         update_ignore_enabled: bool,
         update_ignore_checked: bool,
+        follow_cursor_active: bool,
+        follow_cursor_available: bool,
+        follow_cursor_unavailable_reason: &str,
     ) {
         self.pause.set_checked(settings.paused);
         self.pause
             .set_text(if settings.paused { "paused" } else { "pause" });
+        self.follow_cursor.set_checked(follow_cursor_active);
+        self.follow_cursor.set_text(if !follow_cursor_available {
+            follow_cursor_unavailable_reason
+        } else if follow_cursor_active {
+            "return to fixed mode"
+        } else {
+            "follow cursor"
+        });
+        self.follow_cursor.set_enabled(follow_cursor_available);
         self.launch_at_login.set_checked(settings.launch_at_login);
         self.launch_at_login.set_enabled(true);
         self.snooze_menu.set_enabled(true);
@@ -620,6 +641,29 @@ impl NativeContextMenu {
         self.file_bug_github.set_enabled(true);
         self.file_bug_email.set_enabled(true);
         self.analytics_menu.set_enabled(true);
+    }
+
+    pub(crate) fn clone_for_tray(&self) -> Box<dyn muda::ContextMenu> {
+        #[cfg(target_os = "windows")]
+        {
+            let tray_menu = Menu::new();
+            for item in self.root.items() {
+                let item: &dyn IsMenuItem = match &item {
+                    muda::MenuItemKind::MenuItem(item) => item,
+                    muda::MenuItemKind::Submenu(item) => item,
+                    muda::MenuItemKind::Predefined(item) => item,
+                    muda::MenuItemKind::Check(item) => item,
+                    muda::MenuItemKind::Icon(item) => item,
+                };
+                tray_menu
+                    .append(item)
+                    .expect("native context menu items should be valid for the tray menu");
+            }
+            Box::new(tray_menu)
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        Box::new(self.root.clone())
     }
 
     pub(crate) fn sync_consent(&self, usage_enabled: bool, crash_enabled: bool) {
@@ -691,6 +735,7 @@ impl NativeContextMenu {
         None
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn sync_from_settings(
         &self,
         _settings: &Settings,
@@ -698,6 +743,9 @@ impl NativeContextMenu {
         _update_label: &str,
         _update_ignore_enabled: bool,
         _update_ignore_checked: bool,
+        _follow_cursor_active: bool,
+        _follow_cursor_available: bool,
+        _follow_cursor_unavailable_reason: &str,
     ) {
     }
 

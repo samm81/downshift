@@ -131,7 +131,7 @@ this writes artifacts under `logs/demo-capture-<timestamp>/`, including:
 - `raw.mp4`
 - `result.txt`
 
-requirements: macos desktop session with screen recording permission enabled for terminal (`ffmpeg` is installed by `./dev/mac/bootstrap-02.bash`).
+requirements: macos desktop session with screen recording and Accessibility permissions enabled for terminal (`ffmpeg` is installed by `./dev/mac/bootstrap-02.bash`).
 
 ## github actions gui smoke artifacts
 
@@ -145,7 +145,8 @@ it:
 - mounts the dmg and launches `Downshift.app` with `open`
 - fails if the app process or a visible app window does not appear
 - triggers the macos capture prompt with a warmup screenshot, waits briefly for the ui to settle, then captures a short screenshot sequence with `dev/mac/smoke_gui.bash`
-- exercises widget-context-menu pause/reset and five-minute snooze/resume through a second launch
+- exercises native widget-context-menu pause/reset and five-minute snooze/resume through a second launch
+- exercises the status-item menu and both status-item click paths, then enables follow-cursor mode through the native menu, verifies pointer movement, and disables it through the tray
 - crops the top menu bar out of each screenshot, then computes per-frame png diffs with ImageMagick `compare`
 - uploads `logs/latest-gui-smoke/` and the timestamped `logs/gui-smoke-*` directory as workflow artifacts
 
@@ -264,7 +265,7 @@ Run the local scripted GUI smoke test with screenshots:
 powershell -ExecutionPolicy Bypass -File .\windows\smoke-ui.ps1
 ```
 
-The script performs the clicks and keystrokes itself, stores screenshots and logs under `logs\gui-smoke-windows-*`, checks the clipboard and launch-at-login registry entry, exercises snooze/resume and reset, and restores the pre-test settings and registry state. The same script is intended for the clean Windows VM once the installer path is added.
+The script performs the clicks and keystrokes itself, stores screenshots and logs under `logs\gui-smoke-windows-*`, checks the clipboard and launch-at-login registry entry, exercises snooze/resume and reset, both tray-menu click paths, follow-cursor movement, and tray-based disable, and restores the pre-test settings and registry state. The same script is intended for the clean Windows VM once the installer path is added.
 
 Run the scripted Inno installer smoke test locally to exercise the interactive wizard, installed-binary GUI path, silent install/uninstall, Start Menu shortcut, Add/Remove Programs entry, and cleanup:
 

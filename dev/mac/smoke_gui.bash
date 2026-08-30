@@ -194,8 +194,23 @@ wait_for_window() {
   return 1
 }
 
-smoke_input() {
+smoke_snooze_input() {
   swift "$repo_root/dev/mac/smoke_snooze_input.swift" "$@"
+}
+
+smoke_follow_input() {
+  swift "$repo_root/dev/mac/smoke_input.swift" "$@"
+}
+
+smoke_input() {
+  case "$1" in
+    move | tray-rect | tray-click | left-click)
+      smoke_follow_input "$@"
+      ;;
+    *)
+      smoke_snooze_input "$@"
+      ;;
+  esac
 }
 
 wait_for_native_menu_item() {
@@ -222,6 +237,54 @@ wait_for_window_bounds() {
     fi
     tries=$((tries + 1))
     sleep 0.25
+  done
+  return 1
+}
+
+read_tray_rect() {
+  local bounds
+  bounds="$(smoke_follow_input tray-rect)" || return 1
+  read -r TRAY_X TRAY_Y TRAY_WIDTH TRAY_HEIGHT <<<"$bounds"
+  [[ "$TRAY_X" =~ ^-?[0-9]+$ && "$TRAY_Y" =~ ^-?[0-9]+$ && "$TRAY_WIDTH" =~ ^[0-9]+$ && "$TRAY_HEIGHT" =~ ^[0-9]+$ ]]
+}
+
+wait_for_tray_rect() {
+  local tries=0
+  while ((tries < 40)); do
+    if read_tray_rect && ((TRAY_WIDTH > 0 && TRAY_HEIGHT > 0)); then
+      return 0
+    fi
+    tries=$((tries + 1))
+    sleep 0.25
+  done
+  return 1
+}
+
+wait_for_window_near_cursor() {
+  local cursor_x="$1"
+  local cursor_y="$2"
+  local tolerance="${3:-80}"
+  local tries=0
+  while ((tries < 40)); do
+    if read_window_bounds && awk \
+      -v window_x="$WINDOW_X" \
+      -v window_y="$WINDOW_Y" \
+      -v window_width="$WINDOW_WIDTH" \
+      -v window_height="$WINDOW_HEIGHT" \
+      -v cursor_x="$cursor_x" \
+      -v cursor_y="$cursor_y" \
+      -v tolerance="$tolerance" \
+      'BEGIN {
+        dx = window_x + window_width / 2 - cursor_x
+        dy = window_y + window_height / 2 - cursor_y
+        if (dx < 0) dx = -dx
+        if (dy < 0) dy = -dy
+        exit !(dx <= tolerance && dy <= tolerance)
+      }'; then
+      return 0
+    fi
+    tries=$((tries + 1))
+    sleep 0.1
   done
   return 1
 }
@@ -357,6 +420,10 @@ main() {
   screencapture -x "$out_dir/reset.png"
   log "native reset restored the visible active widget"
   read_window_bounds || die "could not read the widget bounds after reset"
+  fixed_window_x="$WINDOW_X"
+  fixed_window_y="$WINDOW_Y"
+  fixed_window_width="$WINDOW_WIDTH"
+  fixed_window_height="$WINDOW_HEIGHT"
   local snooze_click_x=$((WINDOW_X + WINDOW_WIDTH / 2))
   local snooze_click_y=$((WINDOW_Y + WINDOW_HEIGHT - 6))
 
@@ -368,7 +435,7 @@ main() {
   smoke_input key down
   smoke_input key right
   wait_for_native_menu_item "snooze for 5 minutes" || die "native snooze submenu did not open"
-  smoke_input key return
+  smoke_input menu-click "snooze for 5 minutes" "$APP_PID"
   wait_for_no_window || die "snooze did not hide the widget"
   screencapture -x "$out_dir/snoozed.png"
   log "snooze hid the widget"
@@ -377,6 +444,75 @@ main() {
   wait_for_window_bounds || die "second launch did not resume the snoozed widget"
   screencapture -x "$out_dir/snooze-resumed.png"
   log "second launch resumed the snoozed widget"
+  local fixed_center_x=$((fixed_window_x + fixed_window_width / 2))
+  local fixed_center_y=$((fixed_window_y + fixed_window_height / 2))
+  local follow_cursor_x1=$((fixed_center_x - 260))
+  local follow_cursor_y1=$((fixed_center_y + 160))
+  local follow_cursor_x2=$((fixed_center_x - 420))
+  local follow_cursor_y2=$((fixed_center_y + 280))
+
+  wait_for_tray_rect || die "could not locate the Downshift status item"
+  local tray_center_x=$((TRAY_X + TRAY_WIDTH / 2))
+  local tray_center_y=$((TRAY_Y + TRAY_HEIGHT / 2))
+  log "right-clicking the status item at ${tray_center_x},${tray_center_y}"
+  smoke_input right-click "$tray_center_x" "$tray_center_y"
+  sleep 0.5
+  screencapture -x "$out_dir/tray-menu-right-click.png"
+  smoke_input key escape
+
+  log "left-clicking the status item at ${tray_center_x},${tray_center_y}"
+  smoke_input left-click "$tray_center_x" "$tray_center_y"
+  sleep 0.5
+  screencapture -x "$out_dir/tray-menu-left-click.png"
+  smoke_input key escape
+
+  log "opening the status-item menu with a left click to enable follow-cursor mode"
+  smoke_input left-click "$tray_center_x" "$tray_center_y"
+  sleep 0.5
+  screencapture -x "$out_dir/follow-tray-menu.png"
+  smoke_input menu-click "follow cursor" "$APP_PID"
+  sleep 0.8
+
+  smoke_input move "$follow_cursor_x1" "$follow_cursor_y1"
+  wait_for_window_near_cursor "$follow_cursor_x1" "$follow_cursor_y1" 80 || die "follow-cursor mode did not move the widget to the first pointer position"
+  local follow_window_x1="$WINDOW_X"
+  local follow_window_y1="$WINDOW_Y"
+  screencapture -x "$out_dir/follow-cursor.png"
+  smoke_input move "$follow_cursor_x2" "$follow_cursor_y2"
+  wait_for_window_near_cursor "$follow_cursor_x2" "$follow_cursor_y2" 80 || die "follow-cursor mode did not move the widget to the second pointer position"
+  if [[ "$follow_window_x1" == "$WINDOW_X" && "$follow_window_y1" == "$WINDOW_Y" ]]; then
+    die "follow-cursor mode did not move the widget after the pointer moved"
+  fi
+  log "follow-cursor movement passed: ${follow_window_x1},${follow_window_y1} -> ${WINDOW_X},${WINDOW_Y}"
+
+  log "right-clicking the status item while follow-cursor mode is active"
+  smoke_input right-click "$tray_center_x" "$tray_center_y"
+  sleep 0.5
+  screencapture -x "$out_dir/follow-tray-context-menu.png"
+  smoke_input key escape
+
+  log "opening the status-item menu with a left click to disable follow-cursor mode"
+  smoke_input left-click "$tray_center_x" "$tray_center_y"
+  sleep 0.5
+  screencapture -x "$out_dir/follow-tray-disable-menu.png"
+  smoke_input menu-click "return to fixed mode" "$APP_PID"
+  sleep 0.8
+  read_window_bounds || die "could not read the Downshift window after disabling follow-cursor mode"
+  if ! awk \
+    -v window_x="$WINDOW_X" \
+    -v window_y="$WINDOW_Y" \
+    -v fixed_window_x="$fixed_window_x" \
+    -v fixed_window_y="$fixed_window_y" \
+    'BEGIN {
+      dx = window_x - fixed_window_x
+      dy = window_y - fixed_window_y
+      if (dx < 0) dx = -dx
+      if (dy < 0) dy = -dy
+      exit !(dx <= 20 && dy <= 20)
+    }'; then
+    die "status-item menu did not return the widget to fixed mode"
+  fi
+  log "status-item menu and follow-cursor disable passed"
 
   local diff_nonzero_pairs=0
   local diff_total_pairs=0
@@ -434,6 +570,9 @@ max_diff_pixels=$max_diff_pixels
 motion_observed=$motion_observed
 reset=passed
 snooze_resume=passed
+follow_cursor_movement=passed
+tray_menu_right_click=passed
+tray_menu_disable_follow=passed
 run_log=$run_log
 EOF
 

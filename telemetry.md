@@ -105,10 +105,13 @@ delivery behavior:
     - `quit`
     - `context_menu`
     - `analytics_menu`
+    - `follow_cursor`
     - `launch_at_login`
+    - `tray_menu`
   - extra properties:
     - `size_target` for size changes; values are `S`, `M`, `L`, `XL`
     - `enabled` for `launch_at_login`
+    - `enabled` for `follow_cursor`
 - `breathing_pattern_changed`
   - emitted when the breathing-pattern editor or preset selection changes pattern state
   - `action` values observed in code:
@@ -163,6 +166,7 @@ these events use the crash/error stream, not the usage stream.
     - `webview_create`
     - `ipc_parse`
     - `event_loop`
+    - `tray_icon_create`
 - `app_crash`
   - emitted by the panic hook
   - current properties: `category = "panic"`, `fatal = true`

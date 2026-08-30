@@ -2,11 +2,13 @@
 #![cfg_attr(target_os = "linux", allow(dead_code))]
 
 mod app_core;
+mod cursor;
 mod host;
 mod ui_assets;
 mod window_policy;
 
 use app_core::*;
+use cursor::{CoordinateSpace, CursorError, CursorPosition, CursorProvider, CursorSource};
 use downshift::telemetry::{
     telemetry_state, ActivityState, ActivityTrigger, EventName, MenuAction, RuntimeTelemetryClient,
     SessionEndReason, TelemetryClient,
@@ -27,21 +29,22 @@ use host::InstanceStart;
 use host::NativeContextMenu;
 use host::{
     build_main_webview, clear_child_window, configure_event_loop_builder, copy_text_to_clipboard,
-    create_fixed_child_window, create_main_window, current_os_version, enforce_fixed_size,
-    focus_existing_child_window, install_menu_event_handler, logical_outer_position,
-    native_menu_available, open_external_url, persisted_monitor, resize_preserving_center,
-    set_outer_position, set_outer_position_physical, set_visible, show_without_focus,
-    snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
+    create_fixed_child_window, create_main_window, create_tray_icon, current_os_version,
+    enforce_fixed_size, focus_existing_child_window, install_menu_event_handler,
+    install_tray_event_handler, logical_outer_position, native_menu_available, open_external_url,
+    persisted_monitor, set_outer_position, set_outer_position_physical, set_visible,
+    show_without_focus, snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
+    update_tray_menu, TrayIconHandle,
 };
 use std::panic::PanicHookInfo;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use ui_assets::*;
 use window_policy::*;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
 use winit::window::{Window, WindowId};
 use wry::WebView;
@@ -51,6 +54,7 @@ use update_check::{UpdateCheckResult, UpdateCheckService, UpdateCheckSource};
 
 const ANIMATION_BOUNDS_PADDING_PX: f64 = 2.0;
 const ANIMATION_VIEWBOX_SIZE: f64 = 100.0;
+const FOLLOW_CURSOR_POLL_INTERVAL: Duration = Duration::from_millis(33);
 
 macro_rules! log_stderr {
     ($($arg:tt)*) => {{
@@ -103,6 +107,7 @@ struct App {
     update_dialog_window_id: Option<WindowId>,
     update_dialog_webview: Option<WebView>,
     native_context_menu: Option<NativeContextMenu>,
+    tray_icon: Option<TrayIconHandle>,
     startup_error: Option<String>,
     settings: Settings,
     config_path: Option<std::path::PathBuf>,
@@ -122,6 +127,12 @@ struct App {
     update_check: UpdateCheckService,
     manual_update_check_in_flight: bool,
     animation_bounds: AnimationBounds,
+    follow_cursor_active: bool,
+    follow_cursor_supported: bool,
+    follow_cursor_unavailable_reason: &'static str,
+    cursor_source: Option<Box<dyn CursorSource>>,
+    follow_cursor_previous_position: Option<PhysicalPosition<i32>>,
+    follow_cursor_placement: Option<FollowPlacement>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -131,6 +142,18 @@ struct AnimationBounds {
     width: f64,
     height: f64,
     badge_visible: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FollowMonitor {
+    work_area: ScreenRect,
+    scale_factor: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FollowPlacement {
+    cursor: PhysicalPosition<i32>,
+    monitor: FollowMonitor,
 }
 
 impl AnimationBounds {
@@ -176,6 +199,7 @@ impl Default for App {
             update_dialog_window_id: None,
             update_dialog_webview: None,
             native_context_menu: None,
+            tray_icon: None,
             startup_error: None,
             settings: Settings::default(),
             config_path: None,
@@ -197,6 +221,13 @@ impl Default for App {
             ),
             manual_update_check_in_flight: false,
             animation_bounds: AnimationBounds::full(),
+            follow_cursor_active: false,
+            follow_cursor_supported: false,
+            follow_cursor_unavailable_reason:
+                "cursor following is unavailable until the app window is ready",
+            cursor_source: None,
+            follow_cursor_previous_position: None,
+            follow_cursor_placement: None,
         }
     }
 }
@@ -326,6 +357,17 @@ impl App {
         self.telemetry.track(EventName::MenuAction, payload);
     }
 
+    fn telemetry_follow_cursor_change(&self, enabled: bool) {
+        self.telemetry.track(
+            EventName::MenuAction,
+            serde_json::json!({
+                "action": serde_json::to_value(MenuAction::FollowCursor)
+                    .unwrap_or_else(|_| serde_json::json!("follow_cursor")),
+                "enabled": enabled,
+            }),
+        );
+    }
+
     fn telemetry_privacy_change(&self, setting: &str, enabled: bool) {
         self.telemetry.track(
             EventName::PrivacyPreferenceChanged,
@@ -446,25 +488,42 @@ impl App {
         LogicalSize::new(width, height)
     }
 
+    fn follow_cursor_artwork_size(&self) -> f64 {
+        FOLLOW_CURSOR_ARTWORK_SIZE_LOGICAL
+    }
+
+    fn artwork_size_for_window(&self) -> f64 {
+        if self.follow_cursor_active {
+            self.follow_cursor_artwork_size()
+        } else {
+            self.settings.size
+        }
+    }
+
     fn animation_window_dimensions_for(
         &self,
         artwork_size: f64,
         bounds: AnimationBounds,
     ) -> LogicalSize<f64> {
+        if self.follow_cursor_active {
+            return LogicalSize::new(
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+                FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
+            );
+        }
         let view_box_scale = artwork_size / ANIMATION_VIEWBOX_SIZE;
+        let badge_reserve = if bounds.badge_visible {
+            UPDATE_BADGE_WINDOW_RESERVE_PX
+        } else {
+            0.0
+        };
         LogicalSize::new(
             (bounds.width * view_box_scale + ANIMATION_BOUNDS_PADDING_PX * 2.0)
                 .ceil()
                 .max(1.0),
-            (bounds.height * view_box_scale
-                + ANIMATION_BOUNDS_PADDING_PX * 2.0
-                + if bounds.badge_visible {
-                    UPDATE_BADGE_WINDOW_RESERVE_PX
-                } else {
-                    0.0
-                })
-            .ceil()
-            .max(1.0),
+            (bounds.height * view_box_scale + ANIMATION_BOUNDS_PADDING_PX * 2.0 + badge_reserve)
+                .ceil()
+                .max(1.0),
         )
     }
 
@@ -489,17 +548,30 @@ impl App {
             return;
         }
 
-        let position = logical_outer_position(self.window.as_ref());
-        let previous_anchor = self.animation_shape_bottom_center(self.settings.size, previous);
-        let next_anchor = self.animation_shape_bottom_center(self.settings.size, next);
+        let position = if self.follow_cursor_active {
+            None
+        } else {
+            logical_outer_position(self.window.as_ref())
+        };
+        let previous_artwork_size = self.artwork_size_for_window();
+        let previous_anchor = self.animation_shape_bottom_center(previous_artwork_size, previous);
+        self.animation_bounds = next;
+
+        let artwork_size = self.artwork_size_for_window();
+        let next_anchor = self.animation_shape_bottom_center(artwork_size, next);
         let position_delta = LogicalPosition::new(
             previous_anchor.x - next_anchor.x,
             previous_anchor.y - next_anchor.y,
         );
-        self.animation_bounds = next;
+
+        if self.follow_cursor_active {
+            self.apply_main_webview_state(serde_json::json!({
+                "artwork_size": artwork_size,
+            }));
+        }
 
         let target_dimensions =
-            self.animation_window_dimensions_for(self.settings.size, self.animation_bounds);
+            self.animation_window_dimensions_for(artwork_size, self.animation_bounds);
         {
             let Some(window) = self.window.as_ref() else {
                 return;
@@ -515,7 +587,11 @@ impl App {
             }
         }
 
-        if let Some(position) = position {
+        if self.follow_cursor_active {
+            if let Some(placement) = self.follow_cursor_placement {
+                self.position_follow_cursor(placement);
+            }
+        } else if let Some(position) = position {
             let Some(window) = self.window.as_ref() else {
                 return;
             };
@@ -558,11 +634,17 @@ impl App {
     }
 
     fn start_manual_drag(&mut self, screen_x: i32, screen_y: i32) {
+        if self.follow_cursor_active {
+            return;
+        }
         self.drag_anchor_window_pos = logical_outer_position(self.window.as_ref());
         self.drag_anchor_pointer_pos = Some(LogicalPosition::new(screen_x as f64, screen_y as f64));
     }
 
     fn drag_to(&mut self, screen_x: i32, screen_y: i32) {
+        if self.follow_cursor_active {
+            return;
+        }
         let (Some(anchor_window), Some(anchor_pointer), Some(window)) = (
             self.drag_anchor_window_pos,
             self.drag_anchor_pointer_pos,
@@ -588,8 +670,8 @@ impl App {
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        let target_dimensions =
-            self.animation_window_dimensions_for(self.settings.size, self.animation_bounds);
+        let target_dimensions = self
+            .animation_window_dimensions_for(self.artwork_size_for_window(), self.animation_bounds);
         enforce_fixed_size(window, target_dimensions);
     }
 
@@ -696,8 +778,26 @@ impl App {
                 &self.updates.menu_label(),
                 self.updates.ignore_current_update_enabled(),
                 self.updates.is_ignoring_current_update(),
+                self.follow_cursor_active,
+                self.follow_cursor_supported,
+                self.follow_cursor_unavailable_reason,
             );
         }
+    }
+
+    fn sync_tray_menu(&self) {
+        update_tray_menu(self.tray_icon.as_ref(), self.native_context_menu.as_ref());
+    }
+
+    fn rebuild_native_context_menu(&mut self) {
+        self.native_context_menu = NativeContextMenu::new(&self.settings);
+        #[cfg(debug_assertions)]
+        if let Some(menu) = self.native_context_menu.as_ref() {
+            menu.sync_developer_controls(&self.update_check);
+        }
+        self.sync_update_menu_state();
+        self.sync_analytics_menu_state();
+        self.sync_tray_menu();
     }
 
     fn sync_update_state_to_webview(&self) {
@@ -707,6 +807,12 @@ impl App {
             "update_show_badge": self.updates.should_show_badge(),
             "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
             "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
+            "follow_cursor_active": self.follow_cursor_active,
+            "follow_cursor_available": self.follow_cursor_supported,
+            "follow_cursor_unavailable_reason": self.follow_cursor_unavailable_reason,
+            "artwork_size": self.artwork_size_for_window(),
+            "follow_cursor_halo_size": FOLLOW_CURSOR_HALO_SIZE_LOGICAL,
+            "follow_cursor_window_size": FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
         }));
     }
 
@@ -1218,12 +1324,222 @@ impl App {
           "update_show_badge": self.updates.should_show_badge(),
           "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
+          "follow_cursor_active": self.follow_cursor_active,
+          "follow_cursor_available": self.follow_cursor_supported,
+          "follow_cursor_unavailable_reason": self.follow_cursor_unavailable_reason,
           "update_tooltip": UPDATE_TOOLTIP,
-          "artwork_size": self.settings.size,
+          "artwork_size": self.artwork_size_for_window(),
+          "follow_cursor_halo_size": FOLLOW_CURSOR_HALO_SIZE_LOGICAL,
+          "follow_cursor_window_size": FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL,
           "size_presets": size_presets,
            "use_native_menu": native_menu_available(),
         });
         format!("window.__BB_INIT__ = {payload};")
+    }
+
+    fn current_window_physical_position(&self) -> Option<PhysicalPosition<i32>> {
+        self.window.as_ref()?.outer_position().ok()
+    }
+
+    fn follow_monitor(monitor: &MonitorHandle) -> FollowMonitor {
+        FollowMonitor {
+            // winit does not expose a platform-independent work-area API. Use
+            // the monitor bounds for this prototype; platform-specific work
+            // areas can be added with the future tray/control-plane work.
+            work_area: ScreenRect::from_monitor(monitor),
+            scale_factor: monitor.scale_factor(),
+        }
+    }
+
+    fn follow_placement_for_cursor(
+        &self,
+        event_loop: &ActiveEventLoop,
+        cursor: CursorPosition,
+    ) -> Option<FollowPlacement> {
+        let monitors = event_loop.available_monitors().collect::<Vec<_>>();
+        if monitors.is_empty() {
+            return None;
+        }
+
+        let physical_cursor = match cursor.space {
+            CoordinateSpace::Physical => {
+                if !cursor.x.is_finite() || !cursor.y.is_finite() {
+                    return None;
+                }
+                PhysicalPosition::new(cursor.x.round() as i32, cursor.y.round() as i32)
+            }
+            CoordinateSpace::Logical => {
+                if !cursor.x.is_finite() || !cursor.y.is_finite() {
+                    return None;
+                }
+                let logical_cursor = LogicalPoint::new(cursor.x, cursor.y);
+                monitors
+                    .iter()
+                    .find_map(|monitor| {
+                        let snapshot = snapshot_monitor(monitor);
+                        if !snapshot.contains_logical(logical_cursor) {
+                            return None;
+                        }
+                        let physical = logical_cursor_to_physical(logical_cursor, &snapshot)?;
+                        Some(PhysicalPosition::new(physical.x, physical.y))
+                    })
+                    .or_else(|| {
+                        let monitor = self
+                            .window
+                            .as_ref()
+                            .and_then(|window| window.current_monitor())
+                            .or_else(|| event_loop.primary_monitor())
+                            .or_else(|| monitors.first().cloned())?;
+                        let snapshot = snapshot_monitor(&monitor);
+                        let physical = logical_cursor_to_physical(logical_cursor, &snapshot)?;
+                        Some(PhysicalPosition::new(physical.x, physical.y))
+                    })?
+            }
+        };
+
+        let monitor = monitors
+            .iter()
+            .find(|monitor| ScreenRect::from_monitor(monitor).contains(physical_cursor))
+            .or_else(|| {
+                self.window
+                    .as_ref()
+                    .and_then(|window| window.current_monitor())
+                    .as_ref()
+                    .and_then(|current| {
+                        monitors.iter().find(|monitor| {
+                            monitor.position() == current.position()
+                                && monitor.size() == current.size()
+                        })
+                    })
+            })
+            .or_else(|| monitors.first())?;
+
+        Some(FollowPlacement {
+            cursor: physical_cursor,
+            monitor: Self::follow_monitor(monitor),
+        })
+    }
+
+    fn follow_window_position(&self, placement: FollowPlacement) -> PhysicalPosition<i32> {
+        let artwork_size = self.artwork_size_for_window();
+        let target_dimensions =
+            self.animation_window_dimensions_for(artwork_size, self.animation_bounds);
+        let window_center = LogicalPosition::new(
+            target_dimensions.width / 2.0,
+            target_dimensions.height / 2.0,
+        );
+        follow_window_origin(
+            placement.cursor,
+            placement.monitor.work_area,
+            placement.monitor.scale_factor,
+            target_dimensions,
+            window_center,
+        )
+    }
+
+    fn position_follow_cursor(&mut self, placement: FollowPlacement) {
+        let next_position = self.follow_window_position(placement);
+        self.follow_cursor_placement = Some(placement);
+        if self.current_window_physical_position() != Some(next_position) {
+            if let Some(window) = self.window.as_ref() {
+                set_outer_position_physical(window, next_position);
+            }
+        }
+    }
+
+    fn poll_follow_cursor(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.follow_cursor_active {
+            return;
+        }
+        let sample = match self.cursor_source.as_mut() {
+            Some(source) => source.sample(),
+            None => Err(CursorError::Unavailable(
+                "cursor following has no cursor provider",
+            )),
+        };
+        let sample = match sample {
+            Ok(sample) => sample,
+            Err(error) => {
+                log_stderr!("warning: cursor following stopped: {error}");
+                self.set_follow_cursor(event_loop, false);
+                return;
+            }
+        };
+        let Some(placement) = self.follow_placement_for_cursor(event_loop, sample) else {
+            log_stderr!("warning: cursor following stopped: unable to locate the active monitor");
+            self.set_follow_cursor(event_loop, false);
+            return;
+        };
+        self.position_follow_cursor(placement);
+    }
+
+    fn set_follow_cursor(&mut self, event_loop: &ActiveEventLoop, enabled: bool) {
+        if enabled {
+            if self.follow_cursor_active {
+                return;
+            }
+            if !self.follow_cursor_supported {
+                log_stderr!(
+                    "warning: follow cursor requested but {}",
+                    self.follow_cursor_unavailable_reason
+                );
+                return;
+            }
+            let sample = match self.cursor_source.as_mut() {
+                Some(source) => match source.sample() {
+                    Ok(sample) => sample,
+                    Err(error) => {
+                        log_stderr!("warning: cannot enable cursor following: {error}");
+                        return;
+                    }
+                },
+                None => {
+                    log_stderr!("warning: cannot enable cursor following without a provider");
+                    return;
+                }
+            };
+            let Some(placement) = self.follow_placement_for_cursor(event_loop, sample) else {
+                log_stderr!("warning: cannot enable cursor following without an active monitor");
+                return;
+            };
+            let previous_position = self.current_window_physical_position();
+            let Some(window) = self.window.as_ref() else {
+                return;
+            };
+            if let Err(error) = window.set_cursor_hittest(false) {
+                log_stderr!("warning: failed to make widget click-through: {error}");
+                return;
+            }
+            self.follow_cursor_previous_position = previous_position;
+            self.follow_cursor_active = true;
+            self.stop_manual_drag();
+            self.enforce_fixed_widget_size();
+            self.telemetry_follow_cursor_change(true);
+            self.sync_update_menu_state();
+            self.sync_update_state_to_webview();
+            self.position_follow_cursor(placement);
+            return;
+        }
+
+        if !self.follow_cursor_active {
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            if let Err(error) = window.set_cursor_hittest(true) {
+                log_stderr!("warning: failed to restore widget cursor hit testing: {error}");
+            }
+        }
+        self.follow_cursor_active = false;
+        self.follow_cursor_placement = None;
+        self.enforce_fixed_widget_size();
+        if let Some(previous_position) = self.follow_cursor_previous_position.take() {
+            if let Some(window) = self.window.as_ref() {
+                set_outer_position_physical(window, previous_position);
+            }
+        }
+        self.telemetry_follow_cursor_change(false);
+        self.sync_update_menu_state();
+        self.sync_update_state_to_webview();
     }
 
     fn apply_size(&mut self, size: f64) {
@@ -1233,14 +1549,35 @@ impl App {
         };
         let size = clamp_size(size);
         self.settings.size = size;
-        let target_dimensions = self.animation_window_dimensions_for(size, self.animation_bounds);
-        if let Some(physical) = resize_preserving_center(window, target_dimensions) {
-            self.settings.physical_x = Some(physical.x);
-            self.settings.physical_y = Some(physical.y);
+        let artwork_size = self.artwork_size_for_window();
+        let target_dimensions =
+            self.animation_window_dimensions_for(artwork_size, self.animation_bounds);
+        let old_dimensions = window.inner_size().to_logical::<f64>(window.scale_factor());
+        window.set_min_inner_size(Some(target_dimensions));
+        window.set_max_inner_size(Some(target_dimensions));
+        let _ = window.request_inner_size(target_dimensions);
+
+        if let Some(current_pos) = logical_outer_position(Some(window)) {
+            let center_x = current_pos.x + old_dimensions.width / 2.0;
+            let center_y = current_pos.y + old_dimensions.height / 2.0;
+            let next_x = (center_x - target_dimensions.width / 2.0).round() as i32;
+            let next_y = (center_y - target_dimensions.height / 2.0).round() as i32;
+            window.set_outer_position(LogicalPosition::new(next_x, next_y));
+            if !self.follow_cursor_active {
+                if let Ok(physical) = window.outer_position() {
+                    self.settings.physical_x = Some(physical.x);
+                    self.settings.physical_y = Some(physical.y);
+                }
+            }
         }
         self.apply_main_webview_state(serde_json::json!({
-            "artwork_size": size,
+            "artwork_size": artwork_size,
         }));
+        if self.follow_cursor_active {
+            if let Some(placement) = self.follow_cursor_placement {
+                self.position_follow_cursor(placement);
+            }
+        }
     }
 
     fn sync_breathing_pattern_to_webview(&self) {
@@ -1251,9 +1588,9 @@ impl App {
         }));
     }
 
-    fn sync_breathing_pattern_surfaces(&self) {
+    fn sync_breathing_pattern_surfaces(&mut self) {
         self.sync_breathing_pattern_to_webview();
-        self.sync_update_menu_state();
+        self.rebuild_native_context_menu();
         self.sync_breathing_pattern_editor_state();
     }
 
@@ -1548,6 +1885,9 @@ impl App {
     }
 
     fn update_position_from_physical(&mut self, physical: PhysicalPosition<i32>) {
+        if self.follow_cursor_active {
+            return;
+        }
         if let Some(window) = self.window.as_ref() {
             self.settings.physical_x = Some(physical.x);
             self.settings.physical_y = Some(physical.y);
@@ -1560,6 +1900,9 @@ impl App {
     }
 
     fn reset_widget(&mut self, event_loop: &ActiveEventLoop) {
+        if self.follow_cursor_active {
+            return;
+        }
         let monitor = self
             .window
             .as_ref()
@@ -1679,6 +2022,9 @@ impl App {
             }
             IpcCommand::DragTo { screen_x, screen_y } => self.drag_to(screen_x, screen_y),
             IpcCommand::EndDrag => self.stop_manual_drag(),
+            IpcCommand::SetFollowCursor { enabled } => {
+                self.set_follow_cursor(event_loop, enabled);
+            }
             IpcCommand::SetAnimationBounds {
                 x,
                 y,
@@ -1739,26 +2085,13 @@ impl App {
     }
 
     fn show_native_context_menu(&mut self, x: i32, y: i32) {
-        self.native_context_menu = NativeContextMenu::new(&self.settings);
+        self.rebuild_native_context_menu();
         let Some(menu) = self.native_context_menu.as_ref() else {
             return;
         };
-        #[cfg(debug_assertions)]
-        menu.sync_developer_controls(&self.update_check);
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        menu.sync_from_settings(
-            &self.settings,
-            self.current_size_presets(),
-            &self.updates.menu_label(),
-            self.updates.ignore_current_update_enabled(),
-            self.updates.is_ignoring_current_update(),
-        );
-        menu.sync_consent(
-            self.settings.usage_data_sharing,
-            self.settings.crash_reports_sharing,
-        );
         menu.show(window, x, y);
     }
 
@@ -1767,6 +2100,7 @@ impl App {
             MENU_ID_PAUSE => {
                 self.set_paused_from_user_action(!self.settings.paused);
             }
+            MENU_ID_FOLLOW_CURSOR => self.set_follow_cursor(event_loop, !self.follow_cursor_active),
             MENU_ID_SNOOZE_5 | MENU_ID_SNOOZE_10 | MENU_ID_SNOOZE_15 | MENU_ID_SNOOZE_30
             | MENU_ID_SNOOZE_60 => {
                 let Some(minutes) = snooze_minutes_for_menu_id(id) else {
@@ -1953,6 +2287,14 @@ impl ApplicationHandler<AppEvent> for App {
             }
         };
         let window_id = window.id();
+        let cursor_provider = CursorProvider::for_window(&window);
+        self.follow_cursor_supported = cursor_provider.is_supported();
+        self.follow_cursor_unavailable_reason = if self.follow_cursor_supported {
+            ""
+        } else {
+            cursor_provider.unavailable_reason()
+        };
+        self.cursor_source = Some(Box::new(cursor_provider));
         host::configure_created_window(&window);
         self.settings.monitor = window.current_monitor().as_ref().map(persisted_monitor);
 
@@ -2000,8 +2342,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
-        self.native_context_menu = NativeContextMenu::new(&self.settings);
-        self.sync_analytics_menu_state();
+        self.rebuild_native_context_menu();
         self.sync_update_surfaces();
         emit_startup_telemetry(
             &self.telemetry,
@@ -2017,6 +2358,20 @@ impl ApplicationHandler<AppEvent> for App {
                 }),
             );
             self.telemetry_install_first_run = false;
+        }
+        match create_tray_icon(self.native_context_menu.as_ref()) {
+            Ok(tray_icon) => self.tray_icon = tray_icon,
+            Err(error) => {
+                self.telemetry.track_error(
+                    EventName::AppError,
+                    serde_json::json!({
+                        "category": "tray_icon_create",
+                        "severity": "warn",
+                        "recoverable": true,
+                    }),
+                );
+                log_stderr!("warning: failed to create tray icon: {error}");
+            }
         }
         self.enforce_fixed_widget_size();
         self.sync_webview_bounds();
@@ -2042,6 +2397,17 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.handle_app_suspend();
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.follow_cursor_active {
+            self.poll_follow_cursor(event_loop);
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + FOLLOW_CURSOR_POLL_INTERVAL,
+            ));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
     }
 
     fn window_event(
@@ -2077,18 +2443,24 @@ impl ApplicationHandler<AppEvent> for App {
             }
             WindowEvent::Moved(position) => {
                 self.enforce_fixed_widget_size();
-                self.update_position_from_physical(position);
-                self.save_settings();
+                if !self.follow_cursor_active {
+                    self.update_position_from_physical(position);
+                    self.save_settings();
+                }
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = self.window.as_ref() {
                     let current_monitor = window.current_monitor();
-                    self.settings.monitor = current_monitor.as_ref().map(persisted_monitor);
+                    if !self.follow_cursor_active {
+                        self.settings.monitor = current_monitor.as_ref().map(persisted_monitor);
+                    }
                     if let Some(monitor) = current_monitor {
                         self.apply_size_presets_for_monitor(&monitor);
                     }
                 }
-                self.save_settings();
+                if !self.follow_cursor_active {
+                    self.save_settings();
+                }
             }
             WindowEvent::Resized(_) => {
                 self.enforce_fixed_widget_size();
@@ -2154,6 +2526,9 @@ impl ApplicationHandler<AppEvent> for App {
                     self.manual_update_check_in_flight = false;
                     self.set_update_dialog_mode_result();
                 }
+            }
+            AppEvent::TrayIconClicked => {
+                self.telemetry_menu_action(MenuAction::TrayMenu, None);
             }
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
         }
@@ -2250,6 +2625,7 @@ fn main() -> std::process::ExitCode {
         log_stderr!("warning: failed to install ctrl-c handler: {error}");
     }
     install_menu_event_handler(event_loop_proxy.clone());
+    install_tray_event_handler(event_loop_proxy.clone());
     let heartbeat_proxy = event_loop_proxy.clone();
     let heartbeat_interval = heartbeat_interval();
     std::thread::spawn(move || loop {
@@ -2605,6 +2981,44 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    fn follow_cursor_telemetry_emits_toggle_action_and_state() {
+        let root = telemetry_test_dir("follow-cursor");
+        std::env::set_var("DOWNSHIFT_TELEMETRY_DIR", &root);
+
+        let captured_events = Arc::new(Mutex::new(Vec::<Envelope>::new()));
+        let telemetry = RuntimeTelemetryClient::new_with_sinks(
+            telemetry_test_state(),
+            Box::new(CollectingSink {
+                events: captured_events.clone(),
+            }),
+            Box::new(NoopSink),
+        );
+
+        let app = App {
+            telemetry,
+            ..App::default()
+        };
+        app.telemetry_follow_cursor_change(true);
+        app.telemetry_follow_cursor_change(false);
+        app.telemetry.flush(Duration::from_millis(200));
+        app.telemetry.shutdown(Duration::from_millis(200));
+
+        let states = captured_events
+            .lock()
+            .expect("captured events lock")
+            .iter()
+            .filter(|event| event.event_name == EventName::MenuAction)
+            .filter(|event| event.properties["action"] == serde_json::json!("follow_cursor"))
+            .map(|event| event.properties["enabled"].as_bool())
+            .collect::<Vec<_>>();
+
+        assert_eq!(states, vec![Some(true), Some(false)]);
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn newer_version_detection_handles_v_prefix() {
         assert!(is_newer_version("v0.2.0", "0.1.5"));
         assert!(!is_newer_version("0.1.5", "0.1.5"));
@@ -2850,6 +3264,115 @@ mod tests {
         );
 
         assert_eq!(center, LogicalPosition::new(82.0, 82.0));
+    }
+
+    #[test]
+    fn follow_cursor_uses_rem_sized_artwork() {
+        let app = App {
+            animation_bounds: AnimationBounds {
+                x: 3.0,
+                y: 4.0,
+                width: 94.0,
+                height: 92.0,
+                badge_visible: true,
+            },
+            follow_cursor_active: true,
+            ..App::default()
+        };
+
+        let artwork_size = app.artwork_size_for_window();
+        let dimensions = app.animation_window_dimensions_for(artwork_size, app.animation_bounds);
+
+        assert_eq!(artwork_size, FOLLOW_CURSOR_ARTWORK_SIZE_LOGICAL);
+        assert_eq!(dimensions.width, FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL);
+        assert_eq!(dimensions.height, FOLLOW_CURSOR_WINDOW_SIZE_LOGICAL);
+        assert!(dimensions.height > artwork_size);
+    }
+
+    #[test]
+    fn follow_cursor_position_does_not_persist_manual_position() {
+        let mut app = App {
+            follow_cursor_active: true,
+            ..App::default()
+        };
+        app.settings.physical_x = Some(120);
+        app.settings.physical_y = Some(240);
+
+        app.update_position_from_physical(PhysicalPosition::new(900, 700));
+
+        assert_eq!(app.settings.physical_x, Some(120));
+        assert_eq!(app.settings.physical_y, Some(240));
+    }
+
+    #[test]
+    fn follow_cursor_blocks_manual_drag_ipc() {
+        let mut app = App {
+            follow_cursor_active: true,
+            ..App::default()
+        };
+
+        app.start_manual_drag(40, 60);
+
+        assert!(app.drag_anchor_window_pos.is_none());
+        assert!(app.drag_anchor_pointer_pos.is_none());
+    }
+
+    #[test]
+    fn follow_cursor_source_can_report_unsupported_platforms() {
+        struct FakeCursorSource {
+            sample: Result<CursorPosition, CursorError>,
+            supported: bool,
+            reason: &'static str,
+        }
+
+        impl CursorSource for FakeCursorSource {
+            fn sample(&mut self) -> Result<CursorPosition, CursorError> {
+                self.sample.clone()
+            }
+
+            fn is_supported(&self) -> bool {
+                self.supported
+            }
+
+            fn unavailable_reason(&self) -> &'static str {
+                self.reason
+            }
+        }
+
+        let wayland = FakeCursorSource {
+            sample: Err(CursorError::Unavailable(
+                "cursor following is unavailable on Wayland",
+            )),
+            supported: false,
+            reason: "cursor following is unavailable on Wayland",
+        };
+        assert!(!wayland.is_supported());
+        assert_eq!(
+            wayland.unavailable_reason(),
+            "cursor following is unavailable on Wayland"
+        );
+
+        let linux = FakeCursorSource {
+            sample: Err(CursorError::Unavailable(
+                "cursor following is unavailable on Linux",
+            )),
+            supported: false,
+            reason: "cursor following is unavailable on Linux",
+        };
+        assert!(!linux.is_supported());
+        assert_eq!(
+            linux.unavailable_reason(),
+            "cursor following is unavailable on Linux"
+        );
+    }
+
+    #[test]
+    fn follow_cursor_ui_assets_include_toggle_and_upright_artwork() {
+        let html = breath_html();
+        assert!(html.contains("cursor-halo"));
+        assert!(html.contains("menu-follow-cursor"));
+        assert!(html.contains("set_follow_cursor"));
+        assert!(!html.contains("100 - y"));
     }
 
     #[test]

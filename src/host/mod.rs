@@ -4,6 +4,7 @@ pub(crate) mod launch_at_login;
 pub(crate) mod menu;
 pub(crate) mod monitor;
 pub(crate) mod platform;
+pub(crate) mod tray;
 pub(crate) mod window;
 
 pub(crate) use common::{
@@ -20,7 +21,11 @@ pub(crate) use platform::{
 };
 
 pub(crate) use menu::{install_event_handler as install_menu_event_handler, NativeContextMenu};
+pub(crate) use tray::{
+    create_tray_icon, install_event_handler as install_tray_event_handler,
+    update_menu as update_tray_menu, TrayIconHandle,
+};
 pub(crate) use window::{
-    enforce_fixed_size, logical_outer_position, resize_preserving_center, set_outer_position,
-    set_outer_position_physical, set_visible, show_without_focus,
+    enforce_fixed_size, logical_outer_position, set_outer_position, set_outer_position_physical,
+    set_visible, show_without_focus,
 };
