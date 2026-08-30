@@ -304,7 +304,7 @@ main() {
   local fixed_window_width="$WINDOW_WIDTH"
   local fixed_window_height="$WINDOW_HEIGHT"
   local context_click_x=$((fixed_window_x + fixed_window_width / 2))
-  local context_click_y=$((fixed_window_y + fixed_window_height / 2))
+  local context_click_y=$((fixed_window_y + fixed_window_height - 6))
 
   log "pausing and resetting the widget through its native context menu"
   smoke_input right-click "$context_click_x" "$context_click_y"
@@ -322,7 +322,7 @@ main() {
   log "native reset restored the visible active widget"
   read_window_bounds || die "could not read the widget bounds after reset"
   local snooze_click_x=$((WINDOW_X + WINDOW_WIDTH / 2))
-  local snooze_click_y=$((WINDOW_Y + WINDOW_HEIGHT / 2))
+  local snooze_click_y=$((WINDOW_Y + WINDOW_HEIGHT - 6))
 
   log "snoozing the widget for five minutes through its native context menu"
   smoke_input right-click "$snooze_click_x" "$snooze_click_y"

@@ -205,6 +205,7 @@ case "right-click":
     let x = requireDouble(arguments, 1, "x coordinate")
     let y = requireDouble(arguments, 2, "y coordinate")
     postMouse(.rightMouseDown, x: x, y: y, button: .right)
+    Thread.sleep(forTimeInterval: 0.1)
     postMouse(.rightMouseUp, x: x, y: y, button: .right)
 
 case "key":
