@@ -204,7 +204,7 @@ smoke_follow_input() {
 
 smoke_input() {
   case "$1" in
-    move|tray-rect|tray-click|left-click)
+    move | tray-rect | tray-click | left-click)
       smoke_follow_input "$@"
       ;;
     *)
