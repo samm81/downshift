@@ -14,6 +14,7 @@ use crate::app_core::breathing_pattern_summary;
 use crate::app_core::{AppEvent, SNOOZE_PRESET_MINUTES};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::diagnostics;
+#[cfg(any(not(any(target_os = "macos", target_os = "windows")), debug_assertions))]
 use crate::update_check::UpdateCheckService;
 use downshift::Settings;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -102,10 +103,6 @@ pub(crate) struct NativeContextMenu {
     crash_off: CheckMenuItem,
     #[cfg(debug_assertions)]
     simulate_pending_update: CheckMenuItem,
-    #[cfg(debug_assertions)]
-    force_background_update_check: MenuItem,
-    #[cfg(debug_assertions)]
-    clear_update_notification_dismissed: MenuItem,
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -527,10 +524,6 @@ impl NativeContextMenu {
             crash_off,
             #[cfg(debug_assertions)]
             simulate_pending_update,
-            #[cfg(debug_assertions)]
-            force_background_update_check,
-            #[cfg(debug_assertions)]
-            clear_update_notification_dismissed,
         })
     }
 

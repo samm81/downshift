@@ -1,3 +1,4 @@
+#[cfg(debug_assertions)]
 use std::sync::Arc;
 
 const UPDATE_RELEASE_API_URL: &str =
