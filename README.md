@@ -1,356 +1,49 @@
-# downshift
+# [downshift](https://getdownshift.app)
 
-a tiny desktop breathing companion: one small animated geometric cue that gently expands and contracts to cue slower, steadier breathing while you work.
+**a quiet desktop breathing cue for steadier focus during long screen sessions**
 
-[![downshift demo clip](docs/assets/2026-05-25--demo--still.webp)](docs/assets/2026-05-25--demo--still.mp4)
+keep a small animated cue on screen to guide your breathing without interrupting work.
 
-full-resolution clip: [mp4](docs/assets/2026-05-25--demo--still.mp4) | [webm](docs/assets/2026-05-25--demo--still.webm)
+## demo
 
-## motivation
+see the interactive preview and current platform downloads at [getdownshift.app](https://getdownshift.app).
 
-when people focus on screens, they often unconsciously hold their breath or breathe shallowly (often called screen apnea). this project is meant to be a continuous, low-friction visual cue that nudges healthier breathing without interrupting flow.
+## install
 
-the default rhythm is **5.5 seconds in / 5.5 seconds out** (11-second cycle), inspired by breathing cadence guidance discussed in james nestor's _breath_.
+open [getdownshift.app/#download](https://getdownshift.app/#download) and download the installer for your platform.
 
-you can now open `breathing pattern…` from the widget context menu to switch between:
+## quickstart
 
-- `coherent breathing` (`5.5 / 0 / 5.5 / 0`)
-- `box breathing` (`4 / 4 / 4 / 4`)
-- `4-7-9` (`4 / 7 / 9 / 0`)
-- `custom`, with the option to save named presets
+1. install and open Downshift.
+2. leave the cue visible while you work. it expands for 5.5 seconds as you breathe in and contracts for 5.5 seconds as you breathe out.
+3. drag the cue to a comfortable position.
+4. open its context menu to pause, snooze, resize, or choose another breathing pattern.
 
-## principles
+## modes
 
-- **tiny footprint**: small, calm, always-there companion
-- **gentle over noisy**: subtle visual pacing, no aggressive prompts
-- **low friction**: zero setup, open and breathe
+- **coherent breathing:** breathe in for 5.5 seconds and out for 5.5 seconds.
+- **box breathing:** breathe in for 4 seconds, hold for 4, breathe out for 4, then hold for 4.
+- **4-7-9:** breathe in for 4 seconds, hold for 7, then breathe out for 9.
+- **custom:** set each phase and save named presets.
 
-## disclaimer
+## controls
 
-this is a wellness-oriented companion, not a medical device or medical advice.
+- **snooze:** hide the cue for 5, 10, 15, 30, 60, or custom minutes.
+- **follow cursor:** keep the cue near the pointer while you work.
+- **resize:** choose S (64px), M (96px), L (128px), or XL (160px), or scroll the cue to resize it.
+- **start at login:** launch Downshift automatically with your desktop.
 
-## development
+## privacy
 
-bootstrap flow (linux -> macos):
+Downshift runs without an account and does not use a camera, microphone, window titles, text, or browsing data. the native menu has separate controls for anonymous usage data and crash reports; see [telemetry.md](telemetry.md) for the current data inventory.
 
-```bash
-# step 1 (linux host)
-source .env
-./dev/linux/bootstrap-01.bash
+## requirements
 
-# step 2 (on the remote mac checkout)
-./dev/mac/bootstrap-02.bash
-```
+- **macOS:** 13 or later on Apple Silicon.
+- **Windows:** x64; the installer adds Microsoft Edge WebView2 when the runtime is missing.
 
-run the app locally:
+for local builds, tests, packaging, and release instructions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-```bash
-make run
-```
+## ai disclaimer
 
-preview the GitHub Pages site locally:
-
-```bash
-make pages-preview
-```
-
-then open <http://127.0.0.1:4173/>. The target builds and serves the same staging shape used by the
-GitHub Pages Actions workflow; press `Ctrl-C` to stop it. Set `PAGES_PREVIEW_PORT=4174` to use
-another port.
-
-enable launch at login:
-
-- open the widget context menu and toggle `start at login`
-- this writes a per-user macos `LaunchAgent` and takes effect on the next login
-
-reset saved position/settings before launching:
-
-```bash
-make run RESET=1
-```
-
-default macos config dir:
-
-- `~/Library/Application Support/downshift/`
-- `settings.toml` is stored there by default
-- `telemetry.toml` is stored there by default unless `DOWNSHIFT_TELEMETRY_DIR` overrides it
-
-telemetry build vars (alpha analytics):
-
-```bash
-export DOWNSHIFT_ENV='dev'
-export DOWNSHIFT_TELEMETRY_ENABLED=true
-export DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC='60'
-export DOWNSHIFT_BETTERSTACK_LOGS_TOKEN='...'
-export DOWNSHIFT_BETTERSTACK_LOGS_HOST='in.logs.betterstack.com'
-export DOWNSHIFT_BETTERSTACK_ERRORS_DSN='https://<token>@<host>/1'
-export DOWNSHIFT_BUILD_CHANNEL='alpha'
-```
-
-build-time app metadata:
-
-```bash
-export DOWNSHIFT_GITHUB_ISSUES_URL='https://github.com/samm81/downshift/issues'
-export DOWNSHIFT_SUPPORT_EMAIL='support@example.com'
-export DOWNSHIFT_DOWNLOAD_RELEASE_URL='https://github.com/samm81/downshift/releases/latest'
-```
-
-these values are compiled into the app binary via `option_env!`. changing them after the binary is built has no effect; rebuild the app to pick up new values.
-when `DOWNSHIFT_ENV=prod`, missing required build-time values fail the build in `build.rs`; they do not fail later at app startup.
-when `DOWNSHIFT_ENV=prod`, these build-time values are required:
-
-- `DOWNSHIFT_BUILD_CHANNEL`
-- `DOWNSHIFT_GITHUB_ISSUES_URL`
-- `DOWNSHIFT_SUPPORT_EMAIL`
-- `DOWNSHIFT_DOWNLOAD_RELEASE_URL`
-- `DOWNSHIFT_TELEMETRY_ENABLED`
-
-when telemetry is enabled for a prod build, these are also required:
-
-- `DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC`
-- `DOWNSHIFT_BETTERSTACK_LOGS_TOKEN`
-- `DOWNSHIFT_BETTERSTACK_LOGS_HOST`
-- `DOWNSHIFT_BETTERSTACK_ERRORS_DSN`
-
-breathing animation sync note:
-
-- the breathing cue is implemented in two places: app webview (`src/main.rs`, `BREATH_HTML`) and docs preview (`docs/styles.css`).
-- keep them aligned conceptually: the app now drives a four-phase pattern (`expand / expanded_hold / compress / compressed_hold`) from javascript, while the docs preview still shows the default coherent-breathing loop.
-
-## capture short demo webm (mac)
-
-capture a short motion clip of the running app and export a cropped webm:
-
-```bash
-./dev/mac/capture_demo_webm.bash 8
-```
-
-this writes artifacts under `logs/demo-capture-<timestamp>/`, including:
-
-- `downshift-demo.webm`
-- `raw.mp4`
-- `result.txt`
-
-requirements: macos desktop session with screen recording and Accessibility permissions enabled for terminal (`ffmpeg` is installed by `./dev/mac/bootstrap-02.bash`).
-
-## github actions gui smoke artifacts
-
-for artifact-based visual verification on github-hosted mac runners, run the `gui-smoke-macos` workflow from the actions tab.
-
-you can optionally provide a `release_tag` input to verify a specific draft or published release asset instead of the latest published release.
-
-it:
-
-- downloads the requested `Downshift-notarized-*.dmg` release asset from github, or the latest published one when `release_tag` is omitted
-- mounts the dmg and launches `Downshift.app` with `open`
-- fails if the app process or a visible app window does not appear
-- triggers the macos capture prompt with a warmup screenshot, waits briefly for the ui to settle, then captures a short screenshot sequence with `dev/mac/smoke_gui.bash`
-- exercises native widget-context-menu pause/reset and five-minute snooze/resume through a second launch
-- exercises the status-item menu and both status-item click paths, then enables follow-cursor mode through the native menu, verifies pointer movement, and disables it through the tray
-- crops the top menu bar out of each screenshot, then computes per-frame png diffs with ImageMagick `compare`
-- uploads `logs/latest-gui-smoke/` and the timestamped `logs/gui-smoke-*` directory as workflow artifacts
-
-the job summary includes the parsed smoke result, and the artifacts contain the screenshots plus `run.log` for manual review.
-
-## github actions quality tiers
-
-the repository uses three CI tiers:
-
-- `basic-quality` runs on every branch push and pull request update. it checks Rust formatting, library and integration tests, library and integration Clippy, and web, shell, markdown, and Pages tooling.
-- `full-quality` runs for pull requests targeting `main` or a release branch, for pushes to those protected branches, and manual dispatch. it builds and tests the native macOS and Windows targets, packages the platform artifacts, runs the available installer smoke checks, and reports a single `full quality gate` after both platforms pass.
-- `release` runs for `v*` tags or manual dispatch. it adds signed/notarized release packaging, artifact verification, macOS GUI smoke, Windows release checks, publishing, and the Pages release-manifest update.
-
-the Pages browser smoke workflow remains path-filtered because it only applies when Pages inputs change.
-
-configure `full quality gate` as a required status check in GitHub branch protection for `main` and release branches.
-
-the `release` workflow is the single tagged-release entry point. it creates one draft release, runs the reusable macos and windows release jobs, requires mac gui smoke plus windows installer smoke, and publishes only after both platform gates pass. macos notarization, stapling, and validation are completed inside the macos platform job; windows signing is conditional on the release environment having a certificate.
-
-## mac distribution (unsigned)
-
-minimum supported macOS for packaged app builds: `13.0`
-
-build local app bundle:
-
-```bash
-make app
-open dist/Downshift.app
-```
-
-build release archives:
-
-```bash
-make release
-```
-
-this creates:
-
-- `dist/Downshift-unsigned.zip`
-- `dist/Downshift-unsigned.dmg`
-- `dist/SHA256SUMS.txt`
-
-the `.dmg` now stages:
-
-- `Downshift.app`
-- `Applications -> /Applications`
-- a hidden Finder background image used for the drag-to-install window layout
-
-so users get the standard drag-`Downshift.app`-to-`Applications` install flow when they open the disk image.
-
-## Windows distribution (x64)
-
-The generic Cargo commands are host-native. On Windows, build and test locally with:
-
-```powershell
-cargo build --release
-cargo test
-```
-
-With GNU Make available, the recurring Windows workflows can be run as:
-
-```bash
-make verify-windows
-make build-windows-installer
-make smoke-windows
-make smoke-windows-vm
-```
-
-The VM target requires Windows Sandbox and automatically closes the disposable guest after the test completes. The PowerShell scripts below remain available when their individual options are needed.
-
-The macOS packaging targets pass the selected target explicitly. For example, on an Apple Silicon Mac:
-
-```bash
-make MACOS_TARGET=aarch64-apple-darwin app
-make MACOS_TARGET=aarch64-apple-darwin release
-```
-
-Build the unsigned Windows x64 installer from a Windows checkout with:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\windows\build-installer.ps1
-```
-
-The script builds `x86_64-pc-windows-msvc`, compiles `dist\windows\Downshift-Setup-<version>.exe` with Inno Setup, and writes `dist\windows\SHA256SUMS.txt`. Use `-SkipBuild` when iterating on the installer after a binary is already available. The installer uses a per-user install and runs the Microsoft Edge WebView2 Evergreen Bootstrapper only when WebView2 is not detected.
-
-For a signed build, provide all signing inputs; if the certificate path or password is omitted, the output remains unsigned:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\windows\build-installer.ps1 `
-  -SignCertificatePath C:\path\to\release.pfx `
-  -SignCertificatePassword $env:WINDOWS_SIGNING_PASSWORD `
-  -TimestampUrl http://timestamp.digicert.com
-```
-
-Never commit the certificate or its password. The script rejects partial signing configuration.
-
-For the unified GitHub release, configure these optional values in the protected `release` environment:
-
-- `WINDOWS_SIGNING_CERT_PFX_B64`: base64-encoded Authenticode `.pfx` certificate
-- `WINDOWS_SIGNING_CERT_PASSWORD`: password for that certificate
-- `WINDOWS_SIGNING_TIMESTAMP_URL`: optional Actions variable; defaults to `http://timestamp.digicert.com`
-
-When both Windows signing secrets are absent, the release produces an unsigned installer. If both are present, the workflow signs and verifies both the application and installer. Supplying only one fails the release clearly.
-
-For quick Windows iteration, run the host-native checks without packaging:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\windows\fast-check.ps1
-```
-
-Add `-Release` when a release build is also needed. The web portion uses `npm run check:windows`, which omits the Unix-only shell-tool checks while retaining UI formatting, JavaScript, CSS, and Markdown validation.
-
-Run the local scripted GUI smoke test with screenshots:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\windows\smoke-ui.ps1
-```
-
-The script performs the clicks and keystrokes itself, stores screenshots and logs under `logs\gui-smoke-windows-*`, checks the clipboard and launch-at-login registry entry, exercises snooze/resume and reset, both tray-menu click paths, follow-cursor movement, and tray-based disable, and restores the pre-test settings and registry state. The same script is intended for the clean Windows VM once the installer path is added.
-
-Run the scripted Inno installer smoke test locally to exercise the interactive wizard, installed-binary GUI path, silent install/uninstall, Start Menu shortcut, Add/Remove Programs entry, and cleanup:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\windows\smoke-installer.ps1
-```
-
-It performs the wizard clicks itself and stores wizard, app, and installer logs/screenshots under `logs\installer-smoke-windows-*`. Use `-SkipInteractive` for a faster silent install/uninstall-only iteration. Use `-SkipInstalledGui` in a non-rendering Windows session to retain wizard/install/uninstall coverage while leaving the installed-app GUI smoke for a local desktop or interactive VM.
-
-## mac distribution (signed + notarized dmg)
-
-required env vars:
-
-```bash
-# generate from your .p12 file as a single line:
-# base64 < developer-id.p12 | tr -d '\n' | pbcopy
-export MACOS_CERT_P12_B64='...'
-export MACOS_CERT_P12_PASSWORD='...'
-export MACOS_KEYCHAIN_PASSWORD='...'
-export MACOS_SIGNING_IDENTITY='Developer ID Application: Example, Inc. (TEAMID)'
-export MACOS_NOTARY_APPLE_ID='name@example.com'
-export MACOS_NOTARY_APP_PASSWORD='app-specific-password'
-export MACOS_NOTARY_TEAM_ID='TEAMID'
-```
-
-build signed + notarized release archives:
-
-```bash
-make release-notarized
-```
-
-this creates:
-
-- `dist/Downshift-signed.zip`
-- `dist/Downshift-notarized.dmg`
-- `dist/SHA256SUMS.txt`
-
-## versioning and tag sync
-
-rust stores the app version in `Cargo.toml` under `[package].version`.
-
-`make release` reads version from `Cargo.toml` and writes it into the app bundle `Info.plist`.
-
-to enforce that a git tag matches the cargo version, pass `TAG`:
-
-Prerelease tags use the same exact mapping, for example Cargo version `0.2.0-rc.1` uses tag `v0.2.0-rc.1`.
-
-```bash
-make release TAG=v0.1.0
-```
-
-with `TAG` set, the release archives include the version in the filename:
-
-- `dist/Downshift-unsigned-v0.1.0.zip`
-- `dist/Downshift-unsigned-v0.1.0.dmg`
-
-for notarized releases, filenames are:
-
-- `dist/Downshift-signed-v0.1.0.zip`
-- `dist/Downshift-notarized-v0.1.0.dmg`
-
-this fails if:
-
-- tag is `v0.1.0` but `Cargo.toml` version is not `0.1.0`
-
-recommended release sequence:
-
-```bash
-# 1) bump cargo version first
-# edit Cargo.toml -> version = "0.1.0"
-
-# 2) verify repo state
-make verify-release
-
-# 3) commit and push the version tag; the unified workflow builds both platforms
-git add Cargo.toml Cargo.lock Makefile README.md
-git commit -m "release v0.1.0"
-git tag -a v0.1.0 -m "release v0.1.0"
-git push origin <branch>
-git push origin v0.1.0
-
-# 4) wait for the unified release workflow
-# or run the `release` workflow manually with an existing tag from the Actions tab
-```
-
-when the tag-triggered `release` workflow runs, it creates the github release as a draft first and lets github generate release notes automatically. the draft is published only after the macos build, notarization, stapling, mac gui smoke, windows build, conditional signing, installer packaging, and installer smoke gates all pass.
-
-the published github release includes the notarized dmg, the windows installer, and one combined `SHA256SUMS.txt`. the signed macos zip, intermediate workflow artifacts, and notarization submission id stay workflow-internal.
+completely vibecoded.
