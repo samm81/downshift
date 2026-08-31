@@ -32,8 +32,7 @@ use host::{
     create_fixed_child_window, create_main_window, create_tray_icon, current_os_version,
     enforce_fixed_size, focus_existing_child_window, install_menu_event_handler,
     install_tray_event_handler, logical_outer_position, native_menu_available, open_external_url,
-    persisted_monitor, set_outer_position, set_outer_position_physical, set_visible,
-    show_without_focus, snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
+    persisted_monitor, snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
     update_tray_menu, TrayIconHandle,
 };
 use std::panic::PanicHookInfo;
@@ -79,12 +78,8 @@ fn spawn_update_check(
     proxy: EventLoopProxy<AppEvent>,
     update_check: UpdateCheckService,
     source: UpdateCheckSource,
-    delay_sec: u64,
 ) {
     std::thread::spawn(move || {
-        if delay_sec > 0 {
-            std::thread::sleep(Duration::from_secs(delay_sec));
-        }
         let result = update_check.check();
         let _ = proxy.send_event(AppEvent::UpdateCheckFinished(result, source));
     });
@@ -471,7 +466,7 @@ impl App {
     }
 
     fn reconcile_launch_at_login(&mut self) {
-        if let Err(error) = host::reconcile_launch_at_login(self.settings.launch_at_login) {
+        if let Err(error) = host::set_launch_at_login(self.settings.launch_at_login) {
             log_stderr!("warning: failed to reconcile launch-at-login setting: {error}");
         }
     }
@@ -656,7 +651,7 @@ impl App {
             (anchor_pointer.x, anchor_pointer.y),
             (screen_x as f64, screen_y as f64),
         );
-        set_outer_position(window, LogicalPosition::new(next_x, next_y));
+        window.set_outer_position(LogicalPosition::new(next_x, next_y));
     }
 
     fn stop_manual_drag(&mut self) {
@@ -774,7 +769,7 @@ impl App {
                 &self.settings,
                 self.current_size_presets(),
                 &self.updates.menu_label(),
-                self.updates.ignore_current_update_enabled(),
+                self.updates.has_update_available(),
                 self.updates.is_ignoring_current_update(),
                 self.follow_cursor_active,
                 self.follow_cursor_supported,
@@ -803,7 +798,7 @@ impl App {
             "update_menu_label": self.updates.menu_label(),
             "update_has_new_version": self.updates.has_update_available(),
             "update_show_badge": self.updates.should_show_badge(),
-            "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
+            "update_ignore_current_enabled": self.updates.has_update_available(),
             "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
             "follow_cursor_active": self.follow_cursor_active,
             "follow_cursor_available": self.follow_cursor_supported,
@@ -1026,12 +1021,7 @@ impl App {
             self.updates.checking = false;
             return;
         };
-        spawn_update_check(
-            proxy,
-            self.update_check.clone(),
-            UpdateCheckSource::Manual,
-            0,
-        );
+        spawn_update_check(proxy, self.update_check.clone(), UpdateCheckSource::Manual);
     }
 
     #[cfg(debug_assertions)]
@@ -1043,7 +1033,6 @@ impl App {
             proxy,
             self.update_check.clone(),
             UpdateCheckSource::Background,
-            0,
         );
     }
 
@@ -1320,7 +1309,7 @@ impl App {
           "update_menu_label": self.updates.menu_label(),
           "update_has_new_version": self.updates.has_update_available(),
           "update_show_badge": self.updates.should_show_badge(),
-          "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
+            "update_ignore_current_enabled": self.updates.has_update_available(),
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "follow_cursor_active": self.follow_cursor_active,
           "follow_cursor_available": self.follow_cursor_supported,
@@ -1440,7 +1429,7 @@ impl App {
         self.follow_cursor_placement = Some(placement);
         if self.current_window_physical_position() != Some(next_position) {
             if let Some(window) = self.window.as_ref() {
-                set_outer_position_physical(window, next_position);
+                window.set_outer_position(next_position);
             }
         }
     }
@@ -1532,7 +1521,7 @@ impl App {
         self.enforce_fixed_widget_size();
         if let Some(previous_position) = self.follow_cursor_previous_position.take() {
             if let Some(window) = self.window.as_ref() {
-                set_outer_position_physical(window, previous_position);
+                window.set_outer_position(previous_position);
             }
         }
         self.telemetry_follow_cursor_change(false);
@@ -1693,7 +1682,7 @@ impl App {
 
     fn sync_window_visibility(&self) {
         if let Some(window) = self.window.as_ref() {
-            set_visible(window, self.activity_mode != ActivityMode::Snoozed);
+            window.set_visible(self.activity_mode != ActivityMode::Snoozed);
         }
     }
 
@@ -1767,7 +1756,7 @@ impl App {
 
     fn show_main_window_without_focus(&self) {
         if let Some(window) = self.window.as_ref() {
-            show_without_focus(window);
+            window.set_visible(true);
         }
     }
 
@@ -1923,7 +1912,7 @@ impl App {
                 let policy_position =
                     default_corner_position(&monitor_snapshot, self.settings.size);
                 let pos = PhysicalPosition::new(policy_position.x, policy_position.y);
-                set_outer_position_physical(window, pos);
+                window.set_outer_position(pos);
                 self.settings.physical_x = Some(pos.x);
                 self.settings.physical_y = Some(pos.y);
                 self.settings.monitor = Some(monitor_snapshot.persisted());
@@ -3024,7 +3013,6 @@ mod tests {
         };
 
         assert!(!state.should_show_badge_at(10_000));
-        assert!(state.ignore_current_update_enabled());
         assert!(state.is_ignoring_current_update());
     }
 
@@ -3118,13 +3106,10 @@ mod tests {
     }
 
     #[test]
-    fn instance_command_round_trips() {
-        assert_eq!(
-            InstanceCommand::parse("activate\n"),
-            Some(InstanceCommand::Activate)
-        );
-        assert_eq!(InstanceCommand::Activate.as_bytes(), b"activate\n");
-        assert_eq!(InstanceCommand::parse("nope"), None);
+    fn instance_message_round_trips() {
+        assert!(instance_message_is_activate("activate\n"));
+        assert_eq!(INSTANCE_ACTIVATE_MESSAGE.as_bytes(), b"activate\n");
+        assert!(!instance_message_is_activate("nope"));
     }
 
     #[cfg(unix)]

@@ -1,26 +1,10 @@
-use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
+use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::window::Window;
 
 pub(crate) fn logical_outer_position(window: Option<&Window>) -> Option<LogicalPosition<f64>> {
     let window = window?;
     let physical = window.outer_position().ok()?;
     Some(physical.to_logical(window.scale_factor()))
-}
-
-pub(crate) fn set_outer_position(window: &Window, position: LogicalPosition<i32>) {
-    window.set_outer_position(position);
-}
-
-pub(crate) fn set_outer_position_physical(window: &Window, position: PhysicalPosition<i32>) {
-    window.set_outer_position(position);
-}
-
-pub(crate) fn set_visible(window: &Window, visible: bool) {
-    window.set_visible(visible);
-}
-
-pub(crate) fn show_without_focus(window: &Window) {
-    window.set_visible(true);
 }
 
 pub(crate) fn enforce_fixed_size(window: &Window, target_dimensions: LogicalSize<f64>) {

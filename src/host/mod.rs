@@ -12,7 +12,7 @@ pub(crate) use common::{
     sync_child_webview_bounds, sync_main_webview_bounds,
 };
 pub(crate) use instance::{start as start_instance, InstanceStart};
-pub(crate) use launch_at_login::{reconcile_launch_at_login, set_launch_at_login};
+pub(crate) use launch_at_login::set_launch_at_login;
 pub(crate) use monitor::{persisted_monitor, snapshot_monitor};
 pub(crate) use platform::{
     build_main_webview, configure_created_window, configure_event_loop_builder,
@@ -25,7 +25,4 @@ pub(crate) use tray::{
     create_tray_icon, install_event_handler as install_tray_event_handler,
     update_menu as update_tray_menu, TrayIconHandle,
 };
-pub(crate) use window::{
-    enforce_fixed_size, logical_outer_position, set_outer_position, set_outer_position_physical,
-    set_visible, show_without_focus,
-};
+pub(crate) use window::{enforce_fixed_size, logical_outer_position};

@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use winit::event_loop::EventLoopProxy;
 
-use crate::app_core::{AppEvent, InstanceCommand};
+use crate::app_core::{instance_message_is_activate, AppEvent, INSTANCE_ACTIVATE_MESSAGE};
 
 pub(crate) enum InstanceStart {
     Primary(InstanceGuard),
@@ -27,7 +27,7 @@ pub(crate) fn start(proxy: EventLoopProxy<AppEvent>) -> Result<InstanceStart, St
     #[cfg(unix)]
     {
         if let Some(path) = instance_socket_path() {
-            if connect_to_existing_instance(&path, InstanceCommand::Activate) {
+            if connect_to_existing_instance(&path) {
                 return Ok(InstanceStart::AlreadyRunning);
             }
             if let Err(error) = spawn_instance_server(path, proxy.clone()) {
@@ -73,14 +73,16 @@ fn instance_socket_path() -> Option<std::path::PathBuf> {
 }
 
 #[cfg(unix)]
-fn connect_to_existing_instance(path: &std::path::Path, command: InstanceCommand) -> bool {
+fn connect_to_existing_instance(path: &std::path::Path) -> bool {
     use std::io::Write;
     use std::os::unix::net::UnixStream;
 
     let Ok(mut stream) = UnixStream::connect(path) else {
         return false;
     };
-    stream.write_all(command.as_bytes()).is_ok()
+    stream
+        .write_all(INSTANCE_ACTIVATE_MESSAGE.as_bytes())
+        .is_ok()
 }
 
 #[cfg(unix)]
@@ -95,7 +97,7 @@ fn spawn_instance_server(
         std::fs::create_dir_all(parent)?;
     }
     if path.exists() {
-        match connect_to_existing_instance(&path, InstanceCommand::Activate) {
+        match connect_to_existing_instance(&path) {
             true => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::AddrInUse,
@@ -117,10 +119,7 @@ fn spawn_instance_server(
             if stream.read_to_string(&mut buffer).is_err() {
                 continue;
             }
-            if matches!(
-                InstanceCommand::parse(&buffer),
-                Some(InstanceCommand::Activate)
-            ) {
+            if instance_message_is_activate(&buffer) {
                 let _ = proxy.send_event(AppEvent::InstanceActivate);
             }
         }
@@ -142,7 +141,7 @@ fn windows_wide(value: &str) -> Vec<u16> {
 }
 
 #[cfg(target_os = "windows")]
-fn connect_to_existing_windows_instance(pipe_name: &str, command: InstanceCommand) -> bool {
+fn connect_to_existing_windows_instance(pipe_name: &str) -> bool {
     use windows_sys::Win32::Foundation::{GetLastError, ERROR_PIPE_BUSY, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
         CreateFileW, WriteFile, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -164,7 +163,7 @@ fn connect_to_existing_windows_instance(pipe_name: &str, command: InstanceComman
             )
         };
         if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
-            let bytes = command.as_bytes();
+            let bytes = INSTANCE_ACTIVATE_MESSAGE.as_bytes();
             let mut written = 0u32;
             let result = unsafe {
                 WriteFile(
@@ -243,10 +242,8 @@ fn spawn_windows_instance_server(
                 } != 0;
                 if ok {
                     let command = String::from_utf8_lossy(&buffer[..read as usize]);
-                    if matches!(
-                        InstanceCommand::parse(&command),
-                        Some(InstanceCommand::Activate)
-                    ) && proxy.send_event(AppEvent::InstanceActivate).is_err()
+                    if instance_message_is_activate(&command)
+                        && proxy.send_event(AppEvent::InstanceActivate).is_err()
                     {
                         unsafe {
                             let _ = windows_sys::Win32::Foundation::CloseHandle(pipe);
@@ -286,7 +283,7 @@ fn start_windows_instance(proxy: EventLoopProxy<AppEvent>) -> Result<InstanceSta
         unsafe {
             let _ = windows_sys::Win32::Foundation::CloseHandle(mutex);
         }
-        let _ = connect_to_existing_windows_instance(&pipe_name, InstanceCommand::Activate);
+        let _ = connect_to_existing_windows_instance(&pipe_name);
         return Ok(InstanceStart::AlreadyRunning);
     }
 

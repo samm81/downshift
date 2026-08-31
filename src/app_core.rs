@@ -58,24 +58,10 @@ pub(crate) enum ActivityMode {
     Snoozed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum InstanceCommand {
-    Activate,
-}
+pub(crate) const INSTANCE_ACTIVATE_MESSAGE: &str = "activate\n";
 
-impl InstanceCommand {
-    pub(crate) fn as_bytes(self) -> &'static [u8] {
-        match self {
-            Self::Activate => b"activate\n",
-        }
-    }
-
-    pub(crate) fn parse(input: &str) -> Option<Self> {
-        match input.trim() {
-            "activate" => Some(Self::Activate),
-            _ => None,
-        }
-    }
+pub(crate) fn instance_message_is_activate(input: &str) -> bool {
+    input.trim() == INSTANCE_ACTIVATE_MESSAGE.trim()
 }
 
 #[derive(Debug, Clone)]
@@ -116,10 +102,6 @@ impl UpdateUiState {
             return false;
         };
         self.ignored_version.as_deref() == Some(latest.as_str())
-    }
-
-    pub(crate) fn ignore_current_update_enabled(&self) -> bool {
-        self.has_update_available()
     }
 
     pub(crate) fn should_show_badge(&self) -> bool {
@@ -344,10 +326,6 @@ pub(crate) fn breathing_pattern_payload(pattern: &BreathingPattern) -> serde_jso
         "compressed_hold_seconds": pattern.compressed_hold_seconds,
         "total_seconds": breathing_pattern_total_seconds(pattern),
     })
-}
-
-pub(crate) fn breathing_pattern_menu_label() -> String {
-    "breathing pattern".to_string()
 }
 
 pub(crate) fn size_target_label(size_slot: usize) -> Option<&'static str> {

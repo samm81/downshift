@@ -10,7 +10,7 @@ use winit::event_loop::EventLoopProxy;
 use winit::window::Window;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-use crate::app_core::{breathing_pattern_menu_label, breathing_pattern_summary};
+use crate::app_core::breathing_pattern_summary;
 use crate::app_core::{AppEvent, SNOOZE_PRESET_MINUTES};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::diagnostics;
@@ -463,7 +463,7 @@ impl NativeContextMenu {
         breathing_items.push(&breathing_delete_menu);
         let breathing_menu = match Submenu::with_id_and_items(
             MENU_ID_BREATHING_PATTERN,
-            breathing_pattern_menu_label(),
+            "breathing pattern",
             true,
             &breathing_items,
         ) {
@@ -591,14 +591,6 @@ impl NativeContextMenu {
         });
         self.follow_cursor.set_enabled(follow_cursor_available);
         self.launch_at_login.set_checked(settings.launch_at_login);
-        self.launch_at_login.set_enabled(true);
-        self.snooze_menu.set_enabled(true);
-        self.snooze_5.set_enabled(true);
-        self.snooze_10.set_enabled(true);
-        self.snooze_15.set_enabled(true);
-        self.snooze_30.set_enabled(true);
-        self.snooze_60.set_enabled(true);
-        self.snooze_custom.set_enabled(true);
         self.size_menu
             .set_text(format!("size ({}px)", settings.size.round() as i32));
         self.size_s
@@ -610,7 +602,7 @@ impl NativeContextMenu {
         self.size_xl
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.size_scroll_hint.set_enabled(false);
-        self.breathing_menu.set_text(breathing_pattern_menu_label());
+        self.breathing_menu.set_text("breathing pattern");
         self.breathing_coherent
             .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_COHERENT);
         self.breathing_box
@@ -622,25 +614,11 @@ impl NativeContextMenu {
         }
         self.breathing_delete_menu
             .set_enabled(!self.breathing_delete_items.is_empty());
-        self.reset.set_enabled(true);
-        self.quit.set_enabled(true);
-        self.update_menu.set_enabled(true);
         self.update_primary.set_text(update_label);
-        self.update_primary.set_enabled(true);
         self.update_ignore_current
             .set_enabled(update_ignore_enabled);
         self.update_ignore_current
             .set_checked(update_ignore_checked);
-        #[cfg(debug_assertions)]
-        {
-            self.force_background_update_check.set_enabled(true);
-            self.clear_update_notification_dismissed.set_enabled(true);
-        }
-        self.bugs_menu.set_enabled(true);
-        self.copy_diagnostics.set_enabled(true);
-        self.file_bug_github.set_enabled(true);
-        self.file_bug_email.set_enabled(true);
-        self.analytics_menu.set_enabled(true);
     }
 
     pub(crate) fn clone_for_tray(&self) -> Box<dyn muda::ContextMenu> {
