@@ -47,6 +47,10 @@ pub(crate) fn focus_existing_child_window(window: Option<&HostWindow>) -> bool {
 
 pub(crate) fn clear_child_window(window: &mut Option<HostWindow>, webview: &mut Option<WebView>) {
     *webview = None;
+    #[cfg(target_os = "linux")]
+    if let Some(window) = window.as_ref() {
+        window.close();
+    }
     *window = None;
 }
 

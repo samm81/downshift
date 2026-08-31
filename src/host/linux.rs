@@ -207,16 +207,18 @@ impl HostWindow {
 
         let layer_shell = if backend == LinuxWindowBackend::WaylandLayerShell {
             match layer_shell_api {
-                Some(layer_shell) => match layer_shell.configure(&gtk_window, placement) {
-                    Ok(()) => Some(layer_shell),
-                    Err(error) => {
-                        backend = LinuxWindowBackend::WaylandNormal;
-                        fallback_reason = Some(format!(
+                Some(layer_shell) => {
+                    match layer_shell.configure(&gtk_window, placement, &available_monitors) {
+                        Ok(()) => Some(layer_shell),
+                        Err(error) => {
+                            backend = LinuxWindowBackend::WaylandNormal;
+                            fallback_reason = Some(format!(
                             "layer-shell configuration failed ({error}); using a regular Wayland window"
                         ));
-                        None
+                            None
+                        }
                     }
-                },
+                }
                 None => {
                     backend = LinuxWindowBackend::WaylandNormal;
                     fallback_reason = Some(
@@ -381,6 +383,13 @@ impl HostWindow {
         }
     }
 
+    pub(crate) fn close(&self) {
+        // The host owns this GTK window and closes it on the GTK main thread.
+        unsafe {
+            self.gtk_window.destroy();
+        }
+    }
+
     pub(crate) fn focus_window(&self) {
         self.gtk_window.present();
         self.gtk_window.grab_focus();
@@ -429,7 +438,6 @@ impl HostWindow {
         &self.winit_window
     }
 
-    #[allow(dead_code)]
     pub(crate) fn has_layer_shell(&self) -> bool {
         self.layer_shell.is_some()
     }
@@ -494,7 +502,8 @@ fn linux_mode_label(mode: LinuxWindowMode) -> &'static str {
 fn layer_shell_drag_verified() -> bool {
     // Keep the optional protocol behind the compositor smoke matrix until
     // native movement, output changes, resize, and fallback are verified.
-    false
+    std::env::var("DOWNSHIFT_ENV").as_deref() == Ok("smoke")
+        && std::env::var("DOWNSHIFT_LINUX_SMOKE_LAYER_SHELL_VERIFIED").as_deref() == Ok("1")
 }
 
 pub(crate) fn build_webview(
@@ -629,12 +638,29 @@ where
 fn gdk_monitor_for_placement(
     window: &gtk::Window,
     placement: &LinuxOutputPlacement,
+    available_monitors: &[winit::monitor::MonitorHandle],
 ) -> Option<gtk::gdk::Monitor> {
     let display = window.display();
     let monitors = (0..display.n_monitors())
         .filter_map(|index| display.monitor(index))
         .collect::<Vec<_>>();
     if let Some(name) = placement.output_name.as_deref() {
+        if let Some(winit_monitor) = available_monitors
+            .iter()
+            .find(|monitor| monitor.name().as_deref() == Some(name))
+        {
+            let position = winit_monitor.position();
+            let size = winit_monitor.size();
+            if let Some(monitor) = monitors.iter().find(|monitor| {
+                let geometry = monitor.geometry();
+                geometry.x() == position.x
+                    && geometry.y() == position.y
+                    && geometry.width().max(0) as u32 == size.width
+                    && geometry.height().max(0) as u32 == size.height
+            }) {
+                return Some(monitor.clone());
+            }
+        }
         if let Some(monitor) = monitors
             .iter()
             .find(|monitor| monitor.model().is_some_and(|model| model.as_str() == name))
@@ -665,7 +691,9 @@ fn gdk_monitor_ptr(monitor: Option<&gtk::gdk::Monitor>) -> *mut c_void {
 }
 
 struct LayerShellApi {
-    handle: *mut c_void,
+    // Keep gtk-layer-shell loaded after capability probing. It registers
+    // GDK/Wayland state that must outlive a fallback window.
+    _handle: *mut c_void,
     is_supported_fn: unsafe extern "C" fn() -> i32,
     init_for_window_fn: unsafe extern "C" fn(*mut c_void),
     set_monitor_fn: unsafe extern "C" fn(*mut c_void, *mut c_void),
@@ -678,6 +706,9 @@ struct LayerShellApi {
 
 impl LayerShellApi {
     fn load() -> Option<Self> {
+        if std::env::var("DOWNSHIFT_LINUX_DISABLE_LAYER_SHELL").as_deref() == Ok("1") {
+            return None;
+        }
         let handle = [
             b"libgtk-layer-shell.so.0\0".as_slice(),
             b"libgtk-layer-shell.so\0",
@@ -736,7 +767,7 @@ impl LayerShellApi {
             return None;
         };
         Some(Self {
-            handle,
+            _handle: handle,
             is_supported_fn,
             init_for_window_fn,
             set_monitor_fn,
@@ -756,6 +787,7 @@ impl LayerShellApi {
         &self,
         window: &gtk::Window,
         placement: Option<&LinuxOutputPlacement>,
+        available_monitors: &[winit::monitor::MonitorHandle],
     ) -> Result<(), String> {
         if !self.is_supported() {
             return Err("the compositor does not support gtk-layer-shell".to_string());
@@ -775,7 +807,7 @@ impl LayerShellApi {
             margin_x: DEFAULT_MARGIN,
             margin_y: DEFAULT_MARGIN,
         });
-        let monitor = gdk_monitor_for_placement(window, &placement);
+        let monitor = gdk_monitor_for_placement(window, &placement, available_monitors);
         let (left, right, top, bottom) = match placement.anchor {
             downshift::LinuxWindowAnchor::TopLeft => (true, false, true, false),
             downshift::LinuxWindowAnchor::TopRight => (false, true, true, false),
@@ -807,14 +839,6 @@ impl LayerShellApi {
                 .cast();
         unsafe {
             (self.set_monitor_fn)(ptr, gdk_monitor_ptr(monitor));
-        }
-    }
-}
-
-impl Drop for LayerShellApi {
-    fn drop(&mut self) {
-        unsafe {
-            libc::dlclose(self.handle);
         }
     }
 }

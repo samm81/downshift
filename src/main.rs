@@ -1355,6 +1355,13 @@ impl App {
 
     #[cfg(target_os = "linux")]
     fn persist_linux_window_state(&mut self) {
+        if self
+            .window
+            .as_ref()
+            .is_some_and(HostWindow::has_layer_shell)
+        {
+            return;
+        }
         if self.follow_cursor_active {
             return;
         }
@@ -2440,6 +2447,21 @@ impl ApplicationHandler<AppEvent> for App {
                 return;
             }
         };
+        #[cfg(target_os = "linux")]
+        {
+            let linux = linux_diagnostics(Some(&window));
+            diagnostics::log_line(
+                "INFO",
+                &format!(
+                    "linux host: session_backend={} window_backend={} requested_mode={} overlay_supported={} fallback_reason={}",
+                    linux.session_backend,
+                    linux.window_backend,
+                    linux.requested_mode,
+                    linux.overlay_supported,
+                    linux.fallback_reason.as_deref().unwrap_or("none"),
+                ),
+            );
+        }
         let window_id = window.id();
         let cursor_provider = CursorProvider::for_window(host::winit_window(&window));
         self.follow_cursor_supported = cursor_provider.is_supported();
