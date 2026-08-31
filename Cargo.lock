@@ -863,6 +863,9 @@ dependencies = [
  "chrono",
  "ctrlc",
  "dirs 5.0.1",
+ "gdkx11",
+ "gtk",
+ "libc",
  "muda",
  "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
@@ -880,6 +883,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "winit",
  "wry",
+ "x11rb",
 ]
 
 [[package]]

@@ -122,9 +122,20 @@ jobs:
       ref: ${{ needs.resolve.outputs.ref }}
     secrets: inherit
 
+  build-linux:
+    needs: [resolve, prepare-release]
+    uses: ./.github/workflows/release-linux.yml
+    permissions:
+      actions: read
+      contents: read
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+      ref: ${{ needs.resolve.outputs.ref }}
+    secrets: inherit
+
   publish:
-    needs: [resolve, prepare-release, build-macos, build-windows]
-    if: ${{ always() && needs.resolve.result == 'success' && needs.prepare-release.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' }}
+    needs: [resolve, prepare-release, build-macos, build-windows, build-linux]
+    if: ${{ always() && needs.resolve.result == 'success' && needs.prepare-release.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
@@ -144,14 +155,21 @@ jobs:
           name: release-windows-assets
           path: release-assets/windows
 
+      - name: download Linux release artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: release-linux-assets
+          path: release-assets/linux
+
       - name: build combined release checksums
         id: assets
         run: |
           set -euo pipefail
           MACOS_ASSET="$(find release-assets/macos -type f -name 'Downshift-notarized-*.dmg' -print -quit)"
           WINDOWS_ASSET="$(find release-assets/windows -type f -name 'Downshift-Setup-*.exe' -print -quit)"
-          if [ -z "$MACOS_ASSET" ] || [ -z "$WINDOWS_ASSET" ]; then
-            echo "error: expected macOS DMG and Windows installer artifacts were not found"
+          LINUX_ASSET="$(find release-assets/linux -type f -name 'Downshift-linux-x86_64-v*.tar.gz' -print -quit)"
+          if [ -z "$MACOS_ASSET" ] || [ -z "$WINDOWS_ASSET" ] || [ -z "$LINUX_ASSET" ]; then
+            echo "error: expected macOS DMG, Windows installer, and Linux tarball artifacts were not found"
             exit 1
           fi
 
@@ -159,10 +177,12 @@ jobs:
           {
             sha256sum "$MACOS_ASSET" | awk -v name="$(basename "$MACOS_ASSET")" '{print $1 "  " name}'
             sha256sum "$WINDOWS_ASSET" | awk -v name="$(basename "$WINDOWS_ASSET")" '{print $1 "  " name}'
+            sha256sum "$LINUX_ASSET" | awk -v name="$(basename "$LINUX_ASSET")" '{print $1 "  " name}'
           } > "$CHECKSUMS_PATH"
 
           echo "macos_asset=$MACOS_ASSET" >> "$GITHUB_OUTPUT"
           echo "windows_asset=$WINDOWS_ASSET" >> "$GITHUB_OUTPUT"
+          echo "linux_asset=$LINUX_ASSET" >> "$GITHUB_OUTPUT"
           echo "checksums=$CHECKSUMS_PATH" >> "$GITHUB_OUTPUT"
           cat "$CHECKSUMS_PATH"
 
@@ -170,12 +190,14 @@ jobs:
         env:
           MACOS_ASSET: ${{ steps.assets.outputs.macos_asset }}
           WINDOWS_ASSET: ${{ steps.assets.outputs.windows_asset }}
+          LINUX_ASSET: ${{ steps.assets.outputs.linux_asset }}
           CHECKSUMS_PATH: ${{ steps.assets.outputs.checksums }}
         run: |
           set -euo pipefail
           gh release upload "$RELEASE_TAG" \
             "$MACOS_ASSET" \
             "$WINDOWS_ASSET" \
+            "$LINUX_ASSET" \
             "$CHECKSUMS_PATH" \
             --clobber \
             --repo "$GITHUB_REPOSITORY"
@@ -194,7 +216,7 @@ jobs:
             "/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
             -F draft=false \
             -F prerelease="$RELEASE_PRERELEASE" >/dev/null
-          echo "published release $RELEASE_TAG with macOS, Windows, and checksum assets"
+          echo "published release $RELEASE_TAG with macOS, Windows, Linux, and checksum assets"
 
   deploy-pages:
     needs: [resolve, publish]
@@ -224,6 +246,7 @@ jobs:
         prepare-release,
         build-macos,
         build-windows,
+        build-linux,
         publish,
         deploy-pages,
         pages-smoke,
@@ -237,6 +260,7 @@ jobs:
           PREPARE_RESULT: ${{ needs.prepare-release.result }}
           MACOS_RESULT: ${{ needs.build-macos.result }}
           WINDOWS_RESULT: ${{ needs.build-windows.result }}
+          LINUX_RESULT: ${{ needs.build-linux.result }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
           PAGES_RESULT: ${{ needs.deploy-pages.result }}
           PAGES_SMOKE_RESULT: ${{ needs.pages-smoke.result }}
@@ -251,6 +275,7 @@ jobs:
             echo "| draft release | $PREPARE_RESULT |"
             echo "| macOS build, notarization, and GUI smoke | $MACOS_RESULT |"
             echo "| Windows build, signing, packaging, and installer smoke | $WINDOWS_RESULT |"
+            echo "| Linux build, packaging, and install smoke | $LINUX_RESULT |"
             echo "| publish | $PUBLISH_RESULT |"
             if [ "$RELEASE_PRERELEASE" = "true" ]; then
               echo "| Pages deployment | skipped for prerelease |"
@@ -266,6 +291,7 @@ jobs:
              [ "$PREPARE_RESULT" != "success" ] || \
              [ "$MACOS_RESULT" != "success" ] || \
              [ "$WINDOWS_RESULT" != "success" ] || \
+             [ "$LINUX_RESULT" != "success" ] || \
              [ "$PUBLISH_RESULT" != "success" ]; then
             RELEASE_GATE_FAILED=true
           fi
