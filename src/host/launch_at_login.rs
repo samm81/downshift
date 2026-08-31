@@ -34,10 +34,6 @@ pub(crate) fn set_launch_at_login(enabled: bool) -> Result<(), String> {
     }
 }
 
-pub(crate) fn reconcile_launch_at_login(enabled: bool) -> Result<(), String> {
-    set_launch_at_login(enabled)
-}
-
 #[cfg(target_os = "macos")]
 fn launch_agent_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|home| launch_agent_path_from_home(&home))

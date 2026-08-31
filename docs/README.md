@@ -9,6 +9,7 @@ deploys the staging directory as a Pages artifact.
 - `index.html`: single-page landing structure, content, and local release-metadata fixture
 - `styles.css`: desktop-first styling
 - `script.js`: embedded release metadata enhancement (no product-copy overrides)
+- `../src/ui/polygon-animation.js`: shared animation source copied into the generated site
 - `release.json`: checked-in stable-release fixture for local preview and smoke tests
 - `assets/icon.png`: placeholder app icon (locally generated)
 - `assets/mac-desktop-generic.svg`: placeholder desktop preview backdrop (locally generated)

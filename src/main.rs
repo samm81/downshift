@@ -10,8 +10,8 @@ mod window_policy;
 use app_core::*;
 use cursor::{CoordinateSpace, CursorError, CursorPosition, CursorProvider, CursorSource};
 use downshift::telemetry::{
-    telemetry_state, ActivityState, ActivityTrigger, EventName, MenuAction, RuntimeTelemetryClient,
-    SessionEndReason, TelemetryClient,
+    global_telemetry_enabled, telemetry_state, ActivityState, ActivityTrigger, EventName,
+    MenuAction, RuntimeTelemetryClient, SessionEndReason,
 };
 use downshift::{
     apply_resize_step, built_in_breathing_preset, built_in_breathing_presets, clamp_size,
@@ -32,8 +32,7 @@ use host::{
     create_fixed_child_window, create_main_window, create_tray_icon, current_os_version,
     enforce_fixed_size, focus_existing_child_window, install_menu_event_handler,
     install_tray_event_handler, logical_outer_position, native_menu_available, open_external_url,
-    persisted_monitor, set_outer_position, set_outer_position_physical, set_visible,
-    show_without_focus, snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
+    persisted_monitor, snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
     update_tray_menu, TrayIconHandle,
 };
 use std::panic::PanicHookInfo;
@@ -79,12 +78,8 @@ fn spawn_update_check(
     proxy: EventLoopProxy<AppEvent>,
     update_check: UpdateCheckService,
     source: UpdateCheckSource,
-    delay_sec: u64,
 ) {
     std::thread::spawn(move || {
-        if delay_sec > 0 {
-            std::thread::sleep(Duration::from_secs(delay_sec));
-        }
         let result = update_check.check();
         let _ = proxy.send_event(AppEvent::UpdateCheckFinished(result, source));
     });
@@ -95,16 +90,12 @@ struct App {
     window_id: Option<WindowId>,
     webview: Option<WebView>,
     custom_snooze_window: Option<Window>,
-    custom_snooze_window_id: Option<WindowId>,
     custom_snooze_webview: Option<WebView>,
     breathing_pattern_window: Option<Window>,
-    breathing_pattern_window_id: Option<WindowId>,
     breathing_pattern_webview: Option<WebView>,
     telemetry_info_window: Option<Window>,
-    telemetry_info_window_id: Option<WindowId>,
     telemetry_info_webview: Option<WebView>,
     update_dialog_window: Option<Window>,
-    update_dialog_window_id: Option<WindowId>,
     update_dialog_webview: Option<WebView>,
     native_context_menu: Option<NativeContextMenu>,
     tray_icon: Option<TrayIconHandle>,
@@ -187,16 +178,12 @@ impl Default for App {
             window_id: None,
             webview: None,
             custom_snooze_window: None,
-            custom_snooze_window_id: None,
             custom_snooze_webview: None,
             breathing_pattern_window: None,
-            breathing_pattern_window_id: None,
             breathing_pattern_webview: None,
             telemetry_info_window: None,
-            telemetry_info_window_id: None,
             telemetry_info_webview: None,
             update_dialog_window: None,
-            update_dialog_window_id: None,
             update_dialog_webview: None,
             native_context_menu: None,
             tray_icon: None,
@@ -216,9 +203,7 @@ impl Default for App {
             settings_backup_pending: false,
             startup_provenance: "unknown".to_string(),
             updates: UpdateUiState::default(),
-            update_check: UpdateCheckService::new(
-                download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
-            ),
+            update_check: UpdateCheckService::new(download_release_url()),
             manual_update_check_in_flight: false,
             animation_bounds: AnimationBounds::full(),
             follow_cursor_active: false,
@@ -298,7 +283,7 @@ impl App {
                 .settings_load_error
                 .clone()
                 .unwrap_or_else(|| "ok".to_string()),
-            telemetry_global_enabled: telemetry_globally_enabled(),
+            telemetry_global_enabled: global_telemetry_enabled(),
             usage_sharing_enabled: self.settings.usage_data_sharing,
             crash_reports_enabled: self.settings.crash_reports_sharing,
             telemetry_install_first_run: self.telemetry_install_first_run,
@@ -473,7 +458,7 @@ impl App {
     }
 
     fn reconcile_launch_at_login(&mut self) {
-        if let Err(error) = host::reconcile_launch_at_login(self.settings.launch_at_login) {
+        if let Err(error) = host::set_launch_at_login(self.settings.launch_at_login) {
             log_stderr!("warning: failed to reconcile launch-at-login setting: {error}");
         }
     }
@@ -658,7 +643,7 @@ impl App {
             (anchor_pointer.x, anchor_pointer.y),
             (screen_x as f64, screen_y as f64),
         );
-        set_outer_position(window, LogicalPosition::new(next_x, next_y));
+        window.set_outer_position(LogicalPosition::new(next_x, next_y));
     }
 
     fn stop_manual_drag(&mut self) {
@@ -776,7 +761,7 @@ impl App {
                 &self.settings,
                 self.current_size_presets(),
                 &self.updates.menu_label(),
-                self.updates.ignore_current_update_enabled(),
+                self.updates.has_update_available(),
                 self.updates.is_ignoring_current_update(),
                 self.follow_cursor_active,
                 self.follow_cursor_supported,
@@ -805,7 +790,7 @@ impl App {
             "update_menu_label": self.updates.menu_label(),
             "update_has_new_version": self.updates.has_update_available(),
             "update_show_badge": self.updates.should_show_badge(),
-            "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
+            "update_ignore_current_enabled": self.updates.has_update_available(),
             "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
             "follow_cursor_active": self.follow_cursor_active,
             "follow_cursor_available": self.follow_cursor_supported,
@@ -954,7 +939,7 @@ impl App {
         if focus_existing_child_window(self.update_dialog_window.as_ref()) {
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "updates",
@@ -971,7 +956,6 @@ impl App {
         };
 
         self.update_dialog_window = Some(window);
-        self.update_dialog_window_id = Some(window_id);
         self.update_dialog_webview = Some(webview);
         self.sync_update_dialog_webview_bounds();
     }
@@ -987,7 +971,6 @@ impl App {
     fn close_update_dialog_window(&mut self) {
         clear_child_window(
             &mut self.update_dialog_window,
-            &mut self.update_dialog_window_id,
             &mut self.update_dialog_webview,
         );
     }
@@ -1028,12 +1011,7 @@ impl App {
             self.updates.checking = false;
             return;
         };
-        spawn_update_check(
-            proxy,
-            self.update_check.clone(),
-            UpdateCheckSource::Manual,
-            0,
-        );
+        spawn_update_check(proxy, self.update_check.clone(), UpdateCheckSource::Manual);
     }
 
     #[cfg(debug_assertions)]
@@ -1045,7 +1023,6 @@ impl App {
             proxy,
             self.update_check.clone(),
             UpdateCheckSource::Background,
-            0,
         );
     }
 
@@ -1072,7 +1049,7 @@ impl App {
         if focus_existing_child_window(self.custom_snooze_window.as_ref()) {
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "custom snooze",
@@ -1088,7 +1065,6 @@ impl App {
             }
         };
         self.custom_snooze_window = Some(window);
-        self.custom_snooze_window_id = Some(window_id);
         self.custom_snooze_webview = Some(webview);
         self.sync_custom_snooze_webview_bounds();
     }
@@ -1149,7 +1125,7 @@ impl App {
             self.sync_breathing_pattern_editor_state();
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "add breathing pattern",
@@ -1165,7 +1141,6 @@ impl App {
             }
         };
         self.breathing_pattern_window = Some(window);
-        self.breathing_pattern_window_id = Some(window_id);
         self.breathing_pattern_webview = Some(webview);
         self.sync_breathing_pattern_webview_bounds();
         self.sync_breathing_pattern_editor_state();
@@ -1175,7 +1150,6 @@ impl App {
     fn close_breathing_pattern_window(&mut self) {
         clear_child_window(
             &mut self.breathing_pattern_window,
-            &mut self.breathing_pattern_window_id,
             &mut self.breathing_pattern_webview,
         );
     }
@@ -1199,7 +1173,6 @@ impl App {
     fn close_custom_snooze_window(&mut self) {
         clear_child_window(
             &mut self.custom_snooze_window,
-            &mut self.custom_snooze_window_id,
             &mut self.custom_snooze_webview,
         );
     }
@@ -1208,7 +1181,7 @@ impl App {
         if focus_existing_child_window(self.telemetry_info_window.as_ref()) {
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "what we collect",
@@ -1232,7 +1205,6 @@ impl App {
             }
         };
         self.telemetry_info_window = Some(window);
-        self.telemetry_info_window_id = Some(window_id);
         self.telemetry_info_webview = Some(webview);
         self.sync_telemetry_info_webview_bounds();
     }
@@ -1240,7 +1212,6 @@ impl App {
     fn close_telemetry_info_window(&mut self) {
         clear_child_window(
             &mut self.telemetry_info_window,
-            &mut self.telemetry_info_window_id,
             &mut self.telemetry_info_webview,
         );
     }
@@ -1322,7 +1293,7 @@ impl App {
           "update_menu_label": self.updates.menu_label(),
           "update_has_new_version": self.updates.has_update_available(),
           "update_show_badge": self.updates.should_show_badge(),
-          "update_ignore_current_enabled": self.updates.ignore_current_update_enabled(),
+            "update_ignore_current_enabled": self.updates.has_update_available(),
           "update_ignore_current_checked": self.updates.is_ignoring_current_update(),
           "follow_cursor_active": self.follow_cursor_active,
           "follow_cursor_available": self.follow_cursor_supported,
@@ -1442,7 +1413,7 @@ impl App {
         self.follow_cursor_placement = Some(placement);
         if self.current_window_physical_position() != Some(next_position) {
             if let Some(window) = self.window.as_ref() {
-                set_outer_position_physical(window, next_position);
+                window.set_outer_position(next_position);
             }
         }
     }
@@ -1534,7 +1505,7 @@ impl App {
         self.enforce_fixed_widget_size();
         if let Some(previous_position) = self.follow_cursor_previous_position.take() {
             if let Some(window) = self.window.as_ref() {
-                set_outer_position_physical(window, previous_position);
+                window.set_outer_position(previous_position);
             }
         }
         self.telemetry_follow_cursor_change(false);
@@ -1695,7 +1666,7 @@ impl App {
 
     fn sync_window_visibility(&self) {
         if let Some(window) = self.window.as_ref() {
-            set_visible(window, self.activity_mode != ActivityMode::Snoozed);
+            window.set_visible(self.activity_mode != ActivityMode::Snoozed);
         }
     }
 
@@ -1769,7 +1740,7 @@ impl App {
 
     fn show_main_window_without_focus(&self) {
         if let Some(window) = self.window.as_ref() {
-            show_without_focus(window);
+            window.set_visible(true);
         }
     }
 
@@ -1925,7 +1896,7 @@ impl App {
                 let policy_position =
                     default_corner_position(&monitor_snapshot, self.settings.size);
                 let pos = PhysicalPosition::new(policy_position.x, policy_position.y);
-                set_outer_position_physical(window, pos);
+                window.set_outer_position(pos);
                 self.settings.physical_x = Some(pos.x);
                 self.settings.physical_y = Some(pos.y);
                 self.settings.monitor = Some(monitor_snapshot.persisted());
@@ -2180,14 +2151,8 @@ impl App {
                 self.clear_update_notification_dismissed();
             }
             MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
-            MENU_ID_FILE_BUG_GITHUB => match github_issues_url() {
-                Ok(url) => open_external_url(&url),
-                Err(error) => log_stderr!("error: {error}"),
-            },
-            MENU_ID_FILE_BUG_EMAIL => match support_email_mailto() {
-                Ok(url) => open_external_url(&url),
-                Err(error) => log_stderr!("error: {error}"),
-            },
+            MENU_ID_FILE_BUG_GITHUB => open_external_url(&github_issues_url()),
+            MENU_ID_FILE_BUG_EMAIL => open_external_url(&support_email_mailto()),
             _ => {
                 if let Some(preset_id) = deleted_breathing_preset_id_from_menu_id(id) {
                     self.delete_breathing_preset_from_user_action(preset_id);
@@ -2416,19 +2381,19 @@ impl ApplicationHandler<AppEvent> for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        if Some(window_id) == self.custom_snooze_window_id {
+        if self.custom_snooze_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_custom_snooze_window_event(event);
             return;
         }
-        if Some(window_id) == self.breathing_pattern_window_id {
+        if self.breathing_pattern_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_breathing_pattern_window_event(event);
             return;
         }
-        if Some(window_id) == self.telemetry_info_window_id {
+        if self.telemetry_info_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_telemetry_info_window_event(event);
             return;
         }
-        if Some(window_id) == self.update_dialog_window_id {
+        if self.update_dialog_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_update_dialog_window_event(event);
             return;
         }
@@ -2535,8 +2500,8 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-fn report_abnormal_exit<T: TelemetryClient>(
-    telemetry: &T,
+fn report_abnormal_exit(
+    telemetry: &RuntimeTelemetryClient,
     reason: SessionEndReason,
     category: &str,
 ) -> std::process::ExitCode {
@@ -2775,18 +2740,9 @@ mod tests {
     fn external_contact_values_use_dummy_defaults_outside_prod() {
         clear_external_contact_env();
 
-        assert_eq!(
-            download_release_url().expect("download release url"),
-            expected_download_release_url()
-        );
-        assert_eq!(
-            github_issues_url().expect("github issues url"),
-            expected_github_issues_url()
-        );
-        assert_eq!(
-            support_email_address().expect("support email"),
-            expected_support_email()
-        );
+        assert_eq!(download_release_url(), expected_download_release_url());
+        assert_eq!(github_issues_url(), expected_github_issues_url());
+        assert_eq!(support_email_address(), expected_support_email());
     }
 
     #[test]
@@ -2795,18 +2751,9 @@ mod tests {
         clear_external_contact_env();
         std::env::set_var("DOWNSHIFT_ENV", "prod");
 
-        assert_eq!(
-            download_release_url().expect("download release url"),
-            expected_download_release_url()
-        );
-        assert_eq!(
-            github_issues_url().expect("github issues url"),
-            expected_github_issues_url()
-        );
-        assert_eq!(
-            support_email_address().expect("support email"),
-            expected_support_email()
-        );
+        assert_eq!(download_release_url(), expected_download_release_url());
+        assert_eq!(github_issues_url(), expected_github_issues_url());
+        assert_eq!(support_email_address(), expected_support_email());
     }
 
     #[test]
@@ -2821,18 +2768,9 @@ mod tests {
         std::env::set_var("DOWNSHIFT_GITHUB_ISSUES_URL", "https://example.com/issues");
         std::env::set_var("DOWNSHIFT_SUPPORT_EMAIL", "support@example.com");
 
-        assert_eq!(
-            download_release_url().expect("download release url"),
-            expected_download_release_url()
-        );
-        assert_eq!(
-            github_issues_url().expect("github issues url"),
-            "https://example.com/issues"
-        );
-        assert_eq!(
-            support_email_address().expect("support email"),
-            "support@example.com"
-        );
+        assert_eq!(download_release_url(), expected_download_release_url());
+        assert_eq!(github_issues_url(), "https://example.com/issues");
+        assert_eq!(support_email_address(), "support@example.com");
     }
 
     #[test]
@@ -3059,7 +2997,6 @@ mod tests {
         };
 
         assert!(!state.should_show_badge_at(10_000));
-        assert!(state.ignore_current_update_enabled());
         assert!(state.is_ignoring_current_update());
     }
 
@@ -3153,13 +3090,10 @@ mod tests {
     }
 
     #[test]
-    fn instance_command_round_trips() {
-        assert_eq!(
-            InstanceCommand::parse("activate\n"),
-            Some(InstanceCommand::Activate)
-        );
-        assert_eq!(InstanceCommand::Activate.as_bytes(), b"activate\n");
-        assert_eq!(InstanceCommand::parse("nope"), None);
+    fn instance_message_round_trips() {
+        assert!(instance_message_is_activate("activate\n"));
+        assert_eq!(INSTANCE_ACTIVATE_MESSAGE.as_bytes(), b"activate\n");
+        assert!(!instance_message_is_activate("nope"));
     }
 
     #[cfg(unix)]

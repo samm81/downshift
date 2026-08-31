@@ -46,6 +46,10 @@ async function buildSite(manifestPath, sourceDir, outputDir) {
 
   await fs.promises.rm(outputPath, { recursive: true, force: true });
   await fs.promises.cp(sourcePath, outputPath, { recursive: true });
+  await fs.promises.copyFile(
+    path.join(REPOSITORY_ROOT, "src/ui/polygon-animation.js"),
+    path.join(outputPath, "polygon-animation.js"),
+  );
 
   const outputManifestPath = path.join(outputPath, "release.json");
   const outputIndexPath = path.join(outputPath, "index.html");

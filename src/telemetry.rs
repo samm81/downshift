@@ -256,25 +256,6 @@ impl TelemetrySink for SentryErrorSink {
     }
 }
 
-pub trait TelemetryClient {
-    fn track(&self, event_name: EventName, properties: serde_json::Value);
-    fn track_error(&self, event_name: EventName, properties: serde_json::Value);
-    fn start_session(&self, initial_state: ActivityState);
-    fn track_activity_state(
-        &self,
-        state: ActivityState,
-        trigger: ActivityTrigger,
-        requested_duration_sec: Option<u64>,
-    );
-    fn note_suspend(&self);
-    fn note_resume(&self);
-    fn end_session(&self, reason: SessionEndReason);
-    fn flush(&self, timeout: Duration);
-    fn shutdown(&self, timeout: Duration);
-    fn set_usage_enabled(&self, enabled: bool);
-    fn set_crash_enabled(&self, enabled: bool);
-}
-
 #[derive(Debug, Clone)]
 pub struct TelemetryState {
     pub anon_user_id: String,
@@ -491,8 +472,8 @@ impl RuntimeTelemetryClient {
     }
 }
 
-impl TelemetryClient for RuntimeTelemetryClient {
-    fn track(&self, event_name: EventName, properties: serde_json::Value) {
+impl RuntimeTelemetryClient {
+    pub fn track(&self, event_name: EventName, properties: serde_json::Value) {
         let enabled = self
             .shared
             .usage_enabled
@@ -507,7 +488,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
         let _ = self.sender.send(WorkerCommand::TrackUsage(envelope));
     }
 
-    fn track_error(&self, event_name: EventName, properties: serde_json::Value) {
+    pub fn track_error(&self, event_name: EventName, properties: serde_json::Value) {
         let enabled = self
             .shared
             .crash_enabled
@@ -522,7 +503,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
         let _ = self.sender.send(WorkerCommand::TrackCrash(envelope));
     }
 
-    fn start_session(&self, initial_state: ActivityState) {
+    pub fn start_session(&self, initial_state: ActivityState) {
         let now = Instant::now();
         {
             if let Ok(mut session) = self.shared.session.lock() {
@@ -558,7 +539,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
         );
     }
 
-    fn track_activity_state(
+    pub fn track_activity_state(
         &self,
         state: ActivityState,
         trigger: ActivityTrigger,
@@ -597,7 +578,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
         self.track(EventName::ActivityStateChanged, payload);
     }
 
-    fn note_suspend(&self) {
+    pub fn note_suspend(&self) {
         if let Ok(mut session) = self.shared.session.lock() {
             let Some(session) = session.as_mut() else {
                 return;
@@ -611,7 +592,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
         }
     }
 
-    fn note_resume(&self) {
+    pub fn note_resume(&self) {
         if let Ok(mut session) = self.shared.session.lock() {
             let Some(session) = session.as_mut() else {
                 return;
@@ -627,7 +608,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
         }
     }
 
-    fn end_session(&self, reason: SessionEndReason) {
+    pub fn end_session(&self, reason: SessionEndReason) {
         let (duration, active_duration_sec, paused_duration_sec, snoozed_duration_sec) = self
             .shared
             .session
@@ -653,19 +634,19 @@ impl TelemetryClient for RuntimeTelemetryClient {
         );
     }
 
-    fn flush(&self, timeout: Duration) {
+    pub fn flush(&self, timeout: Duration) {
         let (tx, rx) = mpsc::channel();
         let _ = self.sender.send(WorkerCommand::Flush(tx));
         let _ = rx.recv_timeout(timeout);
     }
 
-    fn shutdown(&self, timeout: Duration) {
+    pub fn shutdown(&self, timeout: Duration) {
         let (tx, rx) = mpsc::channel();
         let _ = self.sender.send(WorkerCommand::Shutdown(tx));
         let _ = rx.recv_timeout(timeout);
     }
 
-    fn set_usage_enabled(&self, enabled: bool) {
+    pub fn set_usage_enabled(&self, enabled: bool) {
         if let Ok(mut value) = self.shared.usage_enabled.lock() {
             *value = enabled;
         }
@@ -673,7 +654,7 @@ impl TelemetryClient for RuntimeTelemetryClient {
         let _ = self.sender.send(WorkerCommand::SetUsageEnabled(enabled));
     }
 
-    fn set_crash_enabled(&self, enabled: bool) {
+    pub fn set_crash_enabled(&self, enabled: bool) {
         if let Ok(mut value) = self.shared.crash_enabled.lock() {
             *value = enabled;
         }
@@ -746,7 +727,7 @@ fn normalize_logs_url(host: &str) -> String {
     }
 }
 
-fn global_telemetry_enabled() -> bool {
+pub fn global_telemetry_enabled() -> bool {
     env_or_compiled("DOWNSHIFT_TELEMETRY_ENABLED", COMPILED_TELEMETRY_ENABLED)
         .map(|raw| !matches!(raw.to_ascii_lowercase().as_str(), "0" | "false" | "off"))
         .unwrap_or(true)

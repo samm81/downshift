@@ -41,7 +41,7 @@ PAGES_MANIFEST := $(PAGES_SOURCE_DIR)/release.json
 PAGES_INDEX := $(PAGES_SOURCE_DIR)/index.html
 PAGES_SOURCE_FILES := $(shell find "$(PAGES_SOURCE_DIR)" -type f -print)
 PAGES_SOURCE_DIRS := $(shell find "$(PAGES_SOURCE_DIR)" -type d -print)
-PAGES_BUILD_INPUTS := $(sort $(PAGES_MANIFEST) $(PAGES_SOURCE_FILES) $(PAGES_SOURCE_DIRS) dev/pages/build-site.mjs dev/pages/release-manifest.mjs)
+PAGES_BUILD_INPUTS := $(sort $(PAGES_MANIFEST) $(PAGES_SOURCE_FILES) $(PAGES_SOURCE_DIRS) src/ui/polygon-animation.js dev/pages/build-site.mjs dev/pages/release-manifest.mjs)
 PAGES_STAMP := $(PAGES_DIR)/.build.stamp
 PAGES_PREVIEW_HOST ?= 127.0.0.1
 PAGES_PREVIEW_BIND ?= 0.0.0.0
@@ -273,11 +273,13 @@ smoke-windows-vm: ## run the Windows VM smoke test
 pages-build: $(PAGES_STAMP) ## build the local GitHub Pages artifact
 	test -f "$(PAGES_DIR)/index.html"
 	test -f "$(PAGES_DIR)/release.json"
+	test -f "$(PAGES_DIR)/polygon-animation.js"
 
 $(PAGES_STAMP): $(PAGES_BUILD_INPUTS) | require-safe-output-paths
 	node dev/pages/build-site.mjs build "$(PAGES_MANIFEST)" "$(PAGES_SOURCE_DIR)" "$(PAGES_DIR)"
 	test -f "$(PAGES_DIR)/index.html"
 	test -f "$(PAGES_DIR)/release.json"
+	test -f "$(PAGES_DIR)/polygon-animation.js"
 	touch "$@"
 
 pages-preview: pages-build ## build and serve the local GitHub Pages preview

@@ -10,10 +10,11 @@ use winit::event_loop::EventLoopProxy;
 use winit::window::Window;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-use crate::app_core::{breathing_pattern_menu_label, breathing_pattern_summary};
+use crate::app_core::breathing_pattern_summary;
 use crate::app_core::{AppEvent, SNOOZE_PRESET_MINUTES};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::diagnostics;
+#[cfg(any(not(any(target_os = "macos", target_os = "windows")), debug_assertions))]
 use crate::update_check::UpdateCheckService;
 use downshift::Settings;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -81,13 +82,6 @@ pub(crate) struct NativeContextMenu {
     pause: CheckMenuItem,
     follow_cursor: CheckMenuItem,
     launch_at_login: CheckMenuItem,
-    snooze_menu: Submenu,
-    snooze_5: MenuItem,
-    snooze_10: MenuItem,
-    snooze_15: MenuItem,
-    snooze_30: MenuItem,
-    snooze_60: MenuItem,
-    snooze_custom: MenuItem,
     size_menu: Submenu,
     size_s: MenuItem,
     size_m: MenuItem,
@@ -101,27 +95,14 @@ pub(crate) struct NativeContextMenu {
     breathing_saved: Vec<(String, CheckMenuItem)>,
     breathing_delete_menu: Submenu,
     breathing_delete_items: Vec<(String, MenuItem)>,
-    reset: MenuItem,
-    quit: MenuItem,
-    update_menu: Submenu,
     update_primary: MenuItem,
     update_ignore_current: CheckMenuItem,
-    bugs_menu: Submenu,
-    copy_diagnostics: MenuItem,
-    file_bug_github: MenuItem,
-    file_bug_email: MenuItem,
-    analytics_menu: Submenu,
     usage_on: CheckMenuItem,
     usage_off: CheckMenuItem,
     crash_on: CheckMenuItem,
     crash_off: CheckMenuItem,
-    analytics_info: MenuItem,
     #[cfg(debug_assertions)]
     simulate_pending_update: CheckMenuItem,
-    #[cfg(debug_assertions)]
-    force_background_update_check: MenuItem,
-    #[cfg(debug_assertions)]
-    clear_update_notification_dismissed: MenuItem,
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -463,7 +444,7 @@ impl NativeContextMenu {
         breathing_items.push(&breathing_delete_menu);
         let breathing_menu = match Submenu::with_id_and_items(
             MENU_ID_BREATHING_PATTERN,
-            breathing_pattern_menu_label(),
+            "breathing pattern",
             true,
             &breathing_items,
         ) {
@@ -522,13 +503,6 @@ impl NativeContextMenu {
             pause,
             follow_cursor,
             launch_at_login,
-            snooze_menu: snooze_submenu,
-            snooze_5,
-            snooze_10,
-            snooze_15,
-            snooze_30,
-            snooze_60,
-            snooze_custom,
             size_menu: size_submenu,
             size_s,
             size_m,
@@ -542,27 +516,14 @@ impl NativeContextMenu {
             breathing_saved,
             breathing_delete_menu,
             breathing_delete_items,
-            reset,
-            quit,
-            update_menu,
             update_primary,
             update_ignore_current,
-            bugs_menu,
-            copy_diagnostics,
-            file_bug_github,
-            file_bug_email,
-            analytics_menu,
             usage_on,
             usage_off,
             crash_on,
             crash_off,
-            analytics_info,
             #[cfg(debug_assertions)]
             simulate_pending_update,
-            #[cfg(debug_assertions)]
-            force_background_update_check,
-            #[cfg(debug_assertions)]
-            clear_update_notification_dismissed,
         })
     }
 
@@ -591,14 +552,6 @@ impl NativeContextMenu {
         });
         self.follow_cursor.set_enabled(follow_cursor_available);
         self.launch_at_login.set_checked(settings.launch_at_login);
-        self.launch_at_login.set_enabled(true);
-        self.snooze_menu.set_enabled(true);
-        self.snooze_5.set_enabled(true);
-        self.snooze_10.set_enabled(true);
-        self.snooze_15.set_enabled(true);
-        self.snooze_30.set_enabled(true);
-        self.snooze_60.set_enabled(true);
-        self.snooze_custom.set_enabled(true);
         self.size_menu
             .set_text(format!("size ({}px)", settings.size.round() as i32));
         self.size_s
@@ -610,7 +563,7 @@ impl NativeContextMenu {
         self.size_xl
             .set_text(format!("XL ({}px)", size_presets[3].round() as i32));
         self.size_scroll_hint.set_enabled(false);
-        self.breathing_menu.set_text(breathing_pattern_menu_label());
+        self.breathing_menu.set_text("breathing pattern");
         self.breathing_coherent
             .set_checked(settings.active_breathing_preset_id == BREATHING_PRESET_ID_COHERENT);
         self.breathing_box
@@ -622,25 +575,11 @@ impl NativeContextMenu {
         }
         self.breathing_delete_menu
             .set_enabled(!self.breathing_delete_items.is_empty());
-        self.reset.set_enabled(true);
-        self.quit.set_enabled(true);
-        self.update_menu.set_enabled(true);
         self.update_primary.set_text(update_label);
-        self.update_primary.set_enabled(true);
         self.update_ignore_current
             .set_enabled(update_ignore_enabled);
         self.update_ignore_current
             .set_checked(update_ignore_checked);
-        #[cfg(debug_assertions)]
-        {
-            self.force_background_update_check.set_enabled(true);
-            self.clear_update_notification_dismissed.set_enabled(true);
-        }
-        self.bugs_menu.set_enabled(true);
-        self.copy_diagnostics.set_enabled(true);
-        self.file_bug_github.set_enabled(true);
-        self.file_bug_email.set_enabled(true);
-        self.analytics_menu.set_enabled(true);
     }
 
     pub(crate) fn clone_for_tray(&self) -> Box<dyn muda::ContextMenu> {
@@ -671,7 +610,6 @@ impl NativeContextMenu {
         self.usage_off.set_checked(!usage_enabled);
         self.crash_on.set_checked(crash_enabled);
         self.crash_off.set_checked(!crash_enabled);
-        self.analytics_info.set_enabled(true);
     }
 
     #[cfg(debug_assertions)]
