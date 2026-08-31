@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 use winit::event_loop::EventLoopProxy;
 
 use crate::app_core::{instance_message_is_activate, AppEvent, INSTANCE_ACTIVATE_MESSAGE};
+#[cfg(unix)]
+use downshift::IpcCommand;
 
 pub(crate) enum InstanceStart {
     Primary(InstanceGuard),
@@ -37,6 +39,10 @@ pub(crate) fn start(proxy: EventLoopProxy<AppEvent>) -> Result<InstanceStart, St
                 return Err(format!("failed to start instance server: {error}"));
             }
         }
+        if let Some(path) = smoke_socket_path() {
+            spawn_smoke_server(path, proxy.clone())
+                .map_err(|error| format!("failed to start smoke server: {error}"))?;
+        }
         Ok(InstanceStart::Primary(InstanceGuard {}))
     }
 
@@ -70,6 +76,16 @@ pub(crate) fn instance_socket_path_for_executable(
 fn instance_socket_path() -> Option<std::path::PathBuf> {
     let executable = std::env::current_exe().ok()?;
     instance_socket_path_for_executable(&executable)
+}
+
+#[cfg(unix)]
+fn smoke_socket_path() -> Option<std::path::PathBuf> {
+    if std::env::var("DOWNSHIFT_ENV").as_deref() != Ok("smoke") {
+        return None;
+    }
+    std::env::var_os("DOWNSHIFT_SMOKE_SOCKET")
+        .filter(|path| !path.is_empty())
+        .map(std::path::PathBuf::from)
 }
 
 #[cfg(unix)]
@@ -122,6 +138,44 @@ fn spawn_instance_server(
             if instance_message_is_activate(&buffer) {
                 let _ = proxy.send_event(AppEvent::InstanceActivate);
             }
+        }
+    });
+    Ok(())
+}
+
+#[cfg(unix)]
+fn spawn_smoke_server(
+    path: std::path::PathBuf,
+    proxy: EventLoopProxy<AppEvent>,
+) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixListener;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    let listener = UnixListener::bind(&path)?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buffer = String::new();
+            let response = if stream.read_to_string(&mut buffer).is_err() {
+                "error: could not read command\n"
+            } else if serde_json::from_str::<IpcCommand>(&buffer).is_err() {
+                "error: invalid command\n"
+            } else if proxy.send_event(AppEvent::Ipc(buffer)).is_err() {
+                return;
+            } else {
+                "ok\n"
+            };
+            let _ = stream.write_all(response.as_bytes());
         }
     });
     Ok(())

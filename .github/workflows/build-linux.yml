@@ -29,8 +29,25 @@ jobs:
           libxdo-dev
           libssl-dev
           pkg-config
+          python3
           shellcheck
           shfmt
+          xvfb
+          xdotool
+          x11-apps
+          xcompmgr
+          imagemagick
+          libmagickcore-6.q16-7-extra
+          weston
+          sway
+          grim
+          slurp
+          grimshot
+          jq
+          x11-utils
+          wl-clipboard
+          libnotify-bin
+          libgtk-layer-shell0
 
       - name: install Node.js
         uses: actions/setup-node@v5
@@ -97,4 +114,15 @@ jobs:
             logs/linux-package-smoke.log
             dist/linux/Downshift-linux-x86_64-v*.tar.gz
             dist/linux/SHA256SUMS.txt
+          if-no-files-found: warn
+
+      - name: run Linux GUI smoke matrix
+        run: make smoke-linux
+
+      - name: upload Linux GUI smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-gui-smoke
+          path: logs/linux-gui-smoke-*/
           if-no-files-found: warn

@@ -29,6 +29,7 @@ downshift is a tiny desktop breathing companion with a gentle visual cue and bad
 
 - `make verify-rust` — check rust formatting, tests, and clippy.
 - `npm run check` — check web and shell formatting, linting, and generated pages.
+- `make smoke-linux` — run Linux X11, Wayland, layer-shell, and fallback GUI smokes.
 - `make verify-release` — run the full rust and web verification pass required before releases.
 - `make pages-preview` — build and serve a local preview of the published pages.
 

@@ -92,6 +92,7 @@ endif
 	build build-no-telemetry \
 	build-macos build-macos-no-telemetry \
 	build-linux build-linux-no-telemetry linux-package linux-package-no-telemetry \
+	smoke-linux \
 	verify-windows build-windows-installer smoke-windows \
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
@@ -240,6 +241,12 @@ build-linux: require-linux-host require-telemetry-env ## build the Linux release
 
 build-linux-no-telemetry: require-linux-host ## build the Linux release binary without telemetry
 	cargo build --locked --release
+
+smoke-linux: build-linux-no-telemetry ## run Linux X11 and Wayland GUI smoke tests
+	./dev/linux/smoke_gui.bash x11 "target/release/$(BIN_NAME)"
+	./dev/linux/smoke_gui.bash wayland "target/release/$(BIN_NAME)"
+	./dev/linux/smoke_gui.bash layer-shell "target/release/$(BIN_NAME)"
+	./dev/linux/smoke_gui.bash missing-layer-shell "target/release/$(BIN_NAME)"
 
 linux-package: build-linux | require-safe-output-paths
 linux-package-no-telemetry: build-linux-no-telemetry | require-safe-output-paths

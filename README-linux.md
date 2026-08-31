@@ -19,6 +19,24 @@ Package names can differ between distributions and releases. The application
 does not require `gtk-layer-shell`; it detects that library at runtime and
 falls back to a regular window when it is missing.
 
+## GUI smoke tests
+
+Contributors can run the X11, generic Wayland, layer-shell, and missing-library
+smoke matrix with:
+
+```bash
+make smoke-linux
+```
+
+On Debian or Ubuntu, install the test-only dependencies with:
+
+```bash
+sudo apt-get install python3 xvfb xcompmgr xdotool x11-apps x11-utils imagemagick libmagickcore-6.q16-7-extra weston sway grim slurp grimshot jq wl-clipboard libnotify-bin libgtk-layer-shell0
+```
+
+The runner saves logs, screenshots, compositor state, and failure diagnostics
+under `logs/`.
+
 ## Install and remove
 
 Extract the release archive, then run the included installer as your normal
