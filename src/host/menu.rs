@@ -81,13 +81,6 @@ pub(crate) struct NativeContextMenu {
     pause: CheckMenuItem,
     follow_cursor: CheckMenuItem,
     launch_at_login: CheckMenuItem,
-    snooze_menu: Submenu,
-    snooze_5: MenuItem,
-    snooze_10: MenuItem,
-    snooze_15: MenuItem,
-    snooze_30: MenuItem,
-    snooze_60: MenuItem,
-    snooze_custom: MenuItem,
     size_menu: Submenu,
     size_s: MenuItem,
     size_m: MenuItem,
@@ -101,21 +94,12 @@ pub(crate) struct NativeContextMenu {
     breathing_saved: Vec<(String, CheckMenuItem)>,
     breathing_delete_menu: Submenu,
     breathing_delete_items: Vec<(String, MenuItem)>,
-    reset: MenuItem,
-    quit: MenuItem,
-    update_menu: Submenu,
     update_primary: MenuItem,
     update_ignore_current: CheckMenuItem,
-    bugs_menu: Submenu,
-    copy_diagnostics: MenuItem,
-    file_bug_github: MenuItem,
-    file_bug_email: MenuItem,
-    analytics_menu: Submenu,
     usage_on: CheckMenuItem,
     usage_off: CheckMenuItem,
     crash_on: CheckMenuItem,
     crash_off: CheckMenuItem,
-    analytics_info: MenuItem,
     #[cfg(debug_assertions)]
     simulate_pending_update: CheckMenuItem,
     #[cfg(debug_assertions)]
@@ -522,13 +506,6 @@ impl NativeContextMenu {
             pause,
             follow_cursor,
             launch_at_login,
-            snooze_menu: snooze_submenu,
-            snooze_5,
-            snooze_10,
-            snooze_15,
-            snooze_30,
-            snooze_60,
-            snooze_custom,
             size_menu: size_submenu,
             size_s,
             size_m,
@@ -542,21 +519,12 @@ impl NativeContextMenu {
             breathing_saved,
             breathing_delete_menu,
             breathing_delete_items,
-            reset,
-            quit,
-            update_menu,
             update_primary,
             update_ignore_current,
-            bugs_menu,
-            copy_diagnostics,
-            file_bug_github,
-            file_bug_email,
-            analytics_menu,
             usage_on,
             usage_off,
             crash_on,
             crash_off,
-            analytics_info,
             #[cfg(debug_assertions)]
             simulate_pending_update,
             #[cfg(debug_assertions)]
@@ -649,7 +617,6 @@ impl NativeContextMenu {
         self.usage_off.set_checked(!usage_enabled);
         self.crash_on.set_checked(crash_enabled);
         self.crash_off.set_checked(!crash_enabled);
-        self.analytics_info.set_enabled(true);
     }
 
     #[cfg(debug_assertions)]
