@@ -1,6 +1,6 @@
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
-use winit::window::{Window, WindowId};
+use winit::window::Window;
 use wry::{Rect, WebView, WebViewBuilder};
 
 use crate::app_core::AppEvent;
@@ -45,14 +45,9 @@ pub(crate) fn focus_existing_child_window(window: Option<&Window>) -> bool {
     true
 }
 
-pub(crate) fn clear_child_window(
-    window: &mut Option<Window>,
-    window_id: &mut Option<WindowId>,
-    webview: &mut Option<WebView>,
-) {
+pub(crate) fn clear_child_window(window: &mut Option<Window>, webview: &mut Option<WebView>) {
     *webview = None;
     *window = None;
-    *window_id = None;
 }
 
 pub(crate) fn create_fixed_child_window(
@@ -63,7 +58,7 @@ pub(crate) fn create_fixed_child_window(
     height: f64,
     html: &str,
     label: &str,
-) -> Result<(Window, WindowId, WebView), String> {
+) -> Result<(Window, WebView), String> {
     let attrs = Window::default_attributes()
         .with_title(title)
         .with_resizable(false)
@@ -76,7 +71,6 @@ pub(crate) fn create_fixed_child_window(
     let ipc_proxy = event_loop_proxy
         .cloned()
         .ok_or_else(|| format!("missing event loop proxy for {label} window"))?;
-    let window_id = window.id();
     let webview = WebViewBuilder::new()
         .with_html(html)
         .with_ipc_handler(move |request: wry::http::Request<String>| {
@@ -85,5 +79,5 @@ pub(crate) fn create_fixed_child_window(
         })
         .build_as_child(&window)
         .map_err(|error| format!("failed to create {label} webview: {error}"))?;
-    Ok((window, window_id, webview))
+    Ok((window, webview))
 }

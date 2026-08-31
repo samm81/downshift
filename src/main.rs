@@ -90,16 +90,12 @@ struct App {
     window_id: Option<WindowId>,
     webview: Option<WebView>,
     custom_snooze_window: Option<Window>,
-    custom_snooze_window_id: Option<WindowId>,
     custom_snooze_webview: Option<WebView>,
     breathing_pattern_window: Option<Window>,
-    breathing_pattern_window_id: Option<WindowId>,
     breathing_pattern_webview: Option<WebView>,
     telemetry_info_window: Option<Window>,
-    telemetry_info_window_id: Option<WindowId>,
     telemetry_info_webview: Option<WebView>,
     update_dialog_window: Option<Window>,
-    update_dialog_window_id: Option<WindowId>,
     update_dialog_webview: Option<WebView>,
     native_context_menu: Option<NativeContextMenu>,
     tray_icon: Option<TrayIconHandle>,
@@ -182,16 +178,12 @@ impl Default for App {
             window_id: None,
             webview: None,
             custom_snooze_window: None,
-            custom_snooze_window_id: None,
             custom_snooze_webview: None,
             breathing_pattern_window: None,
-            breathing_pattern_window_id: None,
             breathing_pattern_webview: None,
             telemetry_info_window: None,
-            telemetry_info_window_id: None,
             telemetry_info_webview: None,
             update_dialog_window: None,
-            update_dialog_window_id: None,
             update_dialog_webview: None,
             native_context_menu: None,
             tray_icon: None,
@@ -947,7 +939,7 @@ impl App {
         if focus_existing_child_window(self.update_dialog_window.as_ref()) {
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "updates",
@@ -964,7 +956,6 @@ impl App {
         };
 
         self.update_dialog_window = Some(window);
-        self.update_dialog_window_id = Some(window_id);
         self.update_dialog_webview = Some(webview);
         self.sync_update_dialog_webview_bounds();
     }
@@ -980,7 +971,6 @@ impl App {
     fn close_update_dialog_window(&mut self) {
         clear_child_window(
             &mut self.update_dialog_window,
-            &mut self.update_dialog_window_id,
             &mut self.update_dialog_webview,
         );
     }
@@ -1059,7 +1049,7 @@ impl App {
         if focus_existing_child_window(self.custom_snooze_window.as_ref()) {
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "custom snooze",
@@ -1075,7 +1065,6 @@ impl App {
             }
         };
         self.custom_snooze_window = Some(window);
-        self.custom_snooze_window_id = Some(window_id);
         self.custom_snooze_webview = Some(webview);
         self.sync_custom_snooze_webview_bounds();
     }
@@ -1136,7 +1125,7 @@ impl App {
             self.sync_breathing_pattern_editor_state();
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "add breathing pattern",
@@ -1152,7 +1141,6 @@ impl App {
             }
         };
         self.breathing_pattern_window = Some(window);
-        self.breathing_pattern_window_id = Some(window_id);
         self.breathing_pattern_webview = Some(webview);
         self.sync_breathing_pattern_webview_bounds();
         self.sync_breathing_pattern_editor_state();
@@ -1162,7 +1150,6 @@ impl App {
     fn close_breathing_pattern_window(&mut self) {
         clear_child_window(
             &mut self.breathing_pattern_window,
-            &mut self.breathing_pattern_window_id,
             &mut self.breathing_pattern_webview,
         );
     }
@@ -1186,7 +1173,6 @@ impl App {
     fn close_custom_snooze_window(&mut self) {
         clear_child_window(
             &mut self.custom_snooze_window,
-            &mut self.custom_snooze_window_id,
             &mut self.custom_snooze_webview,
         );
     }
@@ -1195,7 +1181,7 @@ impl App {
         if focus_existing_child_window(self.telemetry_info_window.as_ref()) {
             return;
         }
-        let (window, window_id, webview) = match create_fixed_child_window(
+        let (window, webview) = match create_fixed_child_window(
             event_loop,
             self.event_loop_proxy.as_ref(),
             "what we collect",
@@ -1219,7 +1205,6 @@ impl App {
             }
         };
         self.telemetry_info_window = Some(window);
-        self.telemetry_info_window_id = Some(window_id);
         self.telemetry_info_webview = Some(webview);
         self.sync_telemetry_info_webview_bounds();
     }
@@ -1227,7 +1212,6 @@ impl App {
     fn close_telemetry_info_window(&mut self) {
         clear_child_window(
             &mut self.telemetry_info_window,
-            &mut self.telemetry_info_window_id,
             &mut self.telemetry_info_webview,
         );
     }
@@ -2397,19 +2381,19 @@ impl ApplicationHandler<AppEvent> for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        if Some(window_id) == self.custom_snooze_window_id {
+        if self.custom_snooze_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_custom_snooze_window_event(event);
             return;
         }
-        if Some(window_id) == self.breathing_pattern_window_id {
+        if self.breathing_pattern_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_breathing_pattern_window_event(event);
             return;
         }
-        if Some(window_id) == self.telemetry_info_window_id {
+        if self.telemetry_info_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_telemetry_info_window_event(event);
             return;
         }
-        if Some(window_id) == self.update_dialog_window_id {
+        if self.update_dialog_window.as_ref().map(Window::id) == Some(window_id) {
             self.handle_update_dialog_window_event(event);
             return;
         }
