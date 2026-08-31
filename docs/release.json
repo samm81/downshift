@@ -4,5 +4,6 @@
   "published_at": "2026-08-25T08:47:08Z",
   "macos_url": "https://github.com/samm81/downshift/releases/download/v0.3.0/Downshift-notarized-v0.3.0.dmg",
   "windows_url": "https://github.com/samm81/downshift/releases/download/v0.3.0/Downshift-Setup-0.3.0.exe",
+  "linux_url": null,
   "checksums_url": "https://github.com/samm81/downshift/releases/download/v0.3.0/SHA256SUMS.txt"
 }

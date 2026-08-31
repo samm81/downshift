@@ -12,6 +12,11 @@ see the interactive preview and current platform downloads at [getdownshift.app]
 
 open [getdownshift.app/#download](https://getdownshift.app/#download) and download the installer for your platform.
 
+Linux x86_64 users can download the `Downshift-linux-x86_64-v<version>.tar.gz`
+archive and run its rootless `./install.sh` installer. See
+[README-linux.md](README-linux.md) for GTK/WebKitGTK requirements and
+compositor notes.
+
 ## quickstart
 
 1. install and open Downshift.
@@ -41,6 +46,7 @@ Downshift runs without an account and does not use a camera, microphone, window 
 
 - **macOS:** 13 or later on Apple Silicon.
 - **Windows:** x64; the installer adds Microsoft Edge WebView2 when the runtime is missing.
+- **Linux:** x86_64 with GTK3 and WebKitGTK 4.1; `gtk-layer-shell` is optional.
 
 for local builds, tests, packaging, and release instructions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 

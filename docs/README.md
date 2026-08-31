@@ -58,7 +58,7 @@ make pages-check
 To build only the Pages artifact, run `make pages-build`.
 
 The browser smoke test exercises the generated Pages artifact with macOS-only, macOS-plus-Windows,
-malformed, missing, and JavaScript-disabled cases:
+macOS-plus-Windows-plus-Linux, malformed, missing, and JavaScript-disabled cases:
 
 ```bash
 npm ci
@@ -82,6 +82,7 @@ The manifest contains:
 - stable version tag
 - `.dmg` macOS download link, when present
 - `.exe` Windows x64 download link, when present
+- canonical Linux x86_64 `.tar.gz` download link, when present
 - release notes link
 - optional checksum link
 
@@ -104,6 +105,7 @@ never contains credentials or private release data.
 - `published_at`: release publication timestamp.
 - `macos_url`: nullable notarized `.dmg` asset URL.
 - `windows_url`: nullable Windows `.exe` asset URL.
+- `linux_url`: nullable canonical Linux x86_64 `.tar.gz` asset URL.
 - `checksums_url`: nullable `SHA256SUMS.txt` asset URL.
 
 To rebuild the deployed site for an existing stable release without rebuilding application
@@ -126,7 +128,7 @@ published release.
 ## notes
 
 - all external links open in a new tab.
-- the supported release targets are macOS Apple Silicon and Windows x64.
+- the supported release targets are macOS Apple Silicon, Windows x64, and Linux x86_64.
 - Windows ARM64 is not currently supported.
 - the website follows the latest stable release and does not automatically serve release candidates.
 - this page explicitly states that there is no intensity feature.

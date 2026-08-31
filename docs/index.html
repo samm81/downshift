@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Downshift | breathing companion for macOS and Windows</title>
+    <title>Downshift | breathing companion for macOS, Windows, and Linux</title>
     <meta
       name="description"
-      content="Downshift is an ambient coherent-breathing cue for macOS and Windows knowledge workers who want to remember to breathe during focused screen work."
+      content="Downshift is an ambient coherent-breathing cue for macOS, Windows, and Linux knowledge workers who want to remember to breathe during focused screen work."
     />
     <script type="application/ld+json">
       {
@@ -14,8 +14,8 @@
         "@type": "SoftwareApplication",
         "name": "Downshift",
         "applicationCategory": "HealthApplication",
-        "operatingSystem": ["macOS", "Windows"],
-        "description": "Downshift is an always-on breathing cue for macOS and Windows that expands and contracts at a steady 5.5s inhale / 5.5s exhale rhythm to help you keep your breathing steady while you work.",
+        "operatingSystem": ["macOS", "Windows", "Linux"],
+        "description": "Downshift is an always-on breathing cue for macOS, Windows, and Linux that expands and contracts at a steady 5.5s inhale / 5.5s exhale rhythm to help you keep your breathing steady while you work.",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -37,7 +37,7 @@
         "@type": "WebSite",
         "name": "Downshift",
         "url": "https://getdownshift.app/",
-        "description": "Downshift is an always-on breathing cue for calmer work sessions on macOS and Windows.",
+        "description": "Downshift is an always-on breathing cue for calmer work sessions on macOS, Windows, and Linux.",
         "publisher": {
           "@id": "https://getdownshift.app/#organization"
         },
@@ -63,6 +63,7 @@
         "published_at": "2026-08-25T08:47:08Z",
         "macos_url": "https://github.com/samm81/downshift/releases/download/v0.3.0/Downshift-notarized-v0.3.0.dmg",
         "windows_url": "https://github.com/samm81/downshift/releases/download/v0.3.0/Downshift-Setup-0.3.0.exe",
+        "linux_url": null,
         "checksums_url": "https://github.com/samm81/downshift/releases/download/v0.3.0/SHA256SUMS.txt"
       }
     </script>
@@ -127,7 +128,7 @@
       <section class="hero" id="top">
         <h2>Keep your breathing steady while you work.</h2>
         <a id="hero-download" class="button button-primary" href="#download"
-          >Download for macOS and Windows</a
+          >Download for macOS, Windows, and Linux</a
         >
         <p class="trust-line">open source . no account</p>
       </section>
@@ -282,6 +283,17 @@
               >Download for Windows (x64)</a
             >
           </div>
+          <div class="download-option" id="linux-download-option" hidden>
+            <a
+              id="linux-download-button"
+              class="button button-primary is-disabled"
+              href="#download"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-disabled="true"
+              >Download for Linux (x86_64)</a
+            >
+          </div>
         </div>
         <div class="download-links">
           <a
@@ -353,7 +365,7 @@
           rel="noopener noreferrer"
           >GitHub</a
         >
-        <a class="footer-pill" href="#top">Built for Mac + Windows</a>
+        <a class="footer-pill" href="#top">Built for Mac + Windows + Linux</a>
       </div>
       <span id="contact-line">Contact: samwmaynard@gmail.com</span>
     </footer>

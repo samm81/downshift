@@ -177,6 +177,7 @@ async function runJavaScriptCase(browser, fixture, expectations) {
 
     const macosOption = page.locator("#macos-download-option");
     const windowsOption = page.locator("#windows-download-option");
+    const linuxOption = page.locator("#linux-download-option");
     const downloadError = page.locator("#download-error");
     assertEqual(
       await macosOption.isHidden(),
@@ -187,6 +188,11 @@ async function runJavaScriptCase(browser, fixture, expectations) {
       await windowsOption.isHidden(),
       !expectations.hasWindows,
       `${expectations.name}: Windows card visibility`,
+    );
+    assertEqual(
+      await linuxOption.isHidden(),
+      !expectations.hasLinux,
+      `${expectations.name}: Linux card visibility`,
     );
     assertEqual(
       await downloadError.isHidden(),
@@ -205,6 +211,13 @@ async function runJavaScriptCase(browser, fixture, expectations) {
           await page.locator("#windows-download-button").getAttribute("href"),
           expectations.windowsUrl,
           `${expectations.name}: Windows URL`,
+        );
+      }
+      if (expectations.hasLinux) {
+        assertEqual(
+          await page.locator("#linux-download-button").getAttribute("href"),
+          expectations.linuxUrl,
+          `${expectations.name}: Linux URL`,
         );
       }
     } else {
@@ -264,6 +277,15 @@ function testManifestGenerator(manifest) {
         browser_download_url: manifest.windows_url,
         state: "uploaded",
       },
+      ...(manifest.linux_url
+        ? [
+            {
+              name: `Downshift-linux-x86_64-${manifest.version}.tar.gz`,
+              browser_download_url: manifest.linux_url,
+              state: "uploaded",
+            },
+          ]
+        : []),
       {
         name: "SHA256SUMS.txt",
         browser_download_url: manifest.checksums_url,
@@ -322,6 +344,12 @@ async function main() {
   );
   testManifestGenerator(manifest);
 
+  const linuxManifest = {
+    ...manifest,
+    linux_url: `https://github.com/samm81/downshift/releases/download/${manifest.version}/Downshift-linux-x86_64-${manifest.version}.tar.gz`,
+  };
+  testManifestGenerator(linuxManifest);
+
   const macosOnlyManifest = { ...manifest, windows_url: null };
   const malformedManifest = {
     version: manifest.version,
@@ -331,6 +359,8 @@ async function main() {
   try {
     const bothPlatforms = await createFixture(manifest);
     fixtures.push(bothPlatforms);
+    const threePlatforms = await createFixture(linuxManifest);
+    fixtures.push(threePlatforms);
     const macosOnly = await createFixture(macosOnlyManifest);
     fixtures.push(macosOnly);
     const malformed = await createFixture(malformedManifest);
@@ -349,14 +379,26 @@ async function main() {
         valid: true,
         hasMacos: true,
         hasWindows: true,
+        hasLinux: false,
         macosUrl: manifest.macos_url,
         windowsUrl: manifest.windows_url,
+      });
+      await runJavaScriptCase(browser, threePlatforms, {
+        name: "macOS-Windows-Linux manifest",
+        valid: true,
+        hasMacos: true,
+        hasWindows: true,
+        hasLinux: true,
+        macosUrl: manifest.macos_url,
+        windowsUrl: manifest.windows_url,
+        linuxUrl: linuxManifest.linux_url,
       });
       await runJavaScriptCase(browser, macosOnly, {
         name: "macOS-only manifest",
         valid: true,
         hasMacos: true,
         hasWindows: false,
+        hasLinux: false,
         macosUrl: manifest.macos_url,
       });
       await runJavaScriptCase(browser, malformed, {
@@ -364,14 +406,16 @@ async function main() {
         valid: false,
         hasMacos: false,
         hasWindows: false,
+        hasLinux: false,
       });
       await runJavaScriptCase(browser, missing, {
         name: "missing manifest",
         valid: false,
         hasMacos: false,
         hasWindows: false,
+        hasLinux: false,
       });
-      await runNoJavaScriptCase(browser, bothPlatforms);
+      await runNoJavaScriptCase(browser, threePlatforms);
     } finally {
       await browser.close();
     }
@@ -384,7 +428,7 @@ async function main() {
   }
 
   console.log(
-    "Pages browser smoke passed: embedded, API-free, macOS-only, Windows-present, invalid, missing, and no-JavaScript cases",
+    "Pages browser smoke passed: embedded, API-free, macOS-only, Linux-present, invalid, missing, and no-JavaScript cases",
   );
 }
 
