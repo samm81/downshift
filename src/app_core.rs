@@ -4,6 +4,7 @@ use downshift::telemetry::{
 use downshift::{BreathingPattern, SavedBreathingPreset, BREATHING_PRESET_ID_CUSTOM};
 use semver::Version;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use winit::window::WindowId;
 
 use crate::update_check::{UpdateCheckResult, UpdateCheckSource};
 
@@ -47,6 +48,9 @@ pub(crate) enum AppEvent {
     // the event in the shared protocol lets the event loop stay platform-neutral.
     MenuActivated(String),
     TrayIconClicked,
+    HostWindowClosed(WindowId),
+    HostWindowResized(WindowId),
+    HostWindowMoved(WindowId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -387,6 +391,13 @@ pub(crate) fn drag_position(
     (
         (anchor_window.0 + dx).round() as i32,
         (anchor_window.1 + dy).round() as i32,
+    )
+}
+
+pub(crate) fn drag_position_from_delta(anchor_window: (f64, f64), delta: (f64, f64)) -> (i32, i32) {
+    (
+        (anchor_window.0 + delta.0).round() as i32,
+        (anchor_window.1 + delta.1).round() as i32,
     )
 }
 

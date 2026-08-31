@@ -1,23 +1,26 @@
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+use super::platform::HostWindow;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use muda::dpi::PhysicalPosition as MenuPhysicalPosition;
 #[cfg(target_os = "windows")]
 use muda::Menu;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use muda::{
     CheckMenuItem, ContextMenu, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
 use winit::event_loop::EventLoopProxy;
-use winit::window::Window;
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::app_core::breathing_pattern_summary;
 use crate::app_core::{AppEvent, SNOOZE_PRESET_MINUTES};
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::diagnostics;
-#[cfg(any(not(any(target_os = "macos", target_os = "windows")), debug_assertions))]
+#[cfg(any(
+    debug_assertions,
+    not(any(target_os = "macos", target_os = "windows", target_os = "linux"))
+))]
 use crate::update_check::UpdateCheckService;
 use downshift::Settings;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use downshift::{built_in_breathing_presets, BreathingPattern, BREATHING_PRESET_ID_COHERENT};
 
 pub(crate) const MENU_ID_PAUSE: &str = "pause";
@@ -67,7 +70,7 @@ pub(crate) const MENU_ID_FORCE_BACKGROUND_UPDATE_CHECK: &str = "force_background
 pub(crate) const MENU_ID_CLEAR_UPDATE_NOTIFICATION_DISMISSED: &str =
     "clear_update_notification_dismissed";
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 macro_rules! log_stderr {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
@@ -75,7 +78,7 @@ macro_rules! log_stderr {
     }};
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 #[derive(Clone)]
 pub(crate) struct NativeContextMenu {
     root: Submenu,
@@ -105,7 +108,7 @@ pub(crate) struct NativeContextMenu {
     simulate_pending_update: CheckMenuItem,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl NativeContextMenu {
     pub(crate) fn new(settings: &Settings) -> Option<Self> {
         let visible_built_in_presets = built_in_breathing_presets()
@@ -618,8 +621,16 @@ impl NativeContextMenu {
             .set_checked(update_check.simulate_pending_update());
     }
 
-    pub(crate) fn show(&self, window: &Window, x: i32, y: i32) {
-        let position = MenuPhysicalPosition::new(x as f64, y as f64).into();
+    pub(crate) fn show(&self, window: &HostWindow, x: i32, y: i32) {
+        #[cfg(not(target_os = "linux"))]
+        let position: muda::dpi::Position = MenuPhysicalPosition::new(x as f64, y as f64).into();
+
+        #[cfg(target_os = "linux")]
+        let position: muda::dpi::Position = MenuPhysicalPosition::new(
+            f64::from(x) * window.scale_factor(),
+            f64::from(y) * window.scale_factor(),
+        )
+        .into();
 
         #[cfg(target_os = "macos")]
         {
@@ -660,14 +671,21 @@ impl NativeContextMenu {
                 let _ = self.root.show_context_menu_for_hwnd(hwnd, Some(position));
             }
         }
+
+        #[cfg(target_os = "linux")]
+        {
+            let _ = self
+                .root
+                .show_context_menu_for_gtk_window(window.gtk_window(), Some(position));
+        }
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 #[derive(Clone)]
 pub(crate) struct NativeContextMenu;
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 impl NativeContextMenu {
     pub(crate) fn new(_settings: &Settings) -> Option<Self> {
         None
@@ -691,7 +709,7 @@ impl NativeContextMenu {
 
     pub(crate) fn sync_developer_controls(&self, _update_check: &UpdateCheckService) {}
 
-    pub(crate) fn show(&self, _window: &Window, _x: i32, _y: i32) {}
+    pub(crate) fn show(&self, _window: &HostWindow, _x: i32, _y: i32) {}
 }
 
 pub(crate) fn breathing_delete_menu_id(id: &str) -> String {
@@ -710,14 +728,14 @@ pub(crate) fn saved_breathing_preset_id_from_menu_id(id: &str) -> Option<&str> {
     id.strip_prefix(MENU_ID_BREATHING_SAVED_PREFIX)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub(crate) fn install_event_handler(proxy: EventLoopProxy<AppEvent>) {
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = proxy.send_event(AppEvent::MenuActivated(event.id().as_ref().to_string()));
     }));
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub(crate) fn install_event_handler(_proxy: EventLoopProxy<AppEvent>) {}
 
 pub(crate) fn snooze_minutes_for_menu_id(id: &str) -> Option<u64> {

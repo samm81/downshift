@@ -1,8 +1,11 @@
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::path::Path;
 
 #[cfg(target_os = "macos")]
 use downshift::{launch_agent_path_from_home, launch_agent_plist};
+
+#[cfg(target_os = "linux")]
+use downshift::LINUX_APPLICATION_ID;
 
 #[cfg(target_os = "windows")]
 const WINDOWS_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
@@ -27,11 +30,64 @@ pub(crate) fn set_launch_at_login(enabled: bool) -> Result<(), String> {
         set_windows_launch_at_login(enabled)
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        let path = linux_autostart_path()
+            .ok_or_else(|| "failed to resolve XDG autostart directory".to_string())?;
+        if enabled {
+            let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+            write_linux_autostart(&path, &executable)
+        } else {
+            remove_linux_autostart(&path)
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = enabled;
         Ok(())
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_autostart_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|config_dir| {
+        config_dir
+            .join("autostart")
+            .join(format!("{LINUX_APPLICATION_ID}.desktop"))
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn write_linux_autostart(path: &Path, executable: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("invalid XDG autostart path: {}", path.display()))?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    std::fs::write(path, linux_desktop_entry(executable)).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn remove_linux_autostart(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_desktop_entry(executable: &Path) -> String {
+    let executable = executable.to_string_lossy();
+    let escaped = executable
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('`', "\\`")
+        .replace('$', "\\$")
+        .replace('%', "%%");
+    format!(
+        "[Desktop Entry]\nType=Application\nName=downshift\nExec=\"{escaped}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -98,4 +154,19 @@ fn set_windows_launch_at_login(enabled: bool) -> Result<(), String> {
     } else {
         details
     })
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::linux_desktop_entry;
+    use std::path::Path;
+
+    #[test]
+    fn desktop_entry_uses_an_absolute_quoted_executable() {
+        let entry = linux_desktop_entry(Path::new("/home/tester/Down shift%1"));
+        assert!(entry.contains("Type=Application"));
+        assert!(entry.contains("Name=downshift"));
+        assert!(entry.contains("Exec=\"/home/tester/Down shift%%1\""));
+        assert!(entry.contains("X-GNOME-Autostart-enabled=true"));
+    }
 }

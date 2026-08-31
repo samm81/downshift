@@ -123,6 +123,11 @@ pub struct DiagnosticsSnapshot {
     pub window_size_px: String,
     pub window_scale_factor: Option<String>,
     pub monitor: Option<String>,
+    pub linux_session_backend: Option<String>,
+    pub linux_window_backend: Option<String>,
+    pub linux_requested_mode: Option<String>,
+    pub linux_overlay_supported: Option<bool>,
+    pub linux_fallback_reason: Option<String>,
     pub settings_toml: String,
 }
 
@@ -174,6 +179,25 @@ pub fn build_summary(snapshot: &DiagnosticsSnapshot) -> String {
     if let Some(monitor) = snapshot.monitor.as_ref() {
         lines.push(format!("monitor = {:?}", monitor));
     }
+    if let Some(session_backend) = snapshot.linux_session_backend.as_ref() {
+        lines.extend([
+            String::new(),
+            "[linux]".to_string(),
+            format!("session_backend = {:?}", session_backend),
+        ]);
+        if let Some(window_backend) = snapshot.linux_window_backend.as_ref() {
+            lines.push(format!("window_backend = {:?}", window_backend));
+        }
+        if let Some(requested_mode) = snapshot.linux_requested_mode.as_ref() {
+            lines.push(format!("requested_mode = {:?}", requested_mode));
+        }
+        if let Some(overlay_supported) = snapshot.linux_overlay_supported {
+            lines.push(format!("overlay_supported = {overlay_supported:?}"));
+        }
+        if let Some(fallback_reason) = snapshot.linux_fallback_reason.as_ref() {
+            lines.push(format!("fallback_reason = {:?}", fallback_reason));
+        }
+    }
     lines.extend([
         String::new(),
         "[settings]".to_string(),
@@ -221,6 +245,11 @@ mod tests {
             window_size_px: "96x96".to_string(),
             window_scale_factor: Some("2.00".to_string()),
             monitor: Some("1728x1117 @ 2.00x".to_string()),
+            linux_session_backend: None,
+            linux_window_backend: None,
+            linux_requested_mode: None,
+            linux_overlay_supported: None,
+            linux_fallback_reason: None,
             settings_toml: [
                 "size = 96.0",
                 "[breathing_pattern]",

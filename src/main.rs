@@ -28,12 +28,13 @@ use host::menu::*;
 use host::InstanceStart;
 use host::NativeContextMenu;
 use host::{
-    build_main_webview, clear_child_window, configure_event_loop_builder, copy_text_to_clipboard,
-    create_fixed_child_window, create_main_window, create_tray_icon, current_os_version,
-    enforce_fixed_size, focus_existing_child_window, install_menu_event_handler,
-    install_tray_event_handler, logical_outer_position, native_menu_available, open_external_url,
-    persisted_monitor, snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds,
-    update_tray_menu, TrayIconHandle,
+    begin_native_drag, build_main_webview, clear_child_window, configure_event_loop_builder,
+    copy_text_to_clipboard, create_fixed_child_window, create_main_window, create_tray_icon,
+    current_os_version, enforce_fixed_size, focus_existing_child_window,
+    install_menu_event_handler, install_tray_event_handler, linux_diagnostics,
+    logical_outer_position, native_menu_available, open_external_url, persisted_monitor,
+    snapshot_monitor, sync_child_webview_bounds, sync_main_webview_bounds, update_tray_menu,
+    HostWindow, TrayIconHandle,
 };
 use std::panic::PanicHookInfo;
 use std::path::PathBuf;
@@ -45,7 +46,7 @@ use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::monitor::MonitorHandle;
-use winit::window::{Window, WindowId};
+use winit::window::WindowId;
 use wry::WebView;
 
 mod update_check;
@@ -86,16 +87,16 @@ fn spawn_update_check(
 }
 
 struct App {
-    window: Option<Window>,
+    window: Option<HostWindow>,
     window_id: Option<WindowId>,
     webview: Option<WebView>,
-    custom_snooze_window: Option<Window>,
+    custom_snooze_window: Option<HostWindow>,
     custom_snooze_webview: Option<WebView>,
-    breathing_pattern_window: Option<Window>,
+    breathing_pattern_window: Option<HostWindow>,
     breathing_pattern_webview: Option<WebView>,
-    telemetry_info_window: Option<Window>,
+    telemetry_info_window: Option<HostWindow>,
     telemetry_info_webview: Option<WebView>,
-    update_dialog_window: Option<Window>,
+    update_dialog_window: Option<HostWindow>,
     update_dialog_webview: Option<WebView>,
     native_context_menu: Option<NativeContextMenu>,
     tray_icon: Option<TrayIconHandle>,
@@ -104,7 +105,6 @@ struct App {
     config_path: Option<std::path::PathBuf>,
     event_loop_proxy: Option<EventLoopProxy<AppEvent>>,
     drag_anchor_window_pos: Option<LogicalPosition<f64>>,
-    drag_anchor_pointer_pos: Option<LogicalPosition<f64>>,
     activity_mode: ActivityMode,
     snooze_deadline: Option<SystemTime>,
     snooze_generation: u64,
@@ -192,7 +192,6 @@ impl Default for App {
             config_path: None,
             event_loop_proxy: None,
             drag_anchor_window_pos: None,
-            drag_anchor_pointer_pos: None,
             activity_mode: ActivityMode::Active,
             snooze_deadline: None,
             snooze_generation: 0,
@@ -270,6 +269,16 @@ impl App {
                 monitor.width, monitor.height, monitor.scale_factor
             )
         });
+        let linux = linux_diagnostics(self.window.as_ref());
+        let linux_session_backend =
+            (!linux.session_backend.is_empty()).then_some(linux.session_backend);
+        let linux_window_backend =
+            (!linux.window_backend.is_empty()).then_some(linux.window_backend);
+        let linux_requested_mode =
+            (!linux.requested_mode.is_empty()).then_some(linux.requested_mode);
+        let linux_overlay_supported = linux_session_backend
+            .as_ref()
+            .map(|_| linux.overlay_supported);
         let (width_px, height_px) = self.widget_dimensions_px();
         diagnostics::DiagnosticsSnapshot {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -297,6 +306,11 @@ impl App {
             window_size_px: format!("{width_px}x{height_px}"),
             window_scale_factor,
             monitor,
+            linux_session_backend,
+            linux_window_backend,
+            linux_requested_mode,
+            linux_overlay_supported,
+            linux_fallback_reason: linux.fallback_reason,
             settings_toml: toml::to_string_pretty(&self.settings)
                 .unwrap_or_else(|error| format!("serialization_error = {:?}", error.to_string())),
         }
@@ -618,37 +632,38 @@ impl App {
         event_loop.exit();
     }
 
-    fn start_manual_drag(&mut self, screen_x: i32, screen_y: i32) {
+    fn start_manual_drag(&mut self) {
         if self.follow_cursor_active {
+            return;
+        }
+        if self.window.as_ref().is_some_and(begin_native_drag) {
+            self.drag_anchor_window_pos = None;
             return;
         }
         self.drag_anchor_window_pos = logical_outer_position(self.window.as_ref());
-        self.drag_anchor_pointer_pos = Some(LogicalPosition::new(screen_x as f64, screen_y as f64));
     }
 
-    fn drag_to(&mut self, screen_x: i32, screen_y: i32) {
+    fn drag_to(&mut self, delta_x: f64, delta_y: f64) {
         if self.follow_cursor_active {
             return;
         }
-        let (Some(anchor_window), Some(anchor_pointer), Some(window)) = (
-            self.drag_anchor_window_pos,
-            self.drag_anchor_pointer_pos,
-            self.window.as_ref(),
-        ) else {
+        let (Some(anchor_window), Some(window)) =
+            (self.drag_anchor_window_pos, self.window.as_ref())
+        else {
             return;
         };
 
-        let (next_x, next_y) = app_core::drag_position(
+        let (next_x, next_y) = app_core::drag_position_from_delta(
             (anchor_window.x, anchor_window.y),
-            (anchor_pointer.x, anchor_pointer.y),
-            (screen_x as f64, screen_y as f64),
+            (delta_x, delta_y),
         );
         window.set_outer_position(LogicalPosition::new(next_x, next_y));
     }
 
     fn stop_manual_drag(&mut self) {
         self.drag_anchor_window_pos = None;
-        self.drag_anchor_pointer_pos = None;
+        #[cfg(target_os = "linux")]
+        self.persist_linux_window_state();
     }
 
     fn enforce_fixed_widget_size(&self) {
@@ -1273,6 +1288,32 @@ impl App {
             .or_else(|| monitors.first().cloned())?;
         let monitor_snapshots = monitors.iter().map(snapshot_monitor).collect::<Vec<_>>();
         let primary_snapshot = snapshot_monitor(&primary);
+
+        #[cfg(target_os = "linux")]
+        if let Some(placement) = self.settings.linux_output_placement.as_ref() {
+            let outputs = monitors
+                .iter()
+                .map(|monitor| LinuxOutputSnapshot {
+                    name: monitor.name(),
+                    monitor: snapshot_monitor(monitor),
+                    primary: monitor.position() == primary.position()
+                        && monitor.size() == primary.size(),
+                })
+                .collect::<Vec<_>>();
+            if let Some(output_index) = linux_output_index_for_placement(placement, &outputs) {
+                let output = &outputs[output_index];
+                let dimensions = self.widget_window_dimensions(size);
+                let width = (dimensions.width * output.monitor.scale_factor)
+                    .round()
+                    .max(1.0) as u32;
+                let height = (dimensions.height * output.monitor.scale_factor)
+                    .round()
+                    .max(1.0) as u32;
+                let origin = linux_output_origin_for_placement(placement, output, width, height);
+                return Some(PhysicalPosition::new(origin.x, origin.y));
+            }
+        }
+
         let position = window_policy::choose_initial_position(
             &self.settings,
             &monitor_snapshots,
@@ -1310,6 +1351,36 @@ impl App {
 
     fn current_window_physical_position(&self) -> Option<PhysicalPosition<i32>> {
         self.window.as_ref()?.outer_position().ok()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn persist_linux_window_state(&mut self) {
+        if self.follow_cursor_active {
+            return;
+        }
+        if let Some(position) = self.current_window_physical_position() {
+            self.update_position_from_physical(position);
+        } else {
+            self.update_linux_monitor_state();
+        }
+        self.save_settings();
+    }
+
+    #[cfg(target_os = "linux")]
+    fn update_linux_monitor_state(&mut self) {
+        let Some(monitor) = self
+            .window
+            .as_ref()
+            .and_then(|window| window.current_monitor())
+        else {
+            return;
+        };
+        let persisted = persisted_monitor(&monitor);
+        self.settings.monitor = Some(persisted);
+        if let Some(placement) = self.settings.linux_output_placement.as_mut() {
+            placement.output_name = monitor.name();
+            placement.output = persisted;
+        }
     }
 
     fn follow_monitor(monitor: &MonitorHandle) -> FollowMonitor {
@@ -1859,13 +1930,36 @@ impl App {
         if self.follow_cursor_active {
             return;
         }
-        if let Some(window) = self.window.as_ref() {
+        let Some((current_monitor, window_size)) = self
+            .window
+            .as_ref()
+            .map(|window| (window.current_monitor(), window.inner_size()))
+        else {
+            return;
+        };
+        #[cfg(not(target_os = "linux"))]
+        let _ = window_size;
+        {
             self.settings.physical_x = Some(physical.x);
             self.settings.physical_y = Some(physical.y);
-            let current_monitor = window.current_monitor();
             self.settings.monitor = current_monitor.as_ref().map(persisted_monitor);
             if let Some(monitor) = current_monitor {
                 self.apply_size_presets_for_monitor(&monitor);
+
+                #[cfg(target_os = "linux")]
+                {
+                    let output = LinuxOutputSnapshot {
+                        name: monitor.name(),
+                        monitor: snapshot_monitor(&monitor),
+                        primary: false,
+                    };
+                    self.settings.linux_output_placement = Some(linux_output_placement_for_origin(
+                        &output,
+                        PhysicalPoint::new(physical.x, physical.y),
+                        window_size.width,
+                        window_size.height,
+                    ));
+                }
             }
         }
     }
@@ -1891,12 +1985,41 @@ impl App {
         self.close_breathing_pattern_window();
         self.apply_paused(false);
         self.telemetry_activity_state(ActivityState::Active, ActivityTrigger::Manual, None);
-        if let Some(window) = self.window.as_ref() {
-            if let Some(monitor_snapshot) = monitor_snapshot {
-                let policy_position =
-                    default_corner_position(&monitor_snapshot, self.settings.size);
-                let pos = PhysicalPosition::new(policy_position.x, policy_position.y);
+        if let Some(monitor_snapshot) = monitor_snapshot {
+            let policy_position = default_corner_position(&monitor_snapshot, self.settings.size);
+            let pos = PhysicalPosition::new(policy_position.x, policy_position.y);
+            #[cfg(target_os = "linux")]
+            let output = monitor.as_ref().map(|monitor| LinuxOutputSnapshot {
+                name: monitor.name(),
+                monitor: monitor_snapshot,
+                primary: false,
+            });
+            let physical = self.window.as_ref().and_then(|window| {
                 window.set_outer_position(pos);
+                window.outer_position().ok()
+            });
+            #[cfg(target_os = "linux")]
+            if let Some(physical) = physical {
+                self.update_position_from_physical(physical);
+            } else {
+                self.settings.monitor = Some(monitor_snapshot.persisted());
+                if let Some(output) = output {
+                    let window_size = self
+                        .window
+                        .as_ref()
+                        .map(HostWindow::inner_size)
+                        .unwrap_or_default();
+                    self.settings.linux_output_placement = Some(linux_output_placement_for_origin(
+                        &output,
+                        policy_position,
+                        window_size.width,
+                        window_size.height,
+                    ));
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = physical;
                 self.settings.physical_x = Some(pos.x);
                 self.settings.physical_y = Some(pos.y);
                 self.settings.monitor = Some(monitor_snapshot.persisted());
@@ -1988,10 +2111,8 @@ impl App {
                 self.apply_size(size);
                 self.save_settings();
             }
-            IpcCommand::StartDrag { screen_x, screen_y } => {
-                self.start_manual_drag(screen_x, screen_y)
-            }
-            IpcCommand::DragTo { screen_x, screen_y } => self.drag_to(screen_x, screen_y),
+            IpcCommand::StartDrag { .. } => self.start_manual_drag(),
+            IpcCommand::DragTo { delta_x, delta_y } => self.drag_to(delta_x, delta_y),
             IpcCommand::EndDrag => self.stop_manual_drag(),
             IpcCommand::SetFollowCursor { enabled } => {
                 self.set_follow_cursor(event_loop, enabled);
@@ -2175,6 +2296,52 @@ impl App {
             }
         }
     }
+
+    fn handle_host_window_closed(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId) {
+        if Some(window_id) == self.window_id {
+            self.save_settings();
+            self.finish_session(SessionEndReason::WindowClose);
+            event_loop.exit();
+        } else if self.custom_snooze_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.close_custom_snooze_window();
+        } else if self.breathing_pattern_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.close_breathing_pattern_window();
+        } else if self.telemetry_info_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.close_telemetry_info_window();
+        } else if self.update_dialog_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.close_update_dialog_window();
+        }
+    }
+
+    fn handle_host_window_resized(&mut self, window_id: WindowId) {
+        if Some(window_id) == self.window_id {
+            self.enforce_fixed_widget_size();
+            self.sync_webview_bounds();
+            #[cfg(target_os = "linux")]
+            self.persist_linux_window_state();
+        } else if self.custom_snooze_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.sync_custom_snooze_webview_bounds();
+        } else if self.breathing_pattern_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.sync_breathing_pattern_webview_bounds();
+        } else if self.telemetry_info_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.sync_telemetry_info_webview_bounds();
+        } else if self.update_dialog_window.as_ref().map(HostWindow::id) == Some(window_id) {
+            self.sync_update_dialog_webview_bounds();
+        }
+    }
+
+    fn handle_host_window_moved(&mut self, window_id: WindowId) {
+        if Some(window_id) != self.window_id {
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(window) = self.window.as_ref() {
+                window.refresh_layer_shell_monitor();
+            }
+            self.persist_linux_window_state();
+        }
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -2226,15 +2393,37 @@ impl ApplicationHandler<AppEvent> for App {
         self.snooze_deadline = None;
 
         let initial_window_size = self.widget_window_dimensions(self.settings.size);
-        let mut window_attributes = host::configure_main_window(initial_window_size);
-
-        if let Some(position) = self.choose_initial_position(event_loop, self.settings.size) {
-            window_attributes = window_attributes.with_position(position);
+        let window_attributes = host::configure_main_window(initial_window_size);
+        let initial_position = self.choose_initial_position(event_loop, self.settings.size);
+        #[cfg(not(target_os = "linux"))]
+        if let Some(position) = initial_position {
             self.settings.physical_x = Some(position.x);
             self.settings.physical_y = Some(position.y);
         }
 
-        let window = match create_main_window(event_loop, window_attributes) {
+        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
+            self.telemetry.track_error(
+                EventName::AppError,
+                serde_json::json!({
+                    "category": "event_proxy",
+                    "severity": "error",
+                    "recoverable": false,
+                }),
+            );
+            self.finish_session(SessionEndReason::StartupFailure);
+            self.startup_error = Some("failed to initialize event loop proxy".to_string());
+            event_loop.exit();
+            return;
+        };
+        let window = match create_main_window(
+            event_loop,
+            window_attributes,
+            initial_position,
+            initial_window_size,
+            self.settings.linux_window_mode,
+            self.settings.linux_output_placement.as_ref(),
+            Some(&ipc_proxy),
+        ) {
             Ok(window) => window,
             Err(error) => {
                 self.telemetry.track_error(
@@ -2252,7 +2441,7 @@ impl ApplicationHandler<AppEvent> for App {
             }
         };
         let window_id = window.id();
-        let cursor_provider = CursorProvider::for_window(&window);
+        let cursor_provider = CursorProvider::for_window(host::winit_window(&window));
         self.follow_cursor_supported = cursor_provider.is_supported();
         self.follow_cursor_unavailable_reason = if self.follow_cursor_supported {
             ""
@@ -2272,20 +2461,6 @@ impl ApplicationHandler<AppEvent> for App {
             .map(|monitor| size_presets_for_monitor(&snapshot_monitor(monitor)))
             .unwrap_or(DEFAULT_SIZE_PRESETS);
         let init_script = self.build_init_script(size_presets);
-        let Some(ipc_proxy) = self.event_loop_proxy.as_ref().cloned() else {
-            self.telemetry.track_error(
-                EventName::AppError,
-                serde_json::json!({
-                    "category": "event_proxy",
-                    "severity": "error",
-                    "recoverable": false,
-                }),
-            );
-            self.finish_session(SessionEndReason::StartupFailure);
-            self.startup_error = Some("failed to initialize event loop proxy".to_string());
-            event_loop.exit();
-            return;
-        };
         let webview = match build_main_webview(&window, breath_html(), &init_script, &ipc_proxy) {
             Ok(webview) => webview,
             Err(error) => {
@@ -2307,6 +2482,8 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.window_id = Some(window_id);
         self.webview = Some(webview);
+        #[cfg(target_os = "linux")]
+        self.persist_linux_window_state();
         self.rebuild_native_context_menu();
         self.sync_update_surfaces();
         emit_startup_telemetry(
@@ -2365,6 +2542,18 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "linux")]
+        {
+            while gtk::events_pending() {
+                gtk::main_iteration_do(false);
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(16),
+            ));
+            if !self.follow_cursor_active {
+                return;
+            }
+        }
         if self.follow_cursor_active {
             self.poll_follow_cursor(event_loop);
             event_loop.set_control_flow(ControlFlow::WaitUntil(
@@ -2381,19 +2570,19 @@ impl ApplicationHandler<AppEvent> for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        if self.custom_snooze_window.as_ref().map(Window::id) == Some(window_id) {
+        if self.custom_snooze_window.as_ref().map(HostWindow::id) == Some(window_id) {
             self.handle_custom_snooze_window_event(event);
             return;
         }
-        if self.breathing_pattern_window.as_ref().map(Window::id) == Some(window_id) {
+        if self.breathing_pattern_window.as_ref().map(HostWindow::id) == Some(window_id) {
             self.handle_breathing_pattern_window_event(event);
             return;
         }
-        if self.telemetry_info_window.as_ref().map(Window::id) == Some(window_id) {
+        if self.telemetry_info_window.as_ref().map(HostWindow::id) == Some(window_id) {
             self.handle_telemetry_info_window_event(event);
             return;
         }
-        if self.update_dialog_window.as_ref().map(Window::id) == Some(window_id) {
+        if self.update_dialog_window.as_ref().map(HostWindow::id) == Some(window_id) {
             self.handle_update_dialog_window_event(event);
             return;
         }
@@ -2408,10 +2597,13 @@ impl ApplicationHandler<AppEvent> for App {
             }
             WindowEvent::Moved(position) => {
                 self.enforce_fixed_widget_size();
+                #[cfg(not(target_os = "linux"))]
                 if !self.follow_cursor_active {
                     self.update_position_from_physical(position);
                     self.save_settings();
                 }
+                #[cfg(target_os = "linux")]
+                let _ = position;
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = self.window.as_ref() {
@@ -2496,6 +2688,11 @@ impl ApplicationHandler<AppEvent> for App {
                 self.telemetry_menu_action(MenuAction::TrayMenu, None);
             }
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
+            AppEvent::HostWindowClosed(window_id) => {
+                self.handle_host_window_closed(event_loop, window_id)
+            }
+            AppEvent::HostWindowResized(window_id) => self.handle_host_window_resized(window_id),
+            AppEvent::HostWindowMoved(window_id) => self.handle_host_window_moved(window_id),
         }
     }
 }
@@ -3245,10 +3442,9 @@ mod tests {
             ..App::default()
         };
 
-        app.start_manual_drag(40, 60);
+        app.start_manual_drag();
 
         assert!(app.drag_anchor_window_pos.is_none());
-        assert!(app.drag_anchor_pointer_pos.is_none());
     }
 
     #[test]

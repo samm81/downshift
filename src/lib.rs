@@ -16,16 +16,243 @@ pub const MAX_PHASE_SECONDS: f64 = 60.0;
 pub const DEFAULT_MARGIN: f64 = 24.0;
 pub const LAUNCH_AGENT_LABEL: &str = "com.samm81.downshift";
 pub const LAUNCH_AGENT_FILENAME: &str = "com.samm81.downshift.plist";
+pub const LINUX_APPLICATION_ID: &str = "com.samm81.downshift";
 pub const BREATHING_PRESET_ID_COHERENT: &str = "coherent_breathing";
 pub const BREATHING_PRESET_ID_BOX: &str = "box_breathing";
 pub const BREATHING_PRESET_ID_479: &str = "4_7_9";
 pub const BREATHING_PRESET_ID_CUSTOM: &str = "custom";
+
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LinuxWindowMode {
+    #[default]
+    Auto,
+    NormalWindow,
+    Overlay,
+}
+
+impl<'de> Deserialize<'de> for LinuxWindowMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ModeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ModeVisitor {
+            type Value = LinuxWindowMode;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a Linux window mode")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(match value.trim() {
+                    "normal_window" => LinuxWindowMode::NormalWindow,
+                    "overlay" => LinuxWindowMode::Overlay,
+                    _ => LinuxWindowMode::Auto,
+                })
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_str(&value)
+            }
+
+            fn visit_bool<E>(self, _value: bool) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowMode::Auto)
+            }
+
+            fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowMode::Auto)
+            }
+
+            fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowMode::Auto)
+            }
+
+            fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowMode::Auto)
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowMode::Auto)
+            }
+
+            fn visit_seq<A>(self, _seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                Ok(LinuxWindowMode::Auto)
+            }
+
+            fn visit_map<A>(self, _map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                Ok(LinuxWindowMode::Auto)
+            }
+        }
+
+        deserializer.deserialize_any(ModeVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LinuxWindowAnchor {
+    TopLeft,
+    #[default]
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl<'de> Deserialize<'de> for LinuxWindowAnchor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct AnchorVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for AnchorVisitor {
+            type Value = LinuxWindowAnchor;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a Linux output anchor")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(match value.trim() {
+                    "top_left" => LinuxWindowAnchor::TopLeft,
+                    "bottom_left" => LinuxWindowAnchor::BottomLeft,
+                    "bottom_right" => LinuxWindowAnchor::BottomRight,
+                    _ => LinuxWindowAnchor::TopRight,
+                })
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_str(&value)
+            }
+
+            fn visit_bool<E>(self, _value: bool) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowAnchor::TopRight)
+            }
+
+            fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowAnchor::TopRight)
+            }
+
+            fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowAnchor::TopRight)
+            }
+
+            fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowAnchor::TopRight)
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LinuxWindowAnchor::TopRight)
+            }
+
+            fn visit_seq<A>(self, _seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                Ok(LinuxWindowAnchor::TopRight)
+            }
+
+            fn visit_map<A>(self, _map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                Ok(LinuxWindowAnchor::TopRight)
+            }
+        }
+
+        deserializer.deserialize_any(AnchorVisitor)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct PersistedMonitor {
     pub width: u32,
     pub height: u32,
     pub scale_factor: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LinuxOutputPlacement {
+    #[serde(default)]
+    pub output_name: Option<String>,
+    pub output: PersistedMonitor,
+    #[serde(default)]
+    pub anchor: LinuxWindowAnchor,
+    #[serde(default)]
+    pub margin_x: i32,
+    #[serde(default)]
+    pub margin_y: i32,
+}
+
+impl LinuxOutputPlacement {
+    fn sanitize(&mut self) -> bool {
+        if let Some(name) = self.output_name.as_mut() {
+            *name = name.trim().to_string();
+            if name.is_empty() {
+                self.output_name = None;
+            }
+        }
+        if self.output.width == 0
+            || self.output.height == 0
+            || !self.output.scale_factor.is_finite()
+            || self.output.scale_factor <= 0.0
+        {
+            return false;
+        }
+        self.margin_x = self.margin_x.max(0);
+        self.margin_y = self.margin_y.max(0);
+        true
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -179,6 +406,10 @@ pub struct Settings {
     #[serde(default, skip_serializing)]
     pub y: Option<i32>,
     pub monitor: Option<PersistedMonitor>,
+    #[serde(default)]
+    pub linux_window_mode: LinuxWindowMode,
+    #[serde(default)]
+    pub linux_output_placement: Option<LinuxOutputPlacement>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -210,6 +441,8 @@ impl Default for Settings {
             x: None,
             y: None,
             monitor: None,
+            linux_window_mode: LinuxWindowMode::default(),
+            linux_output_placement: None,
         }
     }
 }
@@ -226,6 +459,11 @@ impl Settings {
     pub fn sanitize(&mut self) {
         self.size = clamp_size(self.size);
         self.breathing_pattern.sanitize();
+        if let Some(placement) = self.linux_output_placement.as_mut() {
+            if !placement.sanitize() {
+                self.linux_output_placement = None;
+            }
+        }
         sanitize_optional_string(&mut self.update_badge_snoozed_version);
         sanitize_optional_string(&mut self.ignored_update_version);
         sanitize_optional_string(&mut self.legacy_dismissed_update_version);
@@ -385,12 +623,12 @@ pub enum IpcCommand {
         size: f64,
     },
     StartDrag {
-        screen_x: i32,
-        screen_y: i32,
+        pointer_x: f64,
+        pointer_y: f64,
     },
     DragTo {
-        screen_x: i32,
-        screen_y: i32,
+        delta_x: f64,
+        delta_y: f64,
     },
     EndDrag,
     SetFollowCursor {
@@ -653,6 +891,8 @@ mod tests {
             x: Some(10),
             y: Some(20),
             monitor: None,
+            linux_window_mode: LinuxWindowMode::Overlay,
+            linux_output_placement: None,
         };
 
         settings.sanitize();
@@ -696,6 +936,116 @@ mod tests {
         assert_eq!(settings.physical_y, None);
         assert_eq!(settings.x, Some(10));
         assert_eq!(settings.y, Some(20));
+        assert_eq!(settings.linux_window_mode, LinuxWindowMode::Overlay);
+        assert!(settings.linux_output_placement.is_none());
+    }
+
+    #[test]
+    fn linux_window_settings_default_and_unknown_values_are_safe() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.linux_window_mode, LinuxWindowMode::Auto);
+        assert!(defaults.linux_output_placement.is_none());
+        assert_eq!(
+            serde_json::to_string(&LinuxWindowMode::NormalWindow).unwrap(),
+            "\"normal_window\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LinuxWindowAnchor::BottomLeft).unwrap(),
+            "\"bottom_left\""
+        );
+
+        let settings: Settings = toml::from_str(
+            r#"
+size = 96.0
+linux_window_mode = "future_mode"
+paused = false
+
+[monitor]
+width = 1920
+height = 1080
+scale_factor = 1.0
+
+[breathing_pattern]
+expanding_seconds = 5.5
+expanded_hold_seconds = 0.0
+compressing_seconds = 5.5
+compressed_hold_seconds = 0.0
+"#,
+        )
+        .expect("unknown Linux mode should not invalidate settings");
+        assert_eq!(settings.linux_window_mode, LinuxWindowMode::Auto);
+
+        let settings: Settings = toml::from_str(
+            r#"
+linux_window_mode = 42
+size = 96.0
+paused = false
+
+[monitor]
+width = 1920
+height = 1080
+scale_factor = 1.0
+"#,
+        )
+        .expect("malformed Linux mode should not invalidate settings");
+        assert_eq!(settings.linux_window_mode, LinuxWindowMode::Auto);
+
+        let settings: Settings = toml::from_str(
+            r#"
+linux_window_mode = ["overlay"]
+size = 96.0
+paused = false
+
+[monitor]
+width = 1920
+height = 1080
+scale_factor = 1.0
+"#,
+        )
+        .expect("structured malformed Linux mode should not invalidate settings");
+        assert_eq!(settings.linux_window_mode, LinuxWindowMode::Auto);
+    }
+
+    #[test]
+    fn linux_output_placement_sanitizes_bad_values() {
+        let mut settings = Settings {
+            linux_output_placement: Some(LinuxOutputPlacement {
+                output_name: Some("  HDMI-A-1  ".to_string()),
+                output: PersistedMonitor {
+                    width: 1920,
+                    height: 1080,
+                    scale_factor: 1.0,
+                },
+                anchor: LinuxWindowAnchor::BottomLeft,
+                margin_x: -12,
+                margin_y: 18,
+            }),
+            ..Settings::default()
+        };
+        settings.sanitize();
+        let placement = settings
+            .linux_output_placement
+            .expect("valid output placement should remain");
+        assert_eq!(placement.output_name.as_deref(), Some("HDMI-A-1"));
+        assert_eq!(placement.margin_x, 0);
+        assert_eq!(placement.margin_y, 18);
+
+        let mut invalid = Settings {
+            linux_output_placement: Some(LinuxOutputPlacement {
+                output_name: None,
+                output: PersistedMonitor {
+                    width: 0,
+                    height: 1080,
+                    scale_factor: 1.0,
+                },
+                anchor: LinuxWindowAnchor::TopRight,
+                margin_x: 0,
+                margin_y: 0,
+            }),
+            ..Settings::default()
+        };
+        invalid.sanitize();
+        assert!(invalid.linux_output_placement.is_none());
     }
 
     #[test]
@@ -807,24 +1157,24 @@ mod tests {
         assert_eq!(show_menu, IpcCommand::ShowContextMenu { x: 15, y: 23 });
 
         let drag_start: IpcCommand =
-            serde_json::from_str(r#"{"cmd":"start_drag","screen_x":100,"screen_y":200}"#)
+            serde_json::from_str(r#"{"cmd":"start_drag","pointer_x":10.5,"pointer_y":20.25}"#)
                 .expect("valid start_drag command");
         assert_eq!(
             drag_start,
             IpcCommand::StartDrag {
-                screen_x: 100,
-                screen_y: 200
+                pointer_x: 10.5,
+                pointer_y: 20.25
             }
         );
 
         let drag_to: IpcCommand =
-            serde_json::from_str(r#"{"cmd":"drag_to","screen_x":120,"screen_y":230}"#)
+            serde_json::from_str(r#"{"cmd":"drag_to","delta_x":20.5,"delta_y":30.75}"#)
                 .expect("valid drag_to command");
         assert_eq!(
             drag_to,
             IpcCommand::DragTo {
-                screen_x: 120,
-                screen_y: 230
+                delta_x: 20.5,
+                delta_y: 30.75
             }
         );
 

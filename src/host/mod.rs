@@ -1,6 +1,8 @@
 pub(crate) mod common;
 pub(crate) mod instance;
 pub(crate) mod launch_at_login;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
 pub(crate) mod menu;
 pub(crate) mod monitor;
 pub(crate) mod platform;
@@ -15,9 +17,9 @@ pub(crate) use instance::{start as start_instance, InstanceStart};
 pub(crate) use launch_at_login::set_launch_at_login;
 pub(crate) use monitor::{persisted_monitor, snapshot_monitor};
 pub(crate) use platform::{
-    build_main_webview, configure_created_window, configure_event_loop_builder,
+    begin_native_drag, build_main_webview, configure_created_window, configure_event_loop_builder,
     configure_main_window, copy_text_to_clipboard, create_main_window, current_os_version,
-    native_menu_available, open_external_url,
+    linux_diagnostics, native_menu_available, open_external_url, winit_window, HostWindow,
 };
 
 pub(crate) use menu::{install_event_handler as install_menu_event_handler, NativeContextMenu};

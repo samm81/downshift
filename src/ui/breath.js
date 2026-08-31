@@ -888,6 +888,8 @@
   const drag = {
     active: false,
     pointerId: null,
+    startX: 0,
+    startY: 0,
   };
 
   ball.addEventListener("pointerdown", (event) => {
@@ -896,13 +898,15 @@
     }
     drag.active = true;
     drag.pointerId = event.pointerId;
+    drag.startX = event.clientX;
+    drag.startY = event.clientY;
     if (typeof ball.setPointerCapture === "function") {
       ball.setPointerCapture(event.pointerId);
     }
     post({
       cmd: "start_drag",
-      screen_x: Math.round(event.screenX),
-      screen_y: Math.round(event.screenY),
+      pointer_x: event.clientX,
+      pointer_y: event.clientY,
     });
   });
 
@@ -912,8 +916,8 @@
     }
     post({
       cmd: "drag_to",
-      screen_x: Math.round(event.screenX),
-      screen_y: Math.round(event.screenY),
+      delta_x: event.clientX - drag.startX,
+      delta_y: event.clientY - drag.startY,
     });
   });
 
