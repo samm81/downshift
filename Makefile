@@ -148,15 +148,15 @@ require-telemetry-env:
 		DOWNSHIFT_BETTERSTACK_LOGS_TOKEN \
 		DOWNSHIFT_BETTERSTACK_LOGS_HOST \
 		DOWNSHIFT_BETTERSTACK_ERRORS_DSN \
-		DOWNSHIFT_BUILD_CHANNEL; do
-		if [ -z "$${!name:-}" ]; then
-			echo "error: $$name is required"
-			exit 1
-		fi
-	done
-	if [ "$${DOWNSHIFT_TELEMETRY_ENABLED}" != "true" ]; then
-		echo "error: DOWNSHIFT_TELEMETRY_ENABLED must be 'true' for default telemetry-enabled targets"
-		exit 1
+		DOWNSHIFT_BUILD_CHANNEL; do \
+		if [ -z "$${!name:-}" ]; then \
+			echo "error: $$name is required"; \
+			exit 1; \
+		fi; \
+	done; \
+	if [ "$${DOWNSHIFT_TELEMETRY_ENABLED}" != "true" ]; then \
+		echo "error: DOWNSHIFT_TELEMETRY_ENABLED must be 'true' for default telemetry-enabled targets"; \
+		exit 1; \
 	fi
 
 require-notarization-env:
@@ -167,64 +167,62 @@ require-notarization-env:
 		MACOS_SIGNING_IDENTITY \
 		MACOS_NOTARY_APPLE_ID \
 		MACOS_NOTARY_APP_PASSWORD \
-		MACOS_NOTARY_TEAM_ID; do
-		if [ -z "$${!name:-}" ]; then
-			echo "error: $$name is required"
-			exit 1
-		fi
+		MACOS_NOTARY_TEAM_ID; do \
+		if [ -z "$${!name:-}" ]; then \
+			echo "error: $$name is required"; \
+			exit 1; \
+		fi; \
 	done
 
 require-safe-output-paths:
-	@root_dir="$$(cd "$(ROOT_DIR)" && pwd -P)"
-	validate_output_dir() {
-		output_dir="$$1"
-		case "$$output_dir" in
-			""|.|..|/*)
-				echo "error: output directory must be a non-empty relative path: $$output_dir" >&2
-				return 1
-				;;
-		esac
-		case "/$$output_dir/" in
-			*/./*|*/../*)
-				echo "error: output directory must not contain . or .. path segments: $$output_dir" >&2
-				return 1
-				;;
-		esac
-
-		if [ -d "$$output_dir" ]; then
-			output_real="$$(cd "$$output_dir" && pwd -P)"
-		elif [ -e "$$output_dir" ] || [ -L "$$output_dir" ]; then
-			echo "error: output path is not a directory: $$output_dir" >&2
-			return 1
-		else
-			output_parent="$$(dirname "./$$output_dir")"
-			output_base="$$(basename "./$$output_dir")"
-			while [ ! -d "$$output_parent" ]; do
-				output_base="$$(basename "./$$output_parent")/$$output_base"
-				output_parent="$$(dirname "./$$output_parent")"
-			done
-			output_real="$$(cd "$$output_parent" && pwd -P)/$$output_base"
-		fi
-		case "$$output_real" in
-			"$$root_dir")
-				echo "error: refusing to use the repository root as an output directory" >&2
-				return 1
-				;;
-			"$$root_dir"/*) ;;
-			*)
-				echo "error: output directory must resolve below the repository: $$output_dir" >&2
-				return 1
-				;;
-		esac
-	}
-
-	validate_output_dir "$(DIST_DIR)"
-	validate_output_dir "$(PAGES_DIR)"
-	case "$(APP_NAME)" in
-		""|.|..|*/*|*\\*|*[!A-Za-z0-9._-]*)
-			echo "error: APP_NAME must contain only letters, numbers, dots, underscores, or hyphens" >&2
-			exit 1
-		;;
+	@root_dir="$$(cd "$(ROOT_DIR)" && pwd -P)"; \
+	validate_output_dir() { \
+		output_dir="$$1"; \
+		case "$$output_dir" in \
+			""|.|..|/*) \
+				echo "error: output directory must be a non-empty relative path: $$output_dir" >&2; \
+				return 1; \
+				;; \
+		esac; \
+		case "/$$output_dir/" in \
+			*/./*|*/../*) \
+				echo "error: output directory must not contain . or .. path segments: $$output_dir" >&2; \
+				return 1; \
+				;; \
+		esac; \
+		if [ -d "$$output_dir" ]; then \
+			output_real="$$(cd "$$output_dir" && pwd -P)"; \
+		elif [ -e "$$output_dir" ] || [ -L "$$output_dir" ]; then \
+			echo "error: output path is not a directory: $$output_dir" >&2; \
+			return 1; \
+		else \
+			output_parent="$$(dirname "./$$output_dir")"; \
+			output_base="$$(basename "./$$output_dir")"; \
+			while [ ! -d "$$output_parent" ]; do \
+				output_base="$$(basename "./$$output_parent")/$$output_base"; \
+				output_parent="$$(dirname "./$$output_parent")"; \
+			done; \
+			output_real="$$(cd "$$output_parent" && pwd -P)/$$output_base"; \
+		fi; \
+		case "$$output_real" in \
+			"$$root_dir") \
+				echo "error: refusing to use the repository root as an output directory" >&2; \
+				return 1; \
+				;; \
+			"$$root_dir"/*) ;; \
+			*) \
+				echo "error: output directory must resolve below the repository: $$output_dir" >&2; \
+				return 1; \
+				;; \
+		esac; \
+	}; \
+	validate_output_dir "$(DIST_DIR)"; \
+	validate_output_dir "$(PAGES_DIR)"; \
+	case "$(APP_NAME)" in \
+		""|.|..|*/*|*\\*|*[!A-Za-z0-9._-]*) \
+			echo "error: APP_NAME must contain only letters, numbers, dots, underscores, or hyphens" >&2; \
+			exit 1; \
+		;; \
 	esac
 
 build: require-telemetry-env ## build the host-native release binary with telemetry
@@ -234,18 +232,18 @@ build-no-telemetry: ## build the host-native release binary without telemetry
 	cargo build --locked --release
 
 require-macos-target:
-	@case "$(MACOS_TARGET)" in
-		*-apple-darwin) ;;
-		*)
-			echo "error: MACOS_TARGET must be an Apple Darwin target (for example aarch64-apple-darwin)" >&2
-			exit 1
-		;;
-	esac
-	case "$(MACOS_TARGET)" in
-		*[!A-Za-z0-9_-]*)
-			echo "error: MACOS_TARGET contains unsupported path characters" >&2
-			exit 1
-		;;
+	@case "$(MACOS_TARGET)" in \
+		*-apple-darwin) ;; \
+		*) \
+			echo "error: MACOS_TARGET must be an Apple Darwin target (for example aarch64-apple-darwin)" >&2; \
+			exit 1; \
+		;; \
+	esac; \
+	case "$(MACOS_TARGET)" in \
+		*[!A-Za-z0-9_-]*) \
+			echo "error: MACOS_TARGET contains unsupported path characters" >&2; \
+			exit 1; \
+		;; \
 	esac
 
 build-macos: require-macos-target require-telemetry-env ## build the macOS release binary with telemetry
@@ -298,17 +296,17 @@ pages-smoke: pages-check ## run the GitHub Pages browser smoke test
 	npm run smoke:pages -- "$(PAGES_DIR)"
 
 run: build-debug ## run the telemetry-enabled debug app
-	if [ -n "$(RUN_RESET)" ]; then
-		echo "resetting saved downshift settings"
-		rm -f -- "$$HOME/Library/Application Support/downshift/settings.toml" "$$HOME/.config/downshift/settings.toml"
-	fi
+	@if [ -n "$(RUN_RESET)" ]; then \
+		echo "resetting saved downshift settings"; \
+	rm -f -- "$$HOME/Library/Application Support/downshift/settings.toml" "$$HOME/.config/downshift/settings.toml"; \
+	fi; \
 	./target/debug/$(BIN_NAME)
 
 run-no-telemetry: build-debug-no-telemetry ## run the no-telemetry debug app
-	if [ -n "$(RUN_RESET)" ]; then
-		echo "resetting saved downshift settings"
-		rm -f -- "$$HOME/Library/Application Support/downshift/settings.toml" "$$HOME/.config/downshift/settings.toml"
-	fi
+	@if [ -n "$(RUN_RESET)" ]; then \
+		echo "resetting saved downshift settings"; \
+	rm -f -- "$$HOME/Library/Application Support/downshift/settings.toml" "$$HOME/.config/downshift/settings.toml"; \
+	fi; \
 	./target/debug/$(BIN_NAME)
 
 $(DIST_DIR): | require-safe-output-paths
@@ -392,55 +390,56 @@ zip zip-no-telemetry:
 dmg: stage-dmg-contents | require-safe-output-paths ## create the telemetry-enabled macOS DMG
 dmg-no-telemetry: stage-dmg-contents-no-telemetry | require-safe-output-paths ## create the no-telemetry macOS DMG
 dmg dmg-no-telemetry:
-	mount_point="$(ROOT_DIR)/$(DMG_MOUNT_DIR)"
-	mounted_mount=""
-	completed=0
-	cleanup() {
-		if [ -n "$$mounted_mount" ]; then
-			if hdiutil detach "$$mounted_mount" >/dev/null 2>&1; then
-				mounted_mount=""
-			fi
-		fi
-		if [ -z "$$mounted_mount" ]; then
-			rm -rf -- "$(DMG_MOUNT_DIR)"
-		fi
-		rm -f -- "$(TEMP_DMG_PATH)"
-		if [ "$$completed" -ne 1 ]; then
-			rm -f -- "$(DMG_PATH)"
-		fi
-	}
-	trap cleanup EXIT
-	hdiutil detach "$$mount_point" >/dev/null 2>&1 || true
-	rm -rf -- "$(DMG_MOUNT_DIR)"
-	rm -f -- "$(TEMP_DMG_PATH)" "$(DMG_PATH)"
-	size_mb="$$(du -sm "$(DMG_STAGING_DIR)" | awk '{print $$1 + 32}')"
-	hdiutil create -size "$${size_mb}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"
-	mkdir -p "$(DMG_MOUNT_DIR)"
-	hdiutil attach -nobrowse -readwrite -mountpoint "$$mount_point" "$(TEMP_DMG_PATH)" >/dev/null
-	mounted_mount="$$mount_point"
-	cp -R "$(DMG_STAGING_DIR)/." "$(DMG_MOUNT_DIR)"
-	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"
-	SetFile -a V "$(DMG_MOUNT_DIR)/$(DMG_BACKGROUND_DIR)"
-	osascript "$(DMG_WINDOW_SCRIPT)" "$$mount_point" "$(APP_NAME).app" "$(DMG_BACKGROUND_NAME)"
-	hdiutil detach "$$mount_point" >/dev/null
-	mounted_mount=""
-	rm -rf -- "$(DMG_MOUNT_DIR)"
-	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(DMG_PATH)"
-	test -s "$(DMG_PATH)"
-	completed=1
-	trap - EXIT
+	@set -euo pipefail; \
+	mount_point="$(ROOT_DIR)/$(DMG_MOUNT_DIR)"; \
+	mounted_mount=""; \
+	completed=0; \
+	cleanup() { \
+		if [ -n "$$mounted_mount" ]; then \
+			if hdiutil detach "$$mounted_mount" >/dev/null 2>&1; then \
+				mounted_mount=""; \
+			fi; \
+		fi; \
+		if [ -z "$$mounted_mount" ]; then \
+			rm -rf -- "$(DMG_MOUNT_DIR)"; \
+		fi; \
+		rm -f -- "$(TEMP_DMG_PATH)"; \
+		if [ "$$completed" -ne 1 ]; then \
+			rm -f -- "$(DMG_PATH)"; \
+		fi; \
+	}; \
+	trap cleanup EXIT; \
+	hdiutil detach "$$mount_point" >/dev/null 2>&1 || true; \
+	rm -rf -- "$(DMG_MOUNT_DIR)"; \
+	rm -f -- "$(TEMP_DMG_PATH)" "$(DMG_PATH)"; \
+	size_mb="$$(du -sm "$(DMG_STAGING_DIR)" | awk '{print $$1 + 32}')"; \
+	hdiutil create -size "$${size_mb}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$(TEMP_DMG_PATH)"; \
+	mkdir -p "$(DMG_MOUNT_DIR)"; \
+	hdiutil attach -nobrowse -readwrite -mountpoint "$$mount_point" "$(TEMP_DMG_PATH)" >/dev/null; \
+	mounted_mount="$$mount_point"; \
+	cp -R "$(DMG_STAGING_DIR)/." "$(DMG_MOUNT_DIR)"; \
+	ln -s /Applications "$(DMG_MOUNT_DIR)/Applications"; \
+	SetFile -a V "$(DMG_MOUNT_DIR)/$(DMG_BACKGROUND_DIR)"; \
+	osascript "$(DMG_WINDOW_SCRIPT)" "$$mount_point" "$(APP_NAME).app" "$(DMG_BACKGROUND_NAME)"; \
+	hdiutil detach "$$mount_point" >/dev/null; \
+	mounted_mount=""; \
+	rm -rf -- "$(DMG_MOUNT_DIR)"; \
+	hdiutil convert "$(TEMP_DMG_PATH)" -ov -format UDZO -o "$(DMG_PATH)"; \
+	test -s "$(DMG_PATH)"; \
+	completed=1; \
+	trap - EXIT; \
 	rm -f -- "$(TEMP_DMG_PATH)"
 
 checksums: zip dmg | require-safe-output-paths ## write checksums for the unsigned release archives
 checksums-no-telemetry: zip-no-telemetry dmg-no-telemetry | require-safe-output-paths ## write checksums for no-telemetry release archives
 checksums checksums-no-telemetry:
-	test -s "$(ZIP_PATH)"
-	test -s "$(DMG_PATH)"
-	checksum_tmp="$$(mktemp "$(CHECKSUMS_PATH).XXXXXX")"
-	cleanup() { rm -f -- "$$checksum_tmp"; }
-	trap cleanup EXIT
-	shasum -a 256 "$(ZIP_PATH)" "$(DMG_PATH)" > "$$checksum_tmp"
-	mv "$$checksum_tmp" "$(CHECKSUMS_PATH)"
+	@test -s "$(ZIP_PATH)"; \
+	test -s "$(DMG_PATH)"; \
+	checksum_tmp="$$(mktemp "$(CHECKSUMS_PATH).XXXXXX")"; \
+	cleanup() { rm -f -- "$$checksum_tmp"; }; \
+	trap cleanup EXIT; \
+	shasum -a 256 "$(ZIP_PATH)" "$(DMG_PATH)" > "$$checksum_tmp"; \
+	mv "$$checksum_tmp" "$(CHECKSUMS_PATH)"; \
 	trap - EXIT
 
 check-tag-sync:
@@ -557,71 +556,71 @@ write-release-checksums: require-safe-output-paths ## write checksums for signed
 	trap - EXIT
 
 verify-notarized-dmg: require-safe-output-paths ## validate the notarized macOS DMG
-	MOUNT_POINT=""
-	cleanup() {
-		if [ -n "$$MOUNT_POINT" ]; then
-			hdiutil detach "$$MOUNT_POINT" >/dev/null 2>&1 || true
-		fi
-	}
-	trap cleanup EXIT
-	if [ ! -s "$(NOTARIZED_DMG_PATH)" ]; then
-		echo "error: notarized dmg not found at $(NOTARIZED_DMG_PATH)"
-		exit 1
-	fi
-	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"
-	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"
-	if [ ! -L "$$MOUNT_POINT/Applications" ]; then
-		echo "error: dmg is missing Applications symlink"
-		exit 1
-	fi
-	if [ ! -f "$$MOUNT_POINT/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)" ]; then
-		echo "error: dmg is missing background image"
-		exit 1
-	fi
-	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"
-	hdiutil detach "$$MOUNT_POINT"
+	@MOUNT_POINT=""; \
+	cleanup() { \
+		if [ -n "$$MOUNT_POINT" ]; then \
+			hdiutil detach "$$MOUNT_POINT" >/dev/null 2>&1 || true; \
+		fi; \
+	}; \
+	trap cleanup EXIT; \
+	if [ ! -s "$(NOTARIZED_DMG_PATH)" ]; then \
+		echo "error: notarized dmg not found at $(NOTARIZED_DMG_PATH)"; \
+		exit 1; \
+	fi; \
+	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"; \
+	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"; \
+	if [ ! -L "$$MOUNT_POINT/Applications" ]; then \
+		echo "error: dmg is missing Applications symlink"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$MOUNT_POINT/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)" ]; then \
+		echo "error: dmg is missing background image"; \
+		exit 1; \
+	fi; \
+	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"; \
+	hdiutil detach "$$MOUNT_POINT"; \
 	MOUNT_POINT=""
 
 release-notarized: release-pre-notarize ## submit, staple, and validate the notarized macOS DMG
-	xcrun notarytool submit "$(NOTARIZED_DMG_PATH)" --apple-id "$$MACOS_NOTARY_APPLE_ID" --password "$$MACOS_NOTARY_APP_PASSWORD" --team-id "$$MACOS_NOTARY_TEAM_ID" --wait
-	xcrun stapler staple -v "$(NOTARIZED_DMG_PATH)"
-	MOUNT_POINT=""
-	cleanup_verify() {
-		if [ -n "$$MOUNT_POINT" ]; then
-			hdiutil detach "$$MOUNT_POINT" >/dev/null 2>&1 || true
-		fi
-	}
-	trap cleanup_verify EXIT
-	if [ ! -s "$(NOTARIZED_DMG_PATH)" ]; then
-		echo "error: notarized dmg not found at $(NOTARIZED_DMG_PATH)"
-		exit 1
-	fi
-	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"
-	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"
-	if [ ! -L "$$MOUNT_POINT/Applications" ]; then
-		echo "error: dmg is missing Applications symlink"
-		exit 1
-	fi
-	if [ ! -f "$$MOUNT_POINT/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)" ]; then
-		echo "error: dmg is missing background image"
-		exit 1
-	fi
-	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"
-	hdiutil detach "$$MOUNT_POINT"
-	MOUNT_POINT=""
-	trap - EXIT
-	test -s "$(SIGNED_ZIP_PATH)"
-	checksum_tmp="$$(mktemp "$(CHECKSUMS_PATH).XXXXXX")"
-	cleanup_checksums() { rm -f -- "$$checksum_tmp"; }
-	trap cleanup_checksums EXIT
-	shasum -a 256 "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" > "$$checksum_tmp"
-	mv "$$checksum_tmp" "$(CHECKSUMS_PATH)"
+	@xcrun notarytool submit "$(NOTARIZED_DMG_PATH)" --apple-id "$$MACOS_NOTARY_APPLE_ID" --password "$$MACOS_NOTARY_APP_PASSWORD" --team-id "$$MACOS_NOTARY_TEAM_ID" --wait; \
+	xcrun stapler staple -v "$(NOTARIZED_DMG_PATH)"; \
+	MOUNT_POINT=""; \
+	cleanup_verify() { \
+		if [ -n "$$MOUNT_POINT" ]; then \
+			hdiutil detach "$$MOUNT_POINT" >/dev/null 2>&1 || true; \
+		fi; \
+	}; \
+	trap cleanup_verify EXIT; \
+	if [ ! -s "$(NOTARIZED_DMG_PATH)" ]; then \
+		echo "error: notarized dmg not found at $(NOTARIZED_DMG_PATH)"; \
+		exit 1; \
+	fi; \
+	spctl -a -vv --type install "$(NOTARIZED_DMG_PATH)"; \
+	MOUNT_POINT="$$(hdiutil attach -nobrowse -readonly "$(NOTARIZED_DMG_PATH)" | awk 'END{print $$3}')"; \
+	if [ ! -L "$$MOUNT_POINT/Applications" ]; then \
+		echo "error: dmg is missing Applications symlink"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$MOUNT_POINT/$(DMG_BACKGROUND_DIR)/$(DMG_BACKGROUND_NAME)" ]; then \
+		echo "error: dmg is missing background image"; \
+		exit 1; \
+	fi; \
+	spctl -a -vv --type execute "$$MOUNT_POINT/$(APP_NAME).app"; \
+	hdiutil detach "$$MOUNT_POINT"; \
+	MOUNT_POINT=""; \
+	trap - EXIT; \
+	test -s "$(SIGNED_ZIP_PATH)"; \
+	checksum_tmp="$$(mktemp "$(CHECKSUMS_PATH).XXXXXX")"; \
+	cleanup_checksums() { rm -f -- "$$checksum_tmp"; }; \
+	trap cleanup_checksums EXIT; \
+	shasum -a 256 "$(SIGNED_ZIP_PATH)" "$(NOTARIZED_DMG_PATH)" > "$$checksum_tmp"; \
+	mv "$$checksum_tmp" "$(CHECKSUMS_PATH)"; \
 	trap - EXIT
 
 clean: require-safe-output-paths ## remove generated build and release artifacts
-	if command -v hdiutil >/dev/null 2>&1 && [ -d "$(DMG_MOUNT_DIR)" ] && [ ! -L "$(DMG_MOUNT_DIR)" ]; then
-		hdiutil detach "$(ROOT_DIR)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true
-	fi
+	@if command -v hdiutil >/dev/null 2>&1 && [ -d "$(DMG_MOUNT_DIR)" ] && [ ! -L "$(DMG_MOUNT_DIR)" ]; then \
+		hdiutil detach "$(ROOT_DIR)/$(DMG_MOUNT_DIR)" >/dev/null 2>&1 || true; \
+	fi; \
 	rm -rf -- "$(APP_BUNDLE)"
 	rm -rf -- "$(DMG_STAGING_DIR)"
 	rm -rf -- "$(DMG_MOUNT_DIR)"
