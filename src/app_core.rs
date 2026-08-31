@@ -27,8 +27,6 @@ pub(crate) const SNOOZE_PRESET_MINUTES: [u64; 5] = [5, 10, 15, 30, 60];
 
 pub(crate) const COMPILED_ENV: Option<&str> = option_env!("DOWNSHIFT_ENV");
 pub(crate) const COMPILED_BUILD_CHANNEL: Option<&str> = option_env!("DOWNSHIFT_BUILD_CHANNEL");
-pub(crate) const COMPILED_TELEMETRY_ENABLED: Option<&str> =
-    option_env!("DOWNSHIFT_TELEMETRY_ENABLED");
 pub(crate) const COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC: Option<&str> =
     option_env!("DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC");
 pub(crate) const COMPILED_DOWNLOAD_RELEASE_URL: Option<&str> =
@@ -219,12 +217,6 @@ pub(crate) fn runtime_env_label() -> String {
 pub(crate) fn build_channel_label() -> String {
     optional_env_value("DOWNSHIFT_BUILD_CHANNEL", COMPILED_BUILD_CHANNEL)
         .unwrap_or_else(|| "unset".to_string())
-}
-
-pub(crate) fn telemetry_globally_enabled() -> bool {
-    optional_env_value("DOWNSHIFT_TELEMETRY_ENABLED", COMPILED_TELEMETRY_ENABLED)
-        .map(|raw| !matches!(raw.to_ascii_lowercase().as_str(), "0" | "false" | "off"))
-        .unwrap_or(true)
 }
 
 pub(crate) fn resolve_compiled_setting(compiled: Option<&str>, fallback: &str) -> String {

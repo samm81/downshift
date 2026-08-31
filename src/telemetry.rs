@@ -727,7 +727,7 @@ fn normalize_logs_url(host: &str) -> String {
     }
 }
 
-fn global_telemetry_enabled() -> bool {
+pub fn global_telemetry_enabled() -> bool {
     env_or_compiled("DOWNSHIFT_TELEMETRY_ENABLED", COMPILED_TELEMETRY_ENABLED)
         .map(|raw| !matches!(raw.to_ascii_lowercase().as_str(), "0" | "false" | "off"))
         .unwrap_or(true)

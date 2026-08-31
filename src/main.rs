@@ -10,8 +10,8 @@ mod window_policy;
 use app_core::*;
 use cursor::{CoordinateSpace, CursorError, CursorPosition, CursorProvider, CursorSource};
 use downshift::telemetry::{
-    telemetry_state, ActivityState, ActivityTrigger, EventName, MenuAction, RuntimeTelemetryClient,
-    SessionEndReason,
+    global_telemetry_enabled, telemetry_state, ActivityState, ActivityTrigger, EventName,
+    MenuAction, RuntimeTelemetryClient, SessionEndReason,
 };
 use downshift::{
     apply_resize_step, built_in_breathing_preset, built_in_breathing_presets, clamp_size,
@@ -283,7 +283,7 @@ impl App {
                 .settings_load_error
                 .clone()
                 .unwrap_or_else(|| "ok".to_string()),
-            telemetry_global_enabled: telemetry_globally_enabled(),
+            telemetry_global_enabled: global_telemetry_enabled(),
             usage_sharing_enabled: self.settings.usage_data_sharing,
             crash_reports_enabled: self.settings.crash_reports_sharing,
             telemetry_install_first_run: self.telemetry_install_first_run,
