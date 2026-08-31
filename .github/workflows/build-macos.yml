@@ -47,7 +47,7 @@ jobs:
           npm run check
 
       - name: build macOS app bundle without telemetry
-        run: make app-no-telemetry MACOS_TARGET="${{ steps.target.outputs.value }}"
+        run: make app-macos-no-telemetry MACOS_TARGET="${{ steps.target.outputs.value }}"
 
       - name: type-check macOS GUI smoke input helpers
         run: |
