@@ -11,7 +11,7 @@ use app_core::*;
 use cursor::{CoordinateSpace, CursorError, CursorPosition, CursorProvider, CursorSource};
 use downshift::telemetry::{
     telemetry_state, ActivityState, ActivityTrigger, EventName, MenuAction, RuntimeTelemetryClient,
-    SessionEndReason, TelemetryClient,
+    SessionEndReason,
 };
 use downshift::{
     apply_resize_step, built_in_breathing_preset, built_in_breathing_presets, clamp_size,
@@ -216,9 +216,7 @@ impl Default for App {
             settings_backup_pending: false,
             startup_provenance: "unknown".to_string(),
             updates: UpdateUiState::default(),
-            update_check: UpdateCheckService::new(
-                download_release_url().unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
-            ),
+            update_check: UpdateCheckService::new(download_release_url()),
             manual_update_check_in_flight: false,
             animation_bounds: AnimationBounds::full(),
             follow_cursor_active: false,
@@ -2180,14 +2178,8 @@ impl App {
                 self.clear_update_notification_dismissed();
             }
             MENU_ID_COPY_DIAGNOSTICS => self.copy_diagnostics_summary(),
-            MENU_ID_FILE_BUG_GITHUB => match github_issues_url() {
-                Ok(url) => open_external_url(&url),
-                Err(error) => log_stderr!("error: {error}"),
-            },
-            MENU_ID_FILE_BUG_EMAIL => match support_email_mailto() {
-                Ok(url) => open_external_url(&url),
-                Err(error) => log_stderr!("error: {error}"),
-            },
+            MENU_ID_FILE_BUG_GITHUB => open_external_url(&github_issues_url()),
+            MENU_ID_FILE_BUG_EMAIL => open_external_url(&support_email_mailto()),
             _ => {
                 if let Some(preset_id) = deleted_breathing_preset_id_from_menu_id(id) {
                     self.delete_breathing_preset_from_user_action(preset_id);
@@ -2535,8 +2527,8 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-fn report_abnormal_exit<T: TelemetryClient>(
-    telemetry: &T,
+fn report_abnormal_exit(
+    telemetry: &RuntimeTelemetryClient,
     reason: SessionEndReason,
     category: &str,
 ) -> std::process::ExitCode {
@@ -2775,18 +2767,9 @@ mod tests {
     fn external_contact_values_use_dummy_defaults_outside_prod() {
         clear_external_contact_env();
 
-        assert_eq!(
-            download_release_url().expect("download release url"),
-            expected_download_release_url()
-        );
-        assert_eq!(
-            github_issues_url().expect("github issues url"),
-            expected_github_issues_url()
-        );
-        assert_eq!(
-            support_email_address().expect("support email"),
-            expected_support_email()
-        );
+        assert_eq!(download_release_url(), expected_download_release_url());
+        assert_eq!(github_issues_url(), expected_github_issues_url());
+        assert_eq!(support_email_address(), expected_support_email());
     }
 
     #[test]
@@ -2795,18 +2778,9 @@ mod tests {
         clear_external_contact_env();
         std::env::set_var("DOWNSHIFT_ENV", "prod");
 
-        assert_eq!(
-            download_release_url().expect("download release url"),
-            expected_download_release_url()
-        );
-        assert_eq!(
-            github_issues_url().expect("github issues url"),
-            expected_github_issues_url()
-        );
-        assert_eq!(
-            support_email_address().expect("support email"),
-            expected_support_email()
-        );
+        assert_eq!(download_release_url(), expected_download_release_url());
+        assert_eq!(github_issues_url(), expected_github_issues_url());
+        assert_eq!(support_email_address(), expected_support_email());
     }
 
     #[test]
@@ -2821,18 +2795,9 @@ mod tests {
         std::env::set_var("DOWNSHIFT_GITHUB_ISSUES_URL", "https://example.com/issues");
         std::env::set_var("DOWNSHIFT_SUPPORT_EMAIL", "support@example.com");
 
-        assert_eq!(
-            download_release_url().expect("download release url"),
-            expected_download_release_url()
-        );
-        assert_eq!(
-            github_issues_url().expect("github issues url"),
-            "https://example.com/issues"
-        );
-        assert_eq!(
-            support_email_address().expect("support email"),
-            "support@example.com"
-        );
+        assert_eq!(download_release_url(), expected_download_release_url());
+        assert_eq!(github_issues_url(), "https://example.com/issues");
+        assert_eq!(support_email_address(), "support@example.com");
     }
 
     #[test]

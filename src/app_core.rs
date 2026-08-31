@@ -1,6 +1,5 @@
 use downshift::telemetry::{
     menu_action_size_target, ActivityState, EventName, RuntimeTelemetryClient, SizeTarget,
-    TelemetryClient,
 };
 use downshift::{BreathingPattern, SavedBreathingPreset, BREATHING_PRESET_ID_CUSTOM};
 use semver::Version;
@@ -94,8 +93,7 @@ impl Default for UpdateUiState {
     fn default() -> Self {
         Self {
             latest_version: None,
-            download_url: download_release_url()
-                .unwrap_or_else(|_| UPDATE_DOWNLOAD_FALLBACK_URL.to_string()),
+            download_url: download_release_url(),
             checking: false,
             checked_once: false,
             badge_snoozed_version: None,
@@ -247,18 +245,15 @@ pub(crate) fn telemetry_globally_enabled() -> bool {
         .unwrap_or(true)
 }
 
-pub(crate) fn resolve_compiled_setting(
-    compiled: Option<&str>,
-    fallback: &str,
-) -> Result<String, String> {
-    if let Some(value) = compiled.map(str::trim).filter(|value| !value.is_empty()) {
-        return Ok(value.to_string());
-    }
-
-    Ok(fallback.to_string())
+pub(crate) fn resolve_compiled_setting(compiled: Option<&str>, fallback: &str) -> String {
+    compiled
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
 }
 
-pub(crate) fn download_release_url() -> Result<String, String> {
+pub(crate) fn download_release_url() -> String {
     resolve_compiled_setting(COMPILED_DOWNLOAD_RELEASE_URL, UPDATE_DOWNLOAD_FALLBACK_URL)
 }
 
@@ -266,20 +261,16 @@ pub(crate) fn resolve_external_contact_value(
     env_name: &str,
     compiled: Option<&str>,
     fallback: &str,
-) -> Result<String, String> {
-    if let Some(value) = optional_env_value(env_name, compiled) {
-        return Ok(value);
-    }
-
-    Ok(fallback.to_string())
+) -> String {
+    optional_env_value(env_name, compiled).unwrap_or_else(|| fallback.to_string())
 }
 
-pub(crate) fn telemetry_heartbeat_interval_seconds() -> Result<u64, String> {
-    let raw = resolve_compiled_setting(COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC, "60")?;
-    Ok(parse_heartbeat_interval_seconds(&raw))
+pub(crate) fn telemetry_heartbeat_interval_seconds() -> u64 {
+    let raw = resolve_compiled_setting(COMPILED_TELEMETRY_HEARTBEAT_INTERVAL_SEC, "60");
+    parse_heartbeat_interval_seconds(&raw)
 }
 
-pub(crate) fn github_issues_url() -> Result<String, String> {
+pub(crate) fn github_issues_url() -> String {
     resolve_external_contact_value(
         "DOWNSHIFT_GITHUB_ISSUES_URL",
         COMPILED_GITHUB_ISSUES_URL,
@@ -287,7 +278,7 @@ pub(crate) fn github_issues_url() -> Result<String, String> {
     )
 }
 
-pub(crate) fn support_email_address() -> Result<String, String> {
+pub(crate) fn support_email_address() -> String {
     resolve_external_contact_value(
         "DOWNSHIFT_SUPPORT_EMAIL",
         COMPILED_SUPPORT_EMAIL,
@@ -295,11 +286,11 @@ pub(crate) fn support_email_address() -> Result<String, String> {
     )
 }
 
-pub(crate) fn support_email_mailto() -> Result<String, String> {
-    Ok(format!(
+pub(crate) fn support_email_mailto() -> String {
+    format!(
         "mailto:{}?subject=downshift%20bug%20report&body=please%20describe%20what%20happened%20and%20paste%20diagnostics%20if%20helpful.",
-        support_email_address()?
-    ))
+        support_email_address()
+    )
 }
 
 pub(crate) fn now_epoch_seconds() -> i64 {
@@ -310,9 +301,7 @@ pub(crate) fn now_epoch_seconds() -> i64 {
 }
 
 pub(crate) fn heartbeat_interval() -> Duration {
-    Duration::from_secs(
-        telemetry_heartbeat_interval_seconds().unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SEC),
-    )
+    Duration::from_secs(telemetry_heartbeat_interval_seconds())
 }
 
 pub(crate) fn parse_heartbeat_interval_seconds(raw: &str) -> u64 {

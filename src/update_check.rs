@@ -42,10 +42,7 @@ impl UpdateCheckResult {
     }
 }
 
-pub(crate) trait UpdateCheckProvider: Send + Sync {
-    fn check(&self) -> UpdateCheckResult;
-}
-
+#[derive(Clone)]
 struct HttpUpdateCheckProvider {
     fallback_download_url: String,
 }
@@ -58,7 +55,7 @@ impl HttpUpdateCheckProvider {
     }
 }
 
-impl UpdateCheckProvider for HttpUpdateCheckProvider {
+impl HttpUpdateCheckProvider {
     fn check(&self) -> UpdateCheckResult {
         let response = ureq::get(UPDATE_RELEASE_API_URL)
             .set("User-Agent", "downshift")
@@ -112,24 +109,6 @@ impl DeveloperUpdateControls {
 }
 
 #[cfg(debug_assertions)]
-struct DeveloperUpdateCheckProvider {
-    inner: Arc<dyn UpdateCheckProvider>,
-    controls: DeveloperUpdateControls,
-}
-
-#[cfg(debug_assertions)]
-impl UpdateCheckProvider for DeveloperUpdateCheckProvider {
-    fn check(&self) -> UpdateCheckResult {
-        let mut result = self.inner.check();
-        apply_developer_simulation(
-            &mut result,
-            self.controls.is_simulate_pending_update_enabled(),
-        );
-        result
-    }
-}
-
-#[cfg(debug_assertions)]
 fn apply_developer_simulation(result: &mut UpdateCheckResult, enabled: bool) {
     if enabled {
         result.latest_version = Some(SIMULATED_PENDING_UPDATE_VERSION.to_string());
@@ -139,32 +118,36 @@ fn apply_developer_simulation(result: &mut UpdateCheckResult, enabled: bool) {
 
 #[derive(Clone)]
 pub(crate) struct UpdateCheckService {
-    provider: Arc<dyn UpdateCheckProvider>,
+    provider: HttpUpdateCheckProvider,
     #[cfg(debug_assertions)]
     controls: DeveloperUpdateControls,
 }
 
 impl UpdateCheckService {
     pub(crate) fn new(fallback_download_url: String) -> Self {
-        let http_provider: Arc<dyn UpdateCheckProvider> =
-            Arc::new(HttpUpdateCheckProvider::new(fallback_download_url));
+        let provider = HttpUpdateCheckProvider::new(fallback_download_url);
         #[cfg(debug_assertions)]
         {
             let controls = DeveloperUpdateControls::default();
-            let provider = Arc::new(DeveloperUpdateCheckProvider {
-                inner: http_provider,
-                controls: controls.clone(),
-            });
             Self { provider, controls }
         }
         #[cfg(not(debug_assertions))]
-        Self {
-            provider: http_provider,
-        }
+        Self { provider }
     }
 
     pub(crate) fn check(&self) -> UpdateCheckResult {
-        self.provider.check()
+        #[cfg(debug_assertions)]
+        let result = {
+            let mut result = self.provider.check();
+            apply_developer_simulation(
+                &mut result,
+                self.controls.is_simulate_pending_update_enabled(),
+            );
+            result
+        };
+        #[cfg(not(debug_assertions))]
+        let result = self.provider.check();
+        result
     }
 
     #[cfg(debug_assertions)]
