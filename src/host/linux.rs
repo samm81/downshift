@@ -427,10 +427,23 @@ impl HostWindow {
             size.width.round().max(1.0) as i32,
             size.height.round().max(1.0) as i32,
         );
-        self.gtk_window.resize(
-            size.width.round().max(1.0) as i32,
-            size.height.round().max(1.0) as i32,
-        );
+        // Wry updates the fixed child's allocation directly but retains its
+        // original minimum request, which can prevent layer-shell resizing.
+        for child in self.container.children() {
+            child.set_size_request(
+                size.width.round().max(1.0) as i32,
+                size.height.round().max(1.0) as i32,
+            );
+        }
+        if self.backend == LinuxWindowBackend::WaylandLayerShell {
+            // gtk-layer-shell applies the new request after a 1x1 resize.
+            self.gtk_window.resize(1, 1);
+        } else {
+            self.gtk_window.resize(
+                size.width.round().max(1.0) as i32,
+                size.height.round().max(1.0) as i32,
+            );
+        }
         Some(self.inner_size())
     }
 
