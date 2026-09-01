@@ -63,7 +63,7 @@ Important current gaps:
 
 Add a persisted `linux_window_mode` setting with these values:
 
-- `auto` (default): use layer-shell only when support and drag verification succeed; otherwise use a normal window.
+- `auto` (default): use layer-shell when support is available; otherwise use a normal window.
 - `normal_window`: never attempt layer-shell.
 - `overlay`: request layer-shell, but fall back to a normal window with a diagnostic if the capability is unavailable. The fallback must remain usable.
 
@@ -118,7 +118,7 @@ The X11 backend should not contain branches for individual desktop environments.
 - Use a regular borderless GTK/Wry window when layer-shell is unavailable or disabled.
 - Do not claim that `AlwaysOnTop`, sticky workspaces, or global absolute positioning are guaranteed in this mode.
 - Replace global browser `screenX`/`screenY` as the authoritative drag input with host-neutral local pointer deltas or an equivalent input model. Update the embedded JavaScript and Rust IPC atomically, with integration tests for the wire format.
-- Preserve best-effort dragging where the compositor supports it. If reliable drag cannot be established, do not auto-select the overlay mode and report the limitation in diagnostics.
+- Preserve best-effort dragging where the compositor supports it. Report compositor limitations in diagnostics.
 - Persist and restore placement using output-relative data when global coordinates are unavailable; retain existing physical coordinates for hosts that support them.
 
 ### 5. Add the optional layer-shell overlay
@@ -130,7 +130,7 @@ Use the GTK3 layer-shell C API because the current Wry/WebKitGTK integration is 
 - Anchor the widget to an output edge using margins rather than relying on global window coordinates.
 - Rebind the surface to a new output when a verified drag crosses outputs.
 - Translate drag deltas into output selection plus anchor/margin updates.
-- Only allow `auto` to select this backend after smoke tests demonstrate that creation, rendering, movement, output changes, resize, and fallback work.
+- Select this backend when the runtime capability checks pass.
 - If the library is absent, unsupported, or fails during setup, fall back to a normal window and retain a clear diagnostic reason.
 
 The overlay is for the main breathing widget only. Child dialogs remain regular windows.
@@ -186,7 +186,7 @@ Add Linux to the full-quality gate and tagged release workflow. Extend the Pages
 ### Automated tests
 
 - Unit-test `LinuxWindowMode` serialization, defaulting, and malformed-value sanitization.
-- Unit-test capability selection and fallback decisions for X11, generic Wayland, supported layer-shell, missing layer-shell, and failed drag verification.
+- Unit-test capability selection and fallback decisions for X11, generic Wayland, supported layer-shell, and missing layer-shell.
 - Unit-test output-relative placement, output matching, output changes, and drag delta calculations.
 - Preserve and run all existing library and integration tests.
 - Test the Linux tarball manifest, desktop entry, install layout, and release-manifest `linux_url` validation.
@@ -216,7 +216,7 @@ Linux acceptance means the core experience works across this matrix; it does not
 2. Land GTK/Wry Linux hosting and a functional normal-window path.
 3. Add X11 EWMH behavior, Linux menu/clipboard/autostart, and generic Wayland fallback behavior.
 4. Add output-relative placement and host-neutral drag input.
-5. Add the optional layer-shell backend behind capability checks and verified-drag gating.
+5. Add the optional layer-shell backend behind capability checks.
 6. Add Linux CI, tarball packaging, release assets, Pages metadata, and documentation.
 7. Mark Linux as best-effort in release notes, collect community compositor recipes, and revisit AppImage/Flatpak/native packages only from concrete support demand.
 

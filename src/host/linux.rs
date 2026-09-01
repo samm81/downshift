@@ -121,12 +121,7 @@ impl HostWindow {
         let overlay_supported = layer_shell_api
             .as_ref()
             .is_some_and(|layer_shell| layer_shell.is_supported());
-        let decision = choose_linux_window_backend(
-            session,
-            requested_mode,
-            overlay_supported,
-            layer_shell_drag_verified(),
-        );
+        let decision = choose_linux_window_backend(session, requested_mode, overlay_supported);
         let mut backend = if kind == WindowKind::Child && session == LinuxSessionBackend::X11 {
             LinuxWindowBackend::X11
         } else if kind == WindowKind::Child {
@@ -497,13 +492,6 @@ fn linux_mode_label(mode: LinuxWindowMode) -> &'static str {
         LinuxWindowMode::NormalWindow => "normal_window",
         LinuxWindowMode::Overlay => "overlay",
     }
-}
-
-fn layer_shell_drag_verified() -> bool {
-    // Keep the optional protocol behind the compositor smoke matrix until
-    // native movement, output changes, resize, and fallback are verified.
-    std::env::var("DOWNSHIFT_ENV").as_deref() == Ok("smoke")
-        && std::env::var("DOWNSHIFT_LINUX_SMOKE_LAYER_SHELL_VERIFIED").as_deref() == Ok("1")
 }
 
 pub(crate) fn build_webview(

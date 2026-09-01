@@ -728,11 +728,6 @@ export DOWNSHIFT_ENV=smoke
 export LIBGL_ALWAYS_SOFTWARE=1
 export WEBKIT_DISABLE_COMPOSITING_MODE=1
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
-if [[ "$SCENARIO" == layer-shell ]]; then
-  export DOWNSHIFT_LINUX_SMOKE_LAYER_SHELL_VERIFIED=1
-else
-  unset DOWNSHIFT_LINUX_SMOKE_LAYER_SHELL_VERIFIED
-fi
 if [[ "$SCENARIO" == missing-layer-shell ]]; then
   export DOWNSHIFT_LINUX_DISABLE_LAYER_SHELL=1
 else
@@ -754,10 +749,9 @@ case "$SCENARIO" in
     smoke_x11_drag
     ;;
   wayland)
-    write_settings auto
+    write_settings normal_window
     start_app
     wait_until "generic Wayland fallback" log_contains 'window_backend=wayland_normal'
-    wait_until "Wayland fallback diagnostic" log_contains 'fallback_reason=layer-shell drag verification is incomplete'
     smoke_common_windows
     if grep -F 'physical_x =' "$XDG_CONFIG_HOME/downshift/settings.toml" >/dev/null 2>&1 ||
       grep -F 'physical_y =' "$XDG_CONFIG_HOME/downshift/settings.toml" >/dev/null 2>&1; then

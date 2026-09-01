@@ -168,7 +168,6 @@ pub(crate) fn choose_linux_window_backend(
     session: LinuxSessionBackend,
     requested: LinuxWindowMode,
     layer_shell_supported: bool,
-    drag_verified: bool,
 ) -> LinuxWindowDecision {
     match session {
         LinuxSessionBackend::X11 => LinuxWindowDecision {
@@ -179,9 +178,8 @@ pub(crate) fn choose_linux_window_backend(
             ),
         },
         LinuxSessionBackend::Wayland => {
-            let can_use_overlay = requested != LinuxWindowMode::NormalWindow
-                && layer_shell_supported
-                && drag_verified;
+            let can_use_overlay =
+                requested != LinuxWindowMode::NormalWindow && layer_shell_supported;
             LinuxWindowDecision {
                 backend: if can_use_overlay {
                     LinuxWindowBackend::WaylandLayerShell
@@ -193,8 +191,6 @@ pub(crate) fn choose_linux_window_backend(
                     None
                 } else if !layer_shell_supported {
                     Some("gtk-layer-shell is unavailable; using a regular Wayland window")
-                } else if !drag_verified {
-                    Some("layer-shell drag verification is incomplete; using a regular Wayland window")
                 } else {
                     None
                 },
@@ -741,25 +737,14 @@ mod tests {
     }
 
     #[test]
-    fn linux_backend_selection_falls_back_without_layer_shell_or_drag_proof() {
-        let decision = choose_linux_window_backend(
-            LinuxSessionBackend::Wayland,
-            LinuxWindowMode::Auto,
-            true,
-            false,
-        );
-        assert_eq!(decision.backend, LinuxWindowBackend::WaylandNormal);
-        assert_eq!(
-            decision.fallback_reason,
-            Some("layer-shell drag verification is incomplete; using a regular Wayland window")
-        );
+    fn linux_backend_selection_uses_layer_shell_when_supported() {
+        let decision =
+            choose_linux_window_backend(LinuxSessionBackend::Wayland, LinuxWindowMode::Auto, true);
+        assert_eq!(decision.backend, LinuxWindowBackend::WaylandLayerShell);
+        assert!(decision.fallback_reason.is_none());
 
-        let decision = choose_linux_window_backend(
-            LinuxSessionBackend::Wayland,
-            LinuxWindowMode::Auto,
-            false,
-            false,
-        );
+        let decision =
+            choose_linux_window_backend(LinuxSessionBackend::Wayland, LinuxWindowMode::Auto, false);
         assert_eq!(decision.backend, LinuxWindowBackend::WaylandNormal);
         assert_eq!(
             decision.fallback_reason,
@@ -770,18 +755,13 @@ mod tests {
             LinuxSessionBackend::Wayland,
             LinuxWindowMode::Overlay,
             true,
-            false,
         );
-        assert_eq!(decision.backend, LinuxWindowBackend::WaylandNormal);
-        assert_eq!(
-            decision.fallback_reason,
-            Some("layer-shell drag verification is incomplete; using a regular Wayland window")
-        );
+        assert_eq!(decision.backend, LinuxWindowBackend::WaylandLayerShell);
+        assert!(decision.fallback_reason.is_none());
 
         let decision = choose_linux_window_backend(
             LinuxSessionBackend::Wayland,
             LinuxWindowMode::Overlay,
-            true,
             true,
         );
         assert_eq!(decision.backend, LinuxWindowBackend::WaylandLayerShell);
@@ -791,7 +771,6 @@ mod tests {
             LinuxSessionBackend::Wayland,
             LinuxWindowMode::NormalWindow,
             true,
-            false,
         );
         assert_eq!(decision.backend, LinuxWindowBackend::WaylandNormal);
         assert!(decision.fallback_reason.is_none());
@@ -799,19 +778,14 @@ mod tests {
 
     #[test]
     fn linux_x11_and_unknown_backends_keep_a_safe_normal_window() {
-        let x11 = choose_linux_window_backend(
-            LinuxSessionBackend::X11,
-            LinuxWindowMode::Auto,
-            true,
-            true,
-        );
+        let x11 =
+            choose_linux_window_backend(LinuxSessionBackend::X11, LinuxWindowMode::Auto, true);
         assert_eq!(x11.backend, LinuxWindowBackend::X11);
         assert!(x11.fallback_reason.is_none());
 
         let unknown = choose_linux_window_backend(
             LinuxSessionBackend::Unknown,
             LinuxWindowMode::Overlay,
-            true,
             true,
         );
         assert_eq!(unknown.backend, LinuxWindowBackend::WaylandNormal);

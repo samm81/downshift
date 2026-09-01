@@ -3,8 +3,8 @@
 Downshift supports Linux x86_64 with a GTK3 desktop and WebKitGTK 4.1. The
 regular-window path is the compatibility baseline. X11 sessions add EWMH
 window hints for an unobtrusive, above-and-sticky widget. Wayland sessions use
-a borderless regular window unless the optional layer-shell path is selected,
-supported by the compositor, and has passed the drag verification gate.
+a borderless regular window unless the optional layer-shell path is selected
+and supported by the compositor.
 
 ## Runtime requirements
 
@@ -36,10 +36,8 @@ GNOME Wayland and X11 do not support layer-shell. The compositor must expose
 `zwlr_layer_shell_v1`, and the `libgtk-layer-shell` runtime library must be
 installed. Downshift probes both requirements at runtime.
 
-Downshift also requires its layer-shell drag verification gate before it uses
-the overlay. If any requirement is missing, it starts as a normal window.
-That fallback does not provide a portable always-on-top or all-workspace
-guarantee.
+If either requirement is missing, Downshift starts as a normal window. That
+fallback does not provide a portable always-on-top or all-workspace guarantee.
 
 See the [GTK layer-shell support matrix](https://github.com/wmww/gtk-layer-shell#supported-desktops)
 and the [niri layer-shell documentation](https://github.com/niri-wm/niri/wiki/Layer%E2%80%90Shell-Components)
@@ -94,8 +92,8 @@ Unknown or malformed values use `auto`.
 - Wayland `normal_window` uses a borderless regular window. The compositor
   controls its global position, stacking, and workspace behavior.
 - Wayland `overlay` requests `gtk-layer-shell`, but Downshift uses it only when
-  the library, compositor, and drag verification all pass. Otherwise it
-  records the fallback and uses a regular window.
+  the library and compositor support it. Otherwise it records the fallback
+  and uses a regular window.
 
 Wayland does not provide a portable promise for global coordinates, always-on-
 top behavior, or all-workspace placement. Downshift stores output-relative
