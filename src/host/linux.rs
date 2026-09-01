@@ -3,8 +3,9 @@ use super::platform::LinuxDiagnostics;
 use crate::app_core::AppEvent;
 use crate::window_policy::{choose_linux_window_backend, LinuxSessionBackend, LinuxWindowBackend};
 use crate::window_policy::{
-    linux_drag_delta, linux_output_origin_for_placement, linux_output_placement_for_origin,
-    LinuxOutputSnapshot, LogicalPoint, PhysicalPoint,
+    linux_drag_delta, linux_output_origin_for_placement,
+    linux_output_placement_for_origin_with_anchor, LinuxOutputSnapshot, LogicalPoint,
+    PhysicalPoint,
 };
 use downshift::{LinuxOutputPlacement, LinuxWindowAnchor, LinuxWindowMode, LINUX_APPLICATION_ID};
 use gtk::glib::translate::ToGlibPtr;
@@ -83,6 +84,7 @@ pub(crate) struct HostWindow {
     layer_shell: Option<LayerShellApi>,
     layer_shell_placement: Option<LinuxOutputPlacement>,
     layer_shell_drag_origin: Option<PhysicalPosition<i32>>,
+    layer_shell_drag_anchor: Option<LinuxWindowAnchor>,
 }
 
 impl HostWindow {
@@ -308,6 +310,7 @@ impl HostWindow {
             layer_shell,
             layer_shell_placement,
             layer_shell_drag_origin: None,
+            layer_shell_drag_anchor: None,
         })
     }
 
@@ -479,6 +482,10 @@ impl HostWindow {
             return false;
         }
         self.layer_shell_drag_origin = self.current_layer_shell_origin();
+        self.layer_shell_drag_anchor = self
+            .layer_shell_placement
+            .as_ref()
+            .map(|placement| placement.anchor);
         self.layer_shell_drag_origin.is_some()
     }
 
@@ -534,11 +541,12 @@ impl HostWindow {
             monitor: snapshot_monitor(monitor),
             primary: false,
         };
-        let placement = linux_output_placement_for_origin(
+        let placement = linux_output_placement_for_origin_with_anchor(
             &output,
             PhysicalPoint::new(desired_origin.x, desired_origin.y),
             window_size.width,
             window_size.height,
+            self.layer_shell_drag_anchor.unwrap_or_default(),
         );
         let placement_changed = self.layer_shell_placement.as_ref() != Some(&placement);
         if placement_changed {
@@ -562,6 +570,7 @@ impl HostWindow {
 
     pub(crate) fn end_layer_shell_drag(&mut self) {
         self.layer_shell_drag_origin = None;
+        self.layer_shell_drag_anchor = None;
     }
 
     pub(crate) fn layer_shell_placement(&self) -> Option<LinuxOutputPlacement> {
