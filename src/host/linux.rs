@@ -201,6 +201,7 @@ impl HostWindow {
         let container = gtk::Fixed::new();
         let logical_size = Rc::new(Cell::new(initial_size));
         let scale_factor = Rc::new(Cell::new(1.0));
+        let requested_size_is_authoritative = Rc::new(Cell::new(false));
         let physical_position = Rc::new(Cell::new(
             if matches!(
                 backend,
@@ -231,11 +232,16 @@ impl HostWindow {
         let resize_proxy = event_loop_proxy.clone();
         let resize_size = logical_size.clone();
         let resize_scale = scale_factor.clone();
+        let resize_uses_requested_size = requested_size_is_authoritative.clone();
         gtk_window.connect_size_allocate(move |window, allocation| {
-            resize_size.set(LogicalSize::new(
-                f64::from(allocation.width()),
-                f64::from(allocation.height()),
-            ));
+            // Layer-shell allocations can briefly reflect the child size while
+            // the compositor's configured surface size remains unchanged.
+            if !resize_uses_requested_size.get() {
+                resize_size.set(LogicalSize::new(
+                    f64::from(allocation.width()),
+                    f64::from(allocation.height()),
+                ));
+            }
             let _ = resize_proxy.send_event(AppEvent::HostWindowResized(window_id));
             resize_scale.set(f64::from(window.scale_factor()).max(1.0));
         });
@@ -280,6 +286,7 @@ impl HostWindow {
             None
         };
 
+        requested_size_is_authoritative.set(backend == LinuxWindowBackend::WaylandLayerShell);
         gtk_window.show_all();
         scale_factor.set(f64::from(gtk_window.scale_factor()).max(1.0));
         if backend == LinuxWindowBackend::X11 && kind == WindowKind::Main {
