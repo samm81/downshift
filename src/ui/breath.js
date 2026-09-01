@@ -890,7 +890,23 @@
     pointerId: null,
     startX: 0,
     startY: 0,
+    frameId: null,
+    pendingDelta: null,
   };
+
+  function flushDrag() {
+    drag.frameId = null;
+    if (!drag.active || !drag.pendingDelta) {
+      return;
+    }
+    const delta = drag.pendingDelta;
+    drag.pendingDelta = null;
+    post({
+      cmd: "drag_to",
+      delta_x: delta.x,
+      delta_y: delta.y,
+    });
+  }
 
   ball.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) {
@@ -914,11 +930,13 @@
     if (!drag.active || event.pointerId !== drag.pointerId) {
       return;
     }
-    post({
-      cmd: "drag_to",
-      delta_x: event.clientX - drag.startX,
-      delta_y: event.clientY - drag.startY,
-    });
+    drag.pendingDelta = {
+      x: event.clientX - drag.startX,
+      y: event.clientY - drag.startY,
+    };
+    if (drag.frameId === null) {
+      drag.frameId = window.requestAnimationFrame(flushDrag);
+    }
   });
 
   function endDrag(event) {
@@ -935,6 +953,11 @@
     if (event && typeof ball.releasePointerCapture === "function") {
       ball.releasePointerCapture(event.pointerId);
     }
+    if (drag.frameId !== null) {
+      window.cancelAnimationFrame(drag.frameId);
+      drag.frameId = null;
+    }
+    flushDrag();
     drag.active = false;
     drag.pointerId = null;
     post({ cmd: "end_drag" });

@@ -6,7 +6,7 @@ use crate::window_policy::{
     linux_drag_delta, linux_output_origin_for_placement, linux_output_placement_for_origin,
     LinuxOutputSnapshot, LogicalPoint, PhysicalPoint,
 };
-use downshift::{LinuxOutputPlacement, LinuxWindowMode, LINUX_APPLICATION_ID};
+use downshift::{LinuxOutputPlacement, LinuxWindowAnchor, LinuxWindowMode, LINUX_APPLICATION_ID};
 use gtk::glib::translate::ToGlibPtr;
 use gtk::prelude::*;
 use std::cell::Cell;
@@ -36,6 +36,23 @@ fn default_layer_shell_placement() -> LinuxOutputPlacement {
         margin_x: DEFAULT_MARGIN,
         margin_y: DEFAULT_MARGIN,
     }
+}
+
+fn layer_shell_anchor_edges(anchor: LinuxWindowAnchor) -> [bool; 4] {
+    match anchor {
+        LinuxWindowAnchor::TopLeft => [true, false, true, false],
+        LinuxWindowAnchor::TopRight => [false, true, true, false],
+        LinuxWindowAnchor::BottomLeft => [true, false, false, true],
+        LinuxWindowAnchor::BottomRight => [false, true, false, true],
+    }
+}
+
+fn layer_shell_margins(placement: &LinuxOutputPlacement) -> [i32; 4] {
+    let edges = layer_shell_anchor_edges(placement.anchor);
+    let mut margins = [0; 4];
+    margins[if edges[1] { 1 } else { 0 }] = placement.margin_x.max(0);
+    margins[if edges[2] { 2 } else { 3 }] = placement.margin_y.max(0);
+    margins
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -536,6 +553,7 @@ impl HostWindow {
                 &placement,
                 &self.available_monitors,
                 output_changed,
+                self.layer_shell_placement.as_ref(),
             );
             self.layer_shell_placement = Some(placement);
         }
@@ -941,7 +959,7 @@ impl LayerShellApi {
             (self.set_exclusive_zone_fn)(ptr, -1);
             (self.set_keyboard_interactivity_fn)(ptr, 0);
         }
-        self.apply_placement(window, &placement, available_monitors, true);
+        self.apply_placement(window, &placement, available_monitors, true, None);
         Ok(())
     }
 
@@ -951,33 +969,31 @@ impl LayerShellApi {
         placement: &LinuxOutputPlacement,
         available_monitors: &[MonitorHandle],
         set_monitor: bool,
+        previous: Option<&LinuxOutputPlacement>,
     ) {
         let ptr: *mut c_void =
             <gtk::Window as ToGlibPtr<*mut gtk::ffi::GtkWindow>>::to_glib_none(window)
                 .0
                 .cast();
         let monitor = gdk_monitor_for_placement(window, placement, available_monitors);
-        let (left, right, top, bottom) = match placement.anchor {
-            downshift::LinuxWindowAnchor::TopLeft => (true, false, true, false),
-            downshift::LinuxWindowAnchor::TopRight => (false, true, true, false),
-            downshift::LinuxWindowAnchor::BottomLeft => (true, false, false, true),
-            downshift::LinuxWindowAnchor::BottomRight => (false, true, false, true),
-        };
+        let edges = layer_shell_anchor_edges(placement.anchor);
+        let margins = layer_shell_margins(placement);
+        let previous_edges = previous
+            .map(|placement| layer_shell_anchor_edges(placement.anchor))
+            .unwrap_or([false; 4]);
+        let previous_margins = previous.map(layer_shell_margins).unwrap_or([0; 4]);
         unsafe {
             if set_monitor {
                 (self.set_monitor_fn)(ptr, gdk_monitor_ptr(monitor.as_ref()));
             }
-            (self.set_anchor_fn)(ptr, 0, i32::from(left));
-            (self.set_anchor_fn)(ptr, 1, i32::from(right));
-            (self.set_anchor_fn)(ptr, 2, i32::from(top));
-            (self.set_anchor_fn)(ptr, 3, i32::from(bottom));
             for edge in 0..4 {
-                (self.set_margin_fn)(ptr, edge, 0);
+                if previous.is_none() || previous_edges[edge] != edges[edge] {
+                    (self.set_anchor_fn)(ptr, edge as i32, i32::from(edges[edge]));
+                }
+                if previous.is_none() || previous_margins[edge] != margins[edge] {
+                    (self.set_margin_fn)(ptr, edge as i32, margins[edge]);
+                }
             }
-            let horizontal_edge = if right { 1 } else { 0 };
-            let vertical_edge = if top { 2 } else { 3 };
-            (self.set_margin_fn)(ptr, horizontal_edge, placement.margin_x.max(0));
-            (self.set_margin_fn)(ptr, vertical_edge, placement.margin_y.max(0));
         }
     }
 
