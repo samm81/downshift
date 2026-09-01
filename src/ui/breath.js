@@ -888,8 +888,10 @@
   const drag = {
     active: false,
     pointerId: null,
-    startX: 0,
-    startY: 0,
+    lastClientX: 0,
+    lastClientY: 0,
+    totalDeltaX: 0,
+    totalDeltaY: 0,
     frameId: null,
     pendingDelta: null,
   };
@@ -908,14 +910,17 @@
     });
   }
 
-  ball.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) {
+  function startDrag(event) {
+    if (event.button !== 0 || drag.active) {
       return;
     }
     drag.active = true;
     drag.pointerId = event.pointerId;
-    drag.startX = event.clientX;
-    drag.startY = event.clientY;
+    drag.lastClientX = event.clientX;
+    drag.lastClientY = event.clientY;
+    drag.totalDeltaX = 0;
+    drag.totalDeltaY = 0;
+    drag.pendingDelta = null;
     if (typeof ball.setPointerCapture === "function") {
       ball.setPointerCapture(event.pointerId);
     }
@@ -924,20 +929,32 @@
       pointer_x: event.clientX,
       pointer_y: event.clientY,
     });
-  });
+  }
 
-  ball.addEventListener("pointermove", (event) => {
+  function moveDrag(event) {
     if (!drag.active || event.pointerId !== drag.pointerId) {
       return;
     }
+    const clientDeltaX = event.clientX - drag.lastClientX;
+    const clientDeltaY = event.clientY - drag.lastClientY;
+    const deltaX = Number.isFinite(event.movementX)
+      ? event.movementX
+      : clientDeltaX;
+    const deltaY = Number.isFinite(event.movementY)
+      ? event.movementY
+      : clientDeltaY;
+    drag.lastClientX = event.clientX;
+    drag.lastClientY = event.clientY;
+    drag.totalDeltaX += deltaX;
+    drag.totalDeltaY += deltaY;
     drag.pendingDelta = {
-      x: event.clientX - drag.startX,
-      y: event.clientY - drag.startY,
+      x: drag.totalDeltaX,
+      y: drag.totalDeltaY,
     };
     if (drag.frameId === null) {
       drag.frameId = window.requestAnimationFrame(flushDrag);
     }
-  });
+  }
 
   function endDrag(event) {
     if (!drag.active) {
@@ -963,6 +980,8 @@
     post({ cmd: "end_drag" });
   }
 
+  ball.addEventListener("pointerdown", startDrag);
+  ball.addEventListener("pointermove", moveDrag);
   ball.addEventListener("pointerup", endDrag);
   ball.addEventListener("pointercancel", endDrag);
 

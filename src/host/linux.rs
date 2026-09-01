@@ -568,16 +568,6 @@ impl HostWindow {
         self.layer_shell_placement.clone()
     }
 
-    pub(crate) fn refresh_layer_shell_monitor(&self) {
-        if self.backend != LinuxWindowBackend::WaylandLayerShell {
-            return;
-        }
-        let Some(layer_shell) = self.layer_shell.as_ref() else {
-            return;
-        };
-        layer_shell.set_monitor(&self.gtk_window, self.current_gdk_monitor().as_ref());
-    }
-
     pub(crate) fn set_cursor_hittest(&self, _enabled: bool) -> Result<(), String> {
         Err("cursor hit testing is unavailable on Linux".to_string())
     }

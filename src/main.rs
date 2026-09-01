@@ -2387,9 +2387,6 @@ impl App {
         }
         #[cfg(target_os = "linux")]
         {
-            if let Some(window) = self.window.as_ref() {
-                window.refresh_layer_shell_monitor();
-            }
             self.persist_linux_window_state();
         }
     }
