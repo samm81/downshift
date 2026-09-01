@@ -19,6 +19,32 @@ Package names can differ between distributions and releases. The application
 does not require `gtk-layer-shell`; it detects that library at runtime and
 falls back to a regular window when it is missing.
 
+## Layer-shell support
+
+Layer-shell is an optional Wayland protocol for desktop surfaces. Downshift
+uses it to place the breathing widget above normal application windows.
+
+Known compatible compositor examples include:
+
+- wlroots-based compositors, such as Sway, Wayfire, labwc, and river;
+- Hyprland;
+- niri;
+- KDE Plasma Wayland with KWin;
+- Mir-based compositors that enable `zwlr_layer_shell_v1`.
+
+GNOME Wayland and X11 do not support layer-shell. The compositor must expose
+`zwlr_layer_shell_v1`, and the `libgtk-layer-shell` runtime library must be
+installed. Downshift probes both requirements at runtime.
+
+Downshift also requires its layer-shell drag verification gate before it uses
+the overlay. If any requirement is missing, it starts as a normal window.
+That fallback does not provide a portable always-on-top or all-workspace
+guarantee.
+
+See the [GTK layer-shell support matrix](https://github.com/wmww/gtk-layer-shell#supported-desktops)
+and the [niri layer-shell documentation](https://github.com/niri-wm/niri/wiki/Layer%E2%80%90Shell-Components)
+for compositor-specific details.
+
 ## GUI smoke tests
 
 Contributors can run the X11, generic Wayland, layer-shell, and missing-library
