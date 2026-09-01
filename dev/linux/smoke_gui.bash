@@ -607,6 +607,19 @@ smoke_layer_shell() {
   local second_capture second_geometry
   second_capture="$(wait_for_rendered_capture layer-shell-output-2)"
   second_geometry="$(trim_geometry "$second_capture")"
+  local drag_before_capture drag_before_geometry drag_after_capture drag_after_geometry
+  drag_before_capture="$(wait_for_rendered_capture layer-shell-drag-before)"
+  drag_before_geometry="$(trim_geometry "$drag_before_capture")"
+  send_ipc '{"cmd":"start_drag","pointer_x":0,"pointer_y":0}'
+  send_ipc '{"cmd":"drag_to","delta_x":40,"delta_y":40}'
+  send_ipc '{"cmd":"end_drag"}'
+  drag_after_capture="$(wait_for_rendered_capture layer-shell-drag-after)"
+  drag_after_geometry="$(trim_geometry "$drag_after_capture")"
+  if (( $(geometry_value "$drag_after_geometry" x) <= $(geometry_value "$drag_before_geometry" x) &&
+        $(geometry_value "$drag_after_geometry" y) <= $(geometry_value "$drag_before_geometry" y) )); then
+    die "layer-shell drag did not move widget"
+  fi
+  log "layer-shell drag passed: $drag_before_geometry -> $drag_after_geometry"
   smoke_dialog layer-shell-telemetry \
     '{"cmd":"show_telemetry_info"}' \
     'what we collect' \

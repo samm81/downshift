@@ -636,6 +636,13 @@ impl App {
         if self.follow_cursor_active {
             return;
         }
+        #[cfg(target_os = "linux")]
+        if let Some(window) = self.window.as_mut() {
+            if window.begin_layer_shell_drag() {
+                self.drag_anchor_window_pos = None;
+                return;
+            }
+        }
         if self.window.as_ref().is_some_and(begin_native_drag) {
             self.drag_anchor_window_pos = None;
             return;
@@ -646,6 +653,13 @@ impl App {
     fn drag_to(&mut self, delta_x: f64, delta_y: f64) {
         if self.follow_cursor_active {
             return;
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(window) = self.window.as_mut() {
+            if window.has_layer_shell() {
+                let _ = window.drag_layer_shell_by(delta_x, delta_y);
+                return;
+            }
         }
         let (Some(anchor_window), Some(window)) =
             (self.drag_anchor_window_pos, self.window.as_ref())
@@ -663,7 +677,20 @@ impl App {
     fn stop_manual_drag(&mut self) {
         self.drag_anchor_window_pos = None;
         #[cfg(target_os = "linux")]
-        self.persist_linux_window_state();
+        {
+            let layer_shell = self
+                .window
+                .as_ref()
+                .is_some_and(HostWindow::has_layer_shell);
+            if layer_shell {
+                if let Some(window) = self.window.as_mut() {
+                    window.end_layer_shell_drag();
+                }
+                self.persist_layer_shell_placement();
+            } else {
+                self.persist_linux_window_state();
+            }
+        }
     }
 
     fn enforce_fixed_widget_size(&self) {
@@ -1370,6 +1397,23 @@ impl App {
         } else {
             self.update_linux_monitor_state();
         }
+        self.save_settings();
+    }
+
+    #[cfg(target_os = "linux")]
+    fn persist_layer_shell_placement(&mut self) {
+        if self.follow_cursor_active {
+            return;
+        }
+        let Some(placement) = self
+            .window
+            .as_ref()
+            .and_then(HostWindow::layer_shell_placement)
+        else {
+            return;
+        };
+        self.settings.monitor = Some(placement.output);
+        self.settings.linux_output_placement = Some(placement);
         self.save_settings();
     }
 
