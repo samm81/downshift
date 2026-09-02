@@ -51,8 +51,8 @@ fn layer_shell_anchor_edges(anchor: LinuxWindowAnchor) -> [bool; 4] {
 fn layer_shell_margins(placement: &LinuxOutputPlacement) -> [i32; 4] {
     let edges = layer_shell_anchor_edges(placement.anchor);
     let mut margins = [0; 4];
-    margins[if edges[1] { 1 } else { 0 }] = placement.margin_x.max(0);
-    margins[if edges[2] { 2 } else { 3 }] = placement.margin_y.max(0);
+    margins[if edges[1] { 1 } else { 0 }] = placement.margin_x;
+    margins[if edges[2] { 2 } else { 3 }] = placement.margin_y;
     margins
 }
 

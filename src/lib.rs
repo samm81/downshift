@@ -249,8 +249,6 @@ impl LinuxOutputPlacement {
         {
             return false;
         }
-        self.margin_x = self.margin_x.max(0);
-        self.margin_y = self.margin_y.max(0);
         true
     }
 }
@@ -1027,7 +1025,7 @@ scale_factor = 1.0
             .linux_output_placement
             .expect("valid output placement should remain");
         assert_eq!(placement.output_name.as_deref(), Some("HDMI-A-1"));
-        assert_eq!(placement.margin_x, 0);
+        assert_eq!(placement.margin_x, -12);
         assert_eq!(placement.margin_y, 18);
 
         let mut invalid = Settings {

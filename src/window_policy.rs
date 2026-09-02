@@ -234,8 +234,8 @@ pub(crate) fn linux_output_origin_for_placement(
     let monitor = output.monitor;
     let width = window_width.min(i32::MAX as u32) as i32;
     let height = window_height.min(i32::MAX as u32) as i32;
-    let margin_x = placement.margin_x.max(0);
-    let margin_y = placement.margin_y.max(0);
+    let margin_x = placement.margin_x;
+    let margin_y = placement.margin_y;
     let desired_x = match placement.anchor {
         LinuxWindowAnchor::TopLeft | LinuxWindowAnchor::BottomLeft => {
             monitor.position.x.saturating_add(margin_x)
@@ -258,20 +258,7 @@ pub(crate) fn linux_output_origin_for_placement(
             .saturating_sub(height)
             .saturating_sub(margin_y),
     };
-    let origin = ScreenRect {
-        left: monitor.position.x,
-        top: monitor.position.y,
-        right: monitor
-            .position
-            .x
-            .saturating_add(monitor.width.min(i32::MAX as u32) as i32),
-        bottom: monitor
-            .position
-            .y
-            .saturating_add(monitor.height.min(i32::MAX as u32) as i32),
-    }
-    .clamp_window_origin(desired_x, desired_y, width, height);
-    PhysicalPoint::new(origin.x, origin.y)
+    PhysicalPoint::new(desired_x, desired_y)
 }
 
 pub(crate) fn linux_output_placement_for_origin(
@@ -300,9 +287,9 @@ pub(crate) fn linux_output_placement_for_origin(
         clamped.x + width / 2 >= monitor.position.x + monitor.width.min(i32::MAX as u32) as i32 / 2;
     let bottom = clamped.y + height / 2
         >= monitor.position.y + monitor.height.min(i32::MAX as u32) as i32 / 2;
-    linux_output_placement_for_clamped_origin(
+    linux_output_placement_for_position(
         output,
-        clamped,
+        PhysicalPoint::new(clamped.x, clamped.y),
         width,
         height,
         match (right, bottom) {
@@ -321,28 +308,14 @@ pub(crate) fn linux_output_placement_for_origin_with_anchor(
     window_height: u32,
     anchor: LinuxWindowAnchor,
 ) -> LinuxOutputPlacement {
-    let monitor = output.monitor;
     let width = window_width.min(i32::MAX as u32) as i32;
     let height = window_height.min(i32::MAX as u32) as i32;
-    let clamped = ScreenRect {
-        left: monitor.position.x,
-        top: monitor.position.y,
-        right: monitor
-            .position
-            .x
-            .saturating_add(monitor.width.min(i32::MAX as u32) as i32),
-        bottom: monitor
-            .position
-            .y
-            .saturating_add(monitor.height.min(i32::MAX as u32) as i32),
-    }
-    .clamp_window_origin(origin.x, origin.y, width, height);
-    linux_output_placement_for_clamped_origin(output, clamped, width, height, anchor)
+    linux_output_placement_for_position(output, origin, width, height, anchor)
 }
 
-fn linux_output_placement_for_clamped_origin(
+fn linux_output_placement_for_position(
     output: &LinuxOutputSnapshot,
-    clamped: PhysicalPosition<i32>,
+    origin: PhysicalPoint,
     width: i32,
     height: i32,
     anchor: LinuxWindowAnchor,
@@ -365,18 +338,18 @@ fn linux_output_placement_for_clamped_origin(
                 .position
                 .x
                 .saturating_add(monitor.width.min(i32::MAX as u32) as i32)
-                .saturating_sub(clamped.x.saturating_add(width))
+                .saturating_sub(origin.x.saturating_add(width))
         } else {
-            clamped.x.saturating_sub(monitor.position.x)
+            origin.x.saturating_sub(monitor.position.x)
         },
         margin_y: if bottom {
             monitor
                 .position
                 .y
                 .saturating_add(monitor.height.min(i32::MAX as u32) as i32)
-                .saturating_sub(clamped.y.saturating_add(height))
+                .saturating_sub(origin.y.saturating_add(height))
         } else {
-            clamped.y.saturating_sub(monitor.position.y)
+            origin.y.saturating_sub(monitor.position.y)
         },
     }
 }
@@ -931,6 +904,40 @@ mod tests {
         assert_eq!(
             linux_output_origin_for_placement(&left_placement, &output, 96, 96),
             left_of_center
+        );
+    }
+
+    #[test]
+    fn fixed_drag_anchor_preserves_offscreen_origins() {
+        let output = output("HDMI-1", PhysicalPoint::new(0, 0), false);
+        let above_left = PhysicalPoint::new(-40, -30);
+        let above_left_placement = linux_output_placement_for_origin_with_anchor(
+            &output,
+            above_left,
+            96,
+            96,
+            LinuxWindowAnchor::TopRight,
+        );
+        assert_eq!(above_left_placement.margin_x, 1864);
+        assert_eq!(above_left_placement.margin_y, -30);
+        assert_eq!(
+            linux_output_origin_for_placement(&above_left_placement, &output, 96, 96),
+            above_left
+        );
+
+        let below_right = PhysicalPoint::new(1870, 1040);
+        let below_right_placement = linux_output_placement_for_origin_with_anchor(
+            &output,
+            below_right,
+            96,
+            96,
+            LinuxWindowAnchor::BottomLeft,
+        );
+        assert_eq!(below_right_placement.margin_x, 1870);
+        assert_eq!(below_right_placement.margin_y, -56);
+        assert_eq!(
+            linux_output_origin_for_placement(&below_right_placement, &output, 96, 96),
+            below_right
         );
     }
 
