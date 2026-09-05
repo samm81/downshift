@@ -597,8 +597,33 @@ impl HostWindow {
         self.layer_shell_placement.clone()
     }
 
-    pub(crate) fn set_cursor_hittest(&self, _enabled: bool) -> Result<(), String> {
-        Err("cursor hit testing is unavailable on Linux".to_string())
+    pub(crate) fn set_cursor_hittest(&self, enabled: bool) -> Result<(), String> {
+        if self.backend != LinuxWindowBackend::X11 {
+            return Err(
+                "cursor hit testing is unavailable on this Linux window backend".to_string(),
+            );
+        }
+        let Some(gdk_window) = self.gtk_window.window() else {
+            return Err("cursor hit testing requires a realized X11 window".to_string());
+        };
+        if !gdk_window.display().supports_input_shapes() {
+            return Err("the X11 server does not support input shapes".to_string());
+        }
+
+        let region = if enabled {
+            let size = self.inner_size();
+            let rectangle = gtk::cairo::RectangleInt::new(
+                0,
+                0,
+                size.width.min(i32::MAX as u32) as i32,
+                size.height.min(i32::MAX as u32) as i32,
+            );
+            gtk::cairo::Region::create_rectangle(&rectangle)
+        } else {
+            gtk::cairo::Region::create()
+        };
+        gdk_window.input_shape_combine_region(&region, 0, 0);
+        Ok(())
     }
 
     pub(crate) fn gtk_window(&self) -> &gtk::Window {

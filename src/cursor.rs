@@ -66,6 +66,8 @@ impl CursorSource for CursorProvider {
 }
 
 enum Backend {
+    #[cfg(target_os = "linux")]
+    X11,
     #[cfg(target_os = "macos")]
     Macos,
     #[cfg(target_os = "windows")]
@@ -99,12 +101,17 @@ impl Backend {
                     )
                 }
             };
-            return Self::Unsupported(match display_handle.as_raw() {
+            return match display_handle.as_raw() {
+                RawDisplayHandle::Xlib(_) => Self::X11,
                 RawDisplayHandle::Wayland(_) => {
-                    "cursor following is unavailable on Wayland (global cursor position is not exposed)"
+                    Self::Unsupported(
+                        "cursor following is unavailable on Wayland (global cursor position is not exposed)",
+                    )
                 }
-                _ => "cursor following is unavailable on Linux (Linux is not currently supported)",
-            });
+                _ => Self::Unsupported(
+                    "cursor following is unavailable on this Linux display backend",
+                ),
+            };
         }
 
         #[allow(unreachable_code)]
@@ -118,6 +125,8 @@ impl Backend {
     fn unavailable_reason(&self) -> &'static str {
         match self {
             Self::Unsupported(reason) => reason,
+            #[cfg(target_os = "linux")]
+            Self::X11 => "",
             #[cfg(target_os = "macos")]
             Self::Macos => "",
             #[cfg(target_os = "windows")]
@@ -127,6 +136,8 @@ impl Backend {
 
     fn sample(&mut self) -> Result<CursorPosition, CursorError> {
         match self {
+            #[cfg(target_os = "linux")]
+            Self::X11 => sample_x11_cursor(),
             #[cfg(target_os = "macos")]
             Self::Macos => sample_macos_cursor(),
             #[cfg(target_os = "windows")]
@@ -134,6 +145,29 @@ impl Backend {
             Self::Unsupported(reason) => Err(CursorError::Unavailable(reason)),
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn sample_x11_cursor() -> Result<CursorPosition, CursorError> {
+    use gtk::prelude::*;
+
+    let pointer = gtk::gdk::Display::default()
+        .and_then(|display| display.default_seat())
+        .and_then(|seat| seat.pointer())
+        .ok_or_else(|| {
+            CursorError::Query("failed to resolve the X11 pointer device".to_string())
+        })?;
+    let (_, x, y) = pointer.position_double();
+    if !x.is_finite() || !y.is_finite() {
+        return Err(CursorError::Query(
+            "X11 returned an invalid pointer position".to_string(),
+        ));
+    }
+    Ok(CursorPosition {
+        x,
+        y,
+        space: CoordinateSpace::Physical,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -176,4 +210,16 @@ fn sample_windows_cursor() -> Result<CursorPosition, CursorError> {
         y: f64::from(point.y),
         space: CoordinateSpace::Physical,
     })
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::Backend;
+
+    #[test]
+    fn x11_cursor_backend_is_supported() {
+        let backend = Backend::X11;
+        assert!(backend.is_supported());
+        assert_eq!(backend.unavailable_reason(), "");
+    }
 }

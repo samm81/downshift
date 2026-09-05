@@ -581,6 +581,54 @@ smoke_x11_drag() {
   log "X11 drag moved window x=${before_x}->${after_x} (window ${window_id})"
 }
 
+x11_window_near_cursor() {
+  local target_x="$1"
+  local target_y="$2"
+  local tolerance="$3"
+  local geometry x y width height dx dy
+  geometry="$(x11_geometry)" || return 1
+  read -r x y width height <<<"$geometry"
+  dx=$((x + width / 2 - target_x))
+  dy=$((y + height / 2 - target_y))
+  ((dx < 0)) && dx=$((-dx))
+  ((dy < 0)) && dy=$((-dy))
+  ((dx <= tolerance && dy <= tolerance))
+}
+
+smoke_x11_follow_cursor() {
+  local before before_x before_y first_x first_y second_x second_y
+  before="$(x11_geometry)" || die "could not read X11 geometry before follow-cursor mode"
+  read -r before_x before_y _ <<<"$before"
+  first_x=500
+  first_y=240
+  second_x=1800
+  second_y=420
+
+  send_ipc '{"cmd":"set_follow_cursor","enabled":true}'
+  xdotool mousemove --sync "$first_x" "$first_y"
+  wait_until "X11 follow-cursor first position" x11_window_near_cursor "$first_x" "$first_y" 80
+  capture x11-follow-cursor-1 >/dev/null
+  local first_geometry
+  first_geometry="$(x11_geometry)"
+
+  xdotool mousemove --sync "$second_x" "$second_y"
+  wait_until "X11 follow-cursor second position" x11_window_near_cursor "$second_x" "$second_y" 80
+  capture x11-follow-cursor-2 >/dev/null
+  local second_geometry
+  second_geometry="$(x11_geometry)"
+  [[ "$first_geometry" != "$second_geometry" ]] || die "X11 follow-cursor did not move after pointer movement"
+
+  send_ipc '{"cmd":"set_follow_cursor","enabled":false}'
+  x11_position_restored() {
+    local current current_x current_y
+    current="$(x11_geometry)" || return 1
+    read -r current_x current_y _ <<<"$current"
+    [[ "$current_x" == "$before_x" && "$current_y" == "$before_y" ]]
+  }
+  wait_until "X11 fixed position restoration" x11_position_restored
+  log "X11 follow-cursor passed: $first_geometry -> $second_geometry -> $before_x $before_y"
+}
+
 layer_output_info() {
   local index="$1"
   swaymsg -t get_outputs | jq -r ".[$index] | [.name, .rect.width, .rect.height, .scale] | @tsv"
@@ -615,8 +663,8 @@ smoke_layer_shell() {
   send_ipc '{"cmd":"end_drag"}'
   drag_after_capture="$(wait_for_rendered_capture layer-shell-drag-after)"
   drag_after_geometry="$(trim_geometry "$drag_after_capture")"
-  if (( $(geometry_value "$drag_after_geometry" x) <= $(geometry_value "$drag_before_geometry" x) &&
-        $(geometry_value "$drag_after_geometry" y) <= $(geometry_value "$drag_before_geometry" y) )); then
+  if (($(geometry_value "$drag_after_geometry" x) <= $(geometry_value "$drag_before_geometry" x) && \
+  $(geometry_value "$drag_after_geometry" y) <= $(geometry_value "$drag_before_geometry" y))); then
     die "layer-shell drag did not move widget"
   fi
   log "layer-shell drag passed: $drag_before_geometry -> $drag_after_geometry"
@@ -760,6 +808,7 @@ case "$SCENARIO" in
     wait_until "X11 backend" log_contains 'window_backend=x11_ewmh'
     smoke_common_windows
     smoke_x11_drag
+    smoke_x11_follow_cursor
     ;;
   wayland)
     write_settings normal_window

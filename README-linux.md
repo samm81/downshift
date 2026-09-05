@@ -89,6 +89,8 @@ Unknown or malformed values use `auto`.
 
 - X11 uses a regular GTK window with EWMH utility, above, sticky, skip-taskbar,
   and skip-pager hints.
+- Follow-cursor mode is available on X11. It remains unavailable on ordinary
+  Wayland because Wayland does not expose global pointer coordinates.
 - Wayland `normal_window` uses a borderless regular window. The compositor
   controls its global position, stacking, and workspace behavior.
 - Wayland `overlay` requests `gtk-layer-shell`, but Downshift uses it only when
