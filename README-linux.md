@@ -11,7 +11,8 @@ and supported by the compositor.
 Install the runtime libraries for your distribution before starting the
 application:
 
-- Debian or Ubuntu: `libgtk-3-0`, `libwebkit2gtk-4.1-0`, and `xdg-utils`.
+- Debian or Ubuntu: `libgtk-3-0`, `libwebkit2gtk-4.1-0`,
+  `libxkbcommon-x11-0`, and `xdg-utils`.
 - Fedora: `gtk3`, `webkit2gtk4.1`, and `xdg-utils`.
 - Arch: `gtk3`, `webkit2gtk-4.1`, and `xdg-utils`.
 
@@ -55,7 +56,7 @@ make smoke-linux
 On Debian or Ubuntu, install the test-only dependencies with:
 
 ```bash
-sudo apt-get install python3 xvfb xcompmgr xdotool x11-apps x11-utils imagemagick libmagickcore-6.q16-7-extra weston sway grim slurp grimshot jq wl-clipboard libnotify-bin libgtk-layer-shell0
+sudo apt-get install python3 xvfb xcompmgr xdotool x11-apps x11-utils imagemagick libmagickcore-6.q16-7-extra weston sway grim slurp grimshot jq wl-clipboard libnotify-bin libgtk-layer-shell0 libxkbcommon-x11-0
 ```
 
 The runner saves logs, screenshots, compositor state, and failure diagnostics
