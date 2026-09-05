@@ -485,10 +485,7 @@ checksums checksums-no-telemetry:
 	trap - EXIT
 
 check-tag-sync:
-	@if [ -n "$(TAG)" ] && [ "$(TAG)" != "v$(VERSION)" ]; then
-		echo "error: tag $(TAG) does not match cargo version $(VERSION)"
-		exit 1
-	fi
+	@if [ -n "$(TAG)" ] && [ "$(TAG)" != "v$(VERSION)" ]; then echo "error: tag $(TAG) does not match cargo version $(VERSION)"; exit 1; fi
 
 release: check-tag-sync checksums ## create unsigned macOS release archives
 
