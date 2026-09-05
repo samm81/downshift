@@ -74,9 +74,10 @@ pub(crate) fn create_main_window(
 
     #[cfg(not(target_os = "linux"))]
     {
-        let attributes = initial_position
-            .map(|position| attributes.with_position(position))
-            .unwrap_or(attributes);
+        let attributes = match initial_position {
+            Some(position) => attributes.with_position(position),
+            None => attributes,
+        };
         let _ = (initial_size, requested_mode, placement, event_loop_proxy);
         event_loop
             .create_window(attributes)
