@@ -211,10 +211,12 @@ start_display() {
 }
 
 x11_window_id() {
-  local window_id geometry width height area
+  local window_id window_name geometry width height area
   local best_window=""
   local best_area=0
   while read -r window_id; do
+    window_name="$(xdotool getwindowname "$window_id" 2>/dev/null)" || continue
+    [[ "$window_name" == downshift ]] || continue
     geometry="$(xdotool getwindowgeometry --shell "$window_id" 2>/dev/null)" || continue
     width="$(sed -n 's/^WIDTH=//p' <<<"$geometry")"
     height="$(sed -n 's/^HEIGHT=//p' <<<"$geometry")"
