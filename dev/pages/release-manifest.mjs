@@ -8,7 +8,12 @@ export const EMBEDDED_MANIFEST_START =
   "<!-- DOWNSHIFT_RELEASE_MANIFEST_START -->";
 export const EMBEDDED_MANIFEST_END = "<!-- DOWNSHIFT_RELEASE_MANIFEST_END -->";
 
-const ASSET_FIELDS = ["macos_url", "windows_url", "checksums_url"];
+const ASSET_FIELDS = [
+  "macos_url",
+  "windows_url",
+  "linux_url",
+  "checksums_url",
+];
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -119,13 +124,25 @@ export function validateReleaseManifest(manifest) {
     errors.push("windows_url must point to a .exe asset");
   }
   if (
+    typeof manifest.linux_url === "string" &&
+    typeof version === "string" &&
+    STABLE_VERSION_PATTERN.test(version) &&
+    !manifest.linux_url.endsWith(
+      `/Downshift-linux-x86_64-v${version.slice(1)}.tar.gz`,
+    )
+  ) {
+    errors.push(
+      "linux_url must point to the canonical Downshift Linux x86_64 tarball",
+    );
+  }
+  if (
     typeof manifest.checksums_url === "string" &&
     !/\.(txt|sha256)$/i.test(manifest.checksums_url)
   ) {
     errors.push("checksums_url must point to a checksum text asset");
   }
 
-  if (!manifest.macos_url && !manifest.windows_url) {
+  if (!manifest.macos_url && !manifest.windows_url && !manifest.linux_url) {
     errors.push("at least one platform asset is required");
   }
 
@@ -188,8 +205,10 @@ export function manifestFromRelease(release) {
   const versionWithoutV = version.slice(1);
   const macosName = `Downshift-notarized-${version}.dmg`;
   const windowsName = `Downshift-Setup-${versionWithoutV}.exe`;
+  const linuxName = `Downshift-linux-x86_64-${version}.tar.gz`;
   const macosUrl = selectAsset(assets, macosName, true);
   const windowsUrl = selectAsset(assets, windowsName, false);
+  const linuxUrl = selectAsset(assets, linuxName, false);
   const checksumsUrl = selectAsset(assets, "SHA256SUMS.txt", false);
 
   const manifest = {
@@ -198,6 +217,7 @@ export function manifestFromRelease(release) {
     published_at: release.published_at,
     macos_url: macosUrl,
     windows_url: windowsUrl,
+    linux_url: linuxUrl,
     checksums_url: checksumsUrl,
   };
   const errors = validateReleaseManifest(manifest);

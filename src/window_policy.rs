@@ -1,4 +1,6 @@
 use downshift::{clamp_size, PersistedMonitor, Settings, DEFAULT_SIZE};
+#[cfg(target_os = "linux")]
+use downshift::{LinuxOutputPlacement, LinuxWindowAnchor, LinuxWindowMode};
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::monitor::MonitorHandle;
 
@@ -131,6 +133,254 @@ pub(crate) struct MonitorSnapshot {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) scale_factor: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg(target_os = "linux")]
+pub(crate) struct LinuxOutputSnapshot {
+    pub(crate) name: Option<String>,
+    pub(crate) monitor: MonitorSnapshot,
+    pub(crate) primary: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(target_os = "linux")]
+pub(crate) enum LinuxSessionBackend {
+    X11,
+    Wayland,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(target_os = "linux")]
+pub(crate) enum LinuxWindowBackend {
+    X11,
+    WaylandNormal,
+    WaylandLayerShell,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(target_os = "linux")]
+pub(crate) struct LinuxWindowDecision {
+    pub(crate) backend: LinuxWindowBackend,
+    pub(crate) overlay_supported: bool,
+    pub(crate) fallback_reason: Option<&'static str>,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn choose_linux_window_backend(
+    session: LinuxSessionBackend,
+    requested: LinuxWindowMode,
+    layer_shell_supported: bool,
+) -> LinuxWindowDecision {
+    match session {
+        LinuxSessionBackend::X11 => LinuxWindowDecision {
+            backend: LinuxWindowBackend::X11,
+            overlay_supported: false,
+            fallback_reason: (requested == LinuxWindowMode::Overlay).then_some(
+                "layer-shell overlay is only available on Wayland; using X11 utility window",
+            ),
+        },
+        LinuxSessionBackend::Wayland => {
+            let can_use_overlay =
+                requested != LinuxWindowMode::NormalWindow && layer_shell_supported;
+            LinuxWindowDecision {
+                backend: if can_use_overlay {
+                    LinuxWindowBackend::WaylandLayerShell
+                } else {
+                    LinuxWindowBackend::WaylandNormal
+                },
+                overlay_supported: layer_shell_supported,
+                fallback_reason: if requested == LinuxWindowMode::NormalWindow {
+                    None
+                } else if !layer_shell_supported {
+                    Some("gtk-layer-shell is unavailable; using a regular Wayland window")
+                } else {
+                    None
+                },
+            }
+        }
+        LinuxSessionBackend::Unknown => LinuxWindowDecision {
+            backend: LinuxWindowBackend::WaylandNormal,
+            overlay_supported: false,
+            fallback_reason: Some("Linux display backend is unknown; using a regular window"),
+        },
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_output_index_for_placement(
+    placement: &LinuxOutputPlacement,
+    outputs: &[LinuxOutputSnapshot],
+) -> Option<usize> {
+    if let Some(name) = placement.output_name.as_deref() {
+        if let Some(index) = outputs
+            .iter()
+            .position(|output| output.name.as_deref() == Some(name))
+        {
+            return Some(index);
+        }
+    }
+    if let Some(index) = outputs
+        .iter()
+        .position(|output| monitor_matches_persisted(&output.monitor, &placement.output))
+    {
+        return Some(index);
+    }
+    outputs.iter().position(|output| output.primary)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_output_origin_for_placement(
+    placement: &LinuxOutputPlacement,
+    output: &LinuxOutputSnapshot,
+    window_width: u32,
+    window_height: u32,
+) -> PhysicalPoint {
+    let monitor = output.monitor;
+    let width = window_width.min(i32::MAX as u32) as i32;
+    let height = window_height.min(i32::MAX as u32) as i32;
+    let margin_x = placement.margin_x;
+    let margin_y = placement.margin_y;
+    let desired_x = match placement.anchor {
+        LinuxWindowAnchor::TopLeft | LinuxWindowAnchor::BottomLeft => {
+            monitor.position.x.saturating_add(margin_x)
+        }
+        LinuxWindowAnchor::TopRight | LinuxWindowAnchor::BottomRight => monitor
+            .position
+            .x
+            .saturating_add(monitor.width.min(i32::MAX as u32) as i32)
+            .saturating_sub(width)
+            .saturating_sub(margin_x),
+    };
+    let desired_y = match placement.anchor {
+        LinuxWindowAnchor::TopLeft | LinuxWindowAnchor::TopRight => {
+            monitor.position.y.saturating_add(margin_y)
+        }
+        LinuxWindowAnchor::BottomLeft | LinuxWindowAnchor::BottomRight => monitor
+            .position
+            .y
+            .saturating_add(monitor.height.min(i32::MAX as u32) as i32)
+            .saturating_sub(height)
+            .saturating_sub(margin_y),
+    };
+    PhysicalPoint::new(desired_x, desired_y)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_output_placement_for_origin(
+    output: &LinuxOutputSnapshot,
+    origin: PhysicalPoint,
+    window_width: u32,
+    window_height: u32,
+) -> LinuxOutputPlacement {
+    let monitor = output.monitor;
+    let width = window_width.min(i32::MAX as u32) as i32;
+    let height = window_height.min(i32::MAX as u32) as i32;
+    let clamped = ScreenRect {
+        left: monitor.position.x,
+        top: monitor.position.y,
+        right: monitor
+            .position
+            .x
+            .saturating_add(monitor.width.min(i32::MAX as u32) as i32),
+        bottom: monitor
+            .position
+            .y
+            .saturating_add(monitor.height.min(i32::MAX as u32) as i32),
+    }
+    .clamp_window_origin(origin.x, origin.y, width, height);
+    let right =
+        clamped.x + width / 2 >= monitor.position.x + monitor.width.min(i32::MAX as u32) as i32 / 2;
+    let bottom = clamped.y + height / 2
+        >= monitor.position.y + monitor.height.min(i32::MAX as u32) as i32 / 2;
+    linux_output_placement_for_position(
+        output,
+        PhysicalPoint::new(clamped.x, clamped.y),
+        width,
+        height,
+        match (right, bottom) {
+            (false, false) => LinuxWindowAnchor::TopLeft,
+            (true, false) => LinuxWindowAnchor::TopRight,
+            (false, true) => LinuxWindowAnchor::BottomLeft,
+            (true, true) => LinuxWindowAnchor::BottomRight,
+        },
+    )
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_output_placement_for_origin_with_anchor(
+    output: &LinuxOutputSnapshot,
+    origin: PhysicalPoint,
+    window_width: u32,
+    window_height: u32,
+    anchor: LinuxWindowAnchor,
+) -> LinuxOutputPlacement {
+    let width = window_width.min(i32::MAX as u32) as i32;
+    let height = window_height.min(i32::MAX as u32) as i32;
+    linux_output_placement_for_position(output, origin, width, height, anchor)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_output_placement_for_position(
+    output: &LinuxOutputSnapshot,
+    origin: PhysicalPoint,
+    width: i32,
+    height: i32,
+    anchor: LinuxWindowAnchor,
+) -> LinuxOutputPlacement {
+    let monitor = output.monitor;
+    let right = matches!(
+        anchor,
+        LinuxWindowAnchor::TopRight | LinuxWindowAnchor::BottomRight
+    );
+    let bottom = matches!(
+        anchor,
+        LinuxWindowAnchor::BottomLeft | LinuxWindowAnchor::BottomRight
+    );
+    LinuxOutputPlacement {
+        output_name: output.name.clone(),
+        output: monitor.persisted(),
+        anchor,
+        margin_x: if right {
+            monitor
+                .position
+                .x
+                .saturating_add(monitor.width.min(i32::MAX as u32) as i32)
+                .saturating_sub(origin.x.saturating_add(width))
+        } else {
+            origin.x.saturating_sub(monitor.position.x)
+        },
+        margin_y: if bottom {
+            monitor
+                .position
+                .y
+                .saturating_add(monitor.height.min(i32::MAX as u32) as i32)
+                .saturating_sub(origin.y.saturating_add(height))
+        } else {
+            origin.y.saturating_sub(monitor.position.y)
+        },
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_drag_delta(delta: LogicalPoint, scale_factor: f64) -> Option<PhysicalPoint> {
+    if !delta.x.is_finite()
+        || !delta.y.is_finite()
+        || !scale_factor.is_finite()
+        || scale_factor <= 0.0
+    {
+        return None;
+    }
+    let x = (delta.x * scale_factor).round();
+    let y = (delta.y * scale_factor).round();
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some(PhysicalPoint::new(
+        x.clamp(i32::MIN as f64, i32::MAX as f64) as i32,
+        y.clamp(i32::MIN as f64, i32::MAX as f64) as i32,
+    ))
 }
 
 impl MonitorSnapshot {
@@ -505,5 +755,219 @@ mod tests {
         );
 
         assert_eq!(origin, PhysicalPosition::new(944, 344));
+    }
+
+    #[cfg(target_os = "linux")]
+    fn output(name: &str, position: PhysicalPoint, primary: bool) -> LinuxOutputSnapshot {
+        LinuxOutputSnapshot {
+            name: Some(name.to_string()),
+            monitor: MonitorSnapshot {
+                position,
+                width: 1920,
+                height: 1080,
+                scale_factor: 1.0,
+            },
+            primary,
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_backend_selection_uses_layer_shell_when_supported() {
+        let decision =
+            choose_linux_window_backend(LinuxSessionBackend::Wayland, LinuxWindowMode::Auto, true);
+        assert_eq!(decision.backend, LinuxWindowBackend::WaylandLayerShell);
+        assert!(decision.fallback_reason.is_none());
+
+        let decision =
+            choose_linux_window_backend(LinuxSessionBackend::Wayland, LinuxWindowMode::Auto, false);
+        assert_eq!(decision.backend, LinuxWindowBackend::WaylandNormal);
+        assert_eq!(
+            decision.fallback_reason,
+            Some("gtk-layer-shell is unavailable; using a regular Wayland window")
+        );
+
+        let decision = choose_linux_window_backend(
+            LinuxSessionBackend::Wayland,
+            LinuxWindowMode::Overlay,
+            true,
+        );
+        assert_eq!(decision.backend, LinuxWindowBackend::WaylandLayerShell);
+        assert!(decision.fallback_reason.is_none());
+
+        let decision = choose_linux_window_backend(
+            LinuxSessionBackend::Wayland,
+            LinuxWindowMode::Overlay,
+            true,
+        );
+        assert_eq!(decision.backend, LinuxWindowBackend::WaylandLayerShell);
+        assert!(decision.fallback_reason.is_none());
+
+        let decision = choose_linux_window_backend(
+            LinuxSessionBackend::Wayland,
+            LinuxWindowMode::NormalWindow,
+            true,
+        );
+        assert_eq!(decision.backend, LinuxWindowBackend::WaylandNormal);
+        assert!(decision.fallback_reason.is_none());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_x11_and_unknown_backends_keep_a_safe_normal_window() {
+        let x11 =
+            choose_linux_window_backend(LinuxSessionBackend::X11, LinuxWindowMode::Auto, true);
+        assert_eq!(x11.backend, LinuxWindowBackend::X11);
+        assert!(x11.fallback_reason.is_none());
+
+        let unknown = choose_linux_window_backend(
+            LinuxSessionBackend::Unknown,
+            LinuxWindowMode::Overlay,
+            true,
+        );
+        assert_eq!(unknown.backend, LinuxWindowBackend::WaylandNormal);
+        assert!(unknown.fallback_reason.is_some());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_output_matching_prefers_name_then_geometry_then_primary() {
+        let mut outputs = vec![
+            output("DP-1", PhysicalPoint::new(0, 0), true),
+            output("HDMI-1", PhysicalPoint::new(1920, 0), false),
+        ];
+        outputs[1].monitor.width = 2560;
+        let by_name = LinuxOutputPlacement {
+            output_name: Some("HDMI-1".to_string()),
+            output: outputs[0].monitor.persisted(),
+            anchor: LinuxWindowAnchor::TopRight,
+            margin_x: 24,
+            margin_y: 24,
+        };
+        assert_eq!(
+            linux_output_index_for_placement(&by_name, &outputs),
+            Some(1)
+        );
+
+        let by_geometry = LinuxOutputPlacement {
+            output_name: Some("missing".to_string()),
+            output: outputs[1].monitor.persisted(),
+            anchor: LinuxWindowAnchor::TopRight,
+            margin_x: 24,
+            margin_y: 24,
+        };
+        assert_eq!(
+            linux_output_index_for_placement(&by_geometry, &outputs),
+            Some(1)
+        );
+
+        let fallback = LinuxOutputPlacement {
+            output_name: Some("missing".to_string()),
+            output: PersistedMonitor {
+                width: 1280,
+                height: 720,
+                scale_factor: 1.0,
+            },
+            anchor: LinuxWindowAnchor::TopRight,
+            margin_x: 24,
+            margin_y: 24,
+        };
+        assert_eq!(
+            linux_output_index_for_placement(&fallback, &outputs),
+            Some(0)
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_output_placement_round_trips_anchor_and_margins() {
+        let output = output("HDMI-1", PhysicalPoint::new(-1920, 20), false);
+        let origin = PhysicalPoint::new(-1920 + 1920 - 96 - 32, 20 + 1080 - 96 - 18);
+        let placement = linux_output_placement_for_origin(&output, origin, 96, 96);
+        assert_eq!(placement.anchor, LinuxWindowAnchor::BottomRight);
+        assert_eq!(placement.margin_x, 32);
+        assert_eq!(placement.margin_y, 18);
+        assert_eq!(
+            linux_output_origin_for_placement(&placement, &output, 96, 96),
+            origin
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn fixed_drag_anchor_stays_continuous_across_output_center() {
+        let output = output("HDMI-1", PhysicalPoint::new(0, 0), false);
+        let right_of_center = PhysicalPoint::new(912, 100);
+        let left_of_center = PhysicalPoint::new(911, 100);
+        let right_placement = linux_output_placement_for_origin_with_anchor(
+            &output,
+            right_of_center,
+            96,
+            96,
+            LinuxWindowAnchor::TopRight,
+        );
+        let left_placement = linux_output_placement_for_origin_with_anchor(
+            &output,
+            left_of_center,
+            96,
+            96,
+            LinuxWindowAnchor::TopRight,
+        );
+
+        assert_eq!(right_placement.anchor, LinuxWindowAnchor::TopRight);
+        assert_eq!(left_placement.anchor, LinuxWindowAnchor::TopRight);
+        assert_eq!(left_placement.margin_x, right_placement.margin_x + 1);
+        assert_eq!(
+            linux_output_origin_for_placement(&left_placement, &output, 96, 96),
+            left_of_center
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn fixed_drag_anchor_preserves_offscreen_origins() {
+        let output = output("HDMI-1", PhysicalPoint::new(0, 0), false);
+        let above_left = PhysicalPoint::new(-40, -30);
+        let above_left_placement = linux_output_placement_for_origin_with_anchor(
+            &output,
+            above_left,
+            96,
+            96,
+            LinuxWindowAnchor::TopRight,
+        );
+        assert_eq!(above_left_placement.margin_x, 1864);
+        assert_eq!(above_left_placement.margin_y, -30);
+        assert_eq!(
+            linux_output_origin_for_placement(&above_left_placement, &output, 96, 96),
+            above_left
+        );
+
+        let below_right = PhysicalPoint::new(1870, 1040);
+        let below_right_placement = linux_output_placement_for_origin_with_anchor(
+            &output,
+            below_right,
+            96,
+            96,
+            LinuxWindowAnchor::BottomLeft,
+        );
+        assert_eq!(below_right_placement.margin_x, 1870);
+        assert_eq!(below_right_placement.margin_y, -56);
+        assert_eq!(
+            linux_output_origin_for_placement(&below_right_placement, &output, 96, 96),
+            below_right
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_drag_delta_converts_local_logical_units_to_physical_pixels() {
+        assert_eq!(
+            linux_drag_delta(LogicalPoint::new(12.25, -4.5), 2.0),
+            Some(PhysicalPoint::new(25, -9))
+        );
+        assert_eq!(
+            linux_drag_delta(LogicalPoint::new(f64::NAN, 1.0), 1.0),
+            None
+        );
     }
 }

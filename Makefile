@@ -35,6 +35,9 @@ MIN_MACOS := 13.0
 MACOS_TARGET ?= $(shell rustc -vV 2>/dev/null | sed -n 's/^host: //p')
 WINDOWS_VM_ROOT ?= ../downshift-vm
 DIST_DIR ?= dist
+LINUX_DIST_DIR := $(DIST_DIR)/linux
+LINUX_RELEASE_ASSET := $(LINUX_DIST_DIR)/$(APP_NAME)-linux-x86_64-v$(VERSION).tar.gz
+LINUX_RELEASE_CHECKSUMS := $(LINUX_DIST_DIR)/SHA256SUMS.txt
 PAGES_SOURCE_DIR ?= docs
 PAGES_DIR ?= $(DIST_DIR)/pages
 PAGES_MANIFEST := $(PAGES_SOURCE_DIR)/release.json
@@ -72,8 +75,8 @@ SIGNED_ZIP_PATH := $(DIST_DIR)/$(APP_NAME)-signed$(RELEASE_SUFFIX).zip
 NOTARIZED_DMG_PATH := $(DIST_DIR)/$(APP_NAME)-notarized$(RELEASE_SUFFIX).dmg
 RUN_RESET := $(filter 1,$(RESET))
 
-TELEMETRY_GOALS := $(filter build build-macos build-debug package-app sign-app stage-dmg-contents app-macos zip dmg checksums release release-pre-notarize release-notarized,$(MAKECMDGOALS))
-NO_TELEMETRY_GOALS := $(filter build-no-telemetry build-macos-no-telemetry build-debug-no-telemetry package-app-no-telemetry sign-app-no-telemetry stage-dmg-contents-no-telemetry app-macos-no-telemetry zip-no-telemetry dmg-no-telemetry checksums-no-telemetry release-no-telemetry,$(MAKECMDGOALS))
+TELEMETRY_GOALS := $(filter build build-macos build-linux build-debug package-app sign-app stage-dmg-contents app-macos zip dmg checksums release release-pre-notarize release-notarized linux-package,$(MAKECMDGOALS))
+NO_TELEMETRY_GOALS := $(filter build-no-telemetry build-macos-no-telemetry build-linux-no-telemetry build-debug-no-telemetry package-app-no-telemetry sign-app-no-telemetry stage-dmg-contents-no-telemetry app-macos-no-telemetry zip-no-telemetry dmg-no-telemetry checksums-no-telemetry release-no-telemetry linux-package-no-telemetry,$(MAKECMDGOALS))
 ifneq ($(strip $(TAG)),)
 ifneq ($(TAG),v$(VERSION))
 $(error TAG must match the Cargo version exactly, for example TAG=v$(VERSION))
@@ -88,6 +91,8 @@ endif
 .PHONY: help \
 	build build-no-telemetry \
 	build-macos build-macos-no-telemetry \
+	build-linux build-linux-no-telemetry linux-package linux-package-no-telemetry \
+	smoke-linux \
 	verify-windows build-windows-installer smoke-windows \
 	build-debug build-debug-no-telemetry \
 	run run-no-telemetry \
@@ -105,7 +110,7 @@ endif
 	write-release-checksums \
 	checksums checksums-no-telemetry \
 	verify-notarized-dmg \
-	check-tag-sync require-macos-target require-telemetry-env \
+	check-tag-sync require-macos-target require-linux-host require-telemetry-env \
 	require-notarization-env require-safe-output-paths \
 	package-app package-app-no-telemetry \
 	release release-no-telemetry release-notarized clean
@@ -231,6 +236,25 @@ build: require-telemetry-env ## build the host-native release binary with teleme
 build-no-telemetry: ## build the host-native release binary without telemetry
 	cargo build --locked --release
 
+build-linux: require-linux-host require-telemetry-env ## build the Linux release binary with telemetry
+	cargo build --locked --release
+
+build-linux-no-telemetry: require-linux-host ## build the Linux release binary without telemetry
+	cargo build --locked --release
+
+smoke-linux: build-linux-no-telemetry ## run Linux X11 and Wayland GUI smoke tests
+	./dev/linux/smoke_gui.bash x11 "target/release/$(BIN_NAME)"
+	./dev/linux/smoke_gui.bash wayland "target/release/$(BIN_NAME)"
+	./dev/linux/smoke_gui.bash layer-shell "target/release/$(BIN_NAME)"
+	./dev/linux/smoke_gui.bash missing-layer-shell "target/release/$(BIN_NAME)"
+
+linux-package: build-linux | require-safe-output-paths
+linux-package-no-telemetry: build-linux-no-telemetry | require-safe-output-paths
+linux-package linux-package-no-telemetry: ## package the Linux x86_64 release tarball
+	./dev/linux/package.sh "$(VERSION)" "target/release/$(BIN_NAME)" "$(LINUX_DIST_DIR)"
+	test -s "$(LINUX_RELEASE_ASSET)"
+	test -s "$(LINUX_RELEASE_CHECKSUMS)"
+
 require-macos-target:
 	@case "$(MACOS_TARGET)" in \
 		*-apple-darwin) ;; \
@@ -242,6 +266,22 @@ require-macos-target:
 	case "$(MACOS_TARGET)" in \
 		*[!A-Za-z0-9_-]*) \
 			echo "error: MACOS_TARGET contains unsupported path characters" >&2; \
+			exit 1; \
+		;; \
+	esac
+
+require-linux-host:
+	@case "$$(uname -s)" in \
+		Linux) ;; \
+		*) \
+			echo "error: Linux builds must run on a Linux host" >&2; \
+			exit 1; \
+		;; \
+	esac; \
+	case "$$(uname -m)" in \
+		x86_64|amd64) ;; \
+		*) \
+			echo "error: Linux release artifacts currently require an x86_64 host" >&2; \
 			exit 1; \
 		;; \
 	esac

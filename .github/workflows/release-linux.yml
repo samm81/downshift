@@ -1,0 +1,167 @@
+name: release-linux-platform
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: release tag to build
+        required: true
+        type: string
+      ref:
+        description: git ref to check out
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: release
+    env:
+      DOWNSHIFT_ENV: ${{ vars.DOWNSHIFT_ENV }}
+      DOWNSHIFT_DOWNLOAD_RELEASE_URL: ${{ vars.DOWNSHIFT_DOWNLOAD_RELEASE_URL }}
+      DOWNSHIFT_GITHUB_ISSUES_URL: ${{ vars.DOWNSHIFT_GITHUB_ISSUES_URL }}
+      DOWNSHIFT_SUPPORT_EMAIL: ${{ vars.DOWNSHIFT_SUPPORT_EMAIL }}
+      DOWNSHIFT_TELEMETRY_ENABLED: ${{ vars.DOWNSHIFT_TELEMETRY_ENABLED }}
+      DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC: ${{ vars.DOWNSHIFT_TELEMETRY_HEARTBEAT_INTERVAL_SEC }}
+      DOWNSHIFT_BETTERSTACK_LOGS_TOKEN: ${{ secrets.DOWNSHIFT_BETTERSTACK_LOGS_TOKEN }}
+      DOWNSHIFT_BETTERSTACK_LOGS_HOST: ${{ secrets.DOWNSHIFT_BETTERSTACK_LOGS_HOST }}
+      DOWNSHIFT_BETTERSTACK_ERRORS_DSN: ${{ secrets.DOWNSHIFT_BETTERSTACK_ERRORS_DSN }}
+      DOWNSHIFT_BUILD_CHANNEL: ${{ vars.DOWNSHIFT_BUILD_CHANNEL }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: verify release tag and checkout
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "error: release tag must match v<major>.<minor>.<patch> with an optional prerelease suffix"
+            exit 1
+          fi
+          checked_out_tag="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
+          if [ "$checked_out_tag" != "$RELEASE_TAG" ]; then
+            echo "error: checked out '$checked_out_tag' instead of '$RELEASE_TAG'"
+            exit 1
+          fi
+          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [ "$cargo_version" != "${RELEASE_TAG#v}" ]; then
+            echo "error: release tag does not match Cargo version"
+            exit 1
+          fi
+
+      - name: install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: install Linux, web, and shell tooling
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install --no-install-recommends --yes
+          libgtk-3-dev
+          libwebkit2gtk-4.1-dev
+          libxdo-dev
+          libxkbcommon-x11-0
+          libssl-dev
+          pkg-config
+          python3
+          shellcheck
+          shfmt
+          xvfb
+          xdotool
+          x11-apps
+          xcompmgr
+          imagemagick
+          libmagickcore-6.q16-7-extra
+          weston
+          sway
+          grim
+          slurp
+          grimshot
+          jq
+          x11-utils
+          wl-clipboard
+          libnotify-bin
+          libgtk-layer-shell0
+
+      - name: install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: install web tooling
+        run: npm ci
+
+      - name: cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: verify repository
+        run: make verify-release
+
+      - name: build Linux release binary
+        run: cargo build --locked --release
+
+      - name: package and smoke-test Linux release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          {
+            version="${RELEASE_TAG#v}"
+            ./dev/linux/package.sh "$version" target/release/downshift dist/linux
+            artifact="dist/linux/Downshift-linux-x86_64-v$version.tar.gz"
+            (cd dist/linux && sha256sum --check SHA256SUMS.txt)
+            package_name="Downshift-linux-x86_64-v$version"
+            tar -tzf "$artifact" | grep -Fx "$package_name/downshift" >/dev/null
+            tar -tzf "$artifact" | grep -Fx "$package_name/install.sh" >/dev/null
+            tar -tzf "$artifact" | grep -Fx "$package_name/README-linux.md" >/dev/null
+            tar -tzf "$artifact" | grep -Fx "$package_name/icon.png" >/dev/null
+            tar -tzf "$artifact" | grep -Fx "$package_name/com.samm81.downshift.desktop" >/dev/null
+            tar -xOf "$artifact" "$package_name/com.samm81.downshift.desktop" | grep -Fx 'Type=Application' >/dev/null
+            tar -xOf "$artifact" "$package_name/com.samm81.downshift.desktop" | grep -Fx 'Exec=__DOWNSHIFT_INSTALL_DIR__/downshift' >/dev/null
+            tar -tvzf "$artifact" | grep -E '^-rwx.* /?Downshift-linux-x86_64-v[^/]+/downshift$' >/dev/null
+          } 2>&1 | tee logs/linux-release-smoke.log
+
+      - name: upload Linux release artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-linux-assets
+          path: dist/linux/Downshift-linux-x86_64-v*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload Linux release evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-linux-evidence
+          path: |
+            logs/linux-release-smoke.log
+            dist/linux/SHA256SUMS.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: run Linux GUI smoke matrix
+        run: make smoke-linux
+
+      - name: upload Linux GUI smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-linux-gui-smoke
+          path: logs/linux-gui-smoke-*/
+          if-no-files-found: warn
+          retention-days: 14

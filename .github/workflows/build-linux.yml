@@ -1,0 +1,129 @@
+name: build-linux
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: install Linux, web, and shell tooling
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install --no-install-recommends --yes
+          libgtk-3-dev
+          libwebkit2gtk-4.1-dev
+          libxdo-dev
+          libxkbcommon-x11-0
+          libssl-dev
+          pkg-config
+          python3
+          shellcheck
+          shfmt
+          xvfb
+          xdotool
+          x11-apps
+          xcompmgr
+          imagemagick
+          libmagickcore-6.q16-7-extra
+          weston
+          sway
+          grim
+          slurp
+          grimshot
+          jq
+          x11-utils
+          wl-clipboard
+          libnotify-bin
+          libgtk-layer-shell0
+
+      - name: install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: install web tooling
+        run: npm ci
+
+      - name: cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: check formatting and web tooling
+        run: |
+          cargo fmt --check
+          npm run check
+
+      - name: run Rust tests
+        run: cargo test --locked
+
+      - name: run Rust Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: build Linux package without telemetry
+        run: make linux-package-no-telemetry
+
+      - name: run Linux package install smoke
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          {
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+            artifact="dist/linux/Downshift-linux-x86_64-v$version.tar.gz"
+            test -s "$artifact"
+            (cd "$(dirname "$artifact")" && sha256sum --check SHA256SUMS.txt)
+            package_name="$(basename "$artifact" .tar.gz)"
+            tar -tzf "$artifact" | grep -Fx "$package_name/downshift" >/dev/null
+            tar -tzf "$artifact" | grep -Fx "$package_name/icon.png" >/dev/null
+            tar -tzf "$artifact" | grep -Fx "$package_name/com.samm81.downshift.desktop" >/dev/null
+            tar -xOf "$artifact" "$package_name/com.samm81.downshift.desktop" | grep -Fx 'Type=Application' >/dev/null
+            tar -xOf "$artifact" "$package_name/com.samm81.downshift.desktop" | grep -Fx 'Exec=__DOWNSHIFT_INSTALL_DIR__/downshift' >/dev/null
+            tar -tvzf "$artifact" | grep -E '^-rwx.* /?Downshift-linux-x86_64-v[^/]+/downshift$' >/dev/null
+            smoke_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/downshift-linux-smoke.XXXXXX")"
+            trap 'rm -rf -- "$smoke_root"' EXIT
+            tar -xzf "$artifact" -C "$smoke_root"
+            extracted="$smoke_root/$package_name"
+            test -x "$extracted/downshift"
+            test -x "$extracted/install.sh"
+            HOME="$smoke_root/home" XDG_DATA_HOME="$smoke_root/data" "$extracted/install.sh"
+            test -x "$smoke_root/data/downshift/downshift"
+            test -f "$smoke_root/data/applications/com.samm81.downshift.desktop"
+            HOME="$smoke_root/home" XDG_DATA_HOME="$smoke_root/data" "$extracted/install.sh" --uninstall
+            test ! -e "$smoke_root/data/downshift/downshift"
+            test ! -e "$smoke_root/data/applications/com.samm81.downshift.desktop"
+          } 2>&1 | tee logs/linux-package-smoke.log
+
+      - name: upload Linux package smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-package-smoke
+          path: |
+            logs/linux-package-smoke.log
+            dist/linux/Downshift-linux-x86_64-v*.tar.gz
+            dist/linux/SHA256SUMS.txt
+          if-no-files-found: warn
+
+      - name: run Linux GUI smoke matrix
+        run: make smoke-linux
+
+      - name: upload Linux GUI smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-gui-smoke
+          path: logs/linux-gui-smoke-*/
+          if-no-files-found: warn

@@ -1,6 +1,6 @@
 # contributing
 
-downshift is a native Rust desktop app with an embedded webview. the main app is in `src/`, the landing page is in `docs/`, and Windows packaging is in `windows/`.
+downshift is a native Rust desktop app with an embedded webview. the main app is in `src/`, the landing page is in `docs/`, and platform packaging is in `dev/linux/` and `windows/`.
 
 ## Local development
 
@@ -96,9 +96,31 @@ powershell -ExecutionPolicy Bypass -File .\windows\build-installer.ps1
 
 the installer uses a per-user install and installs the Microsoft Edge WebView2 Evergreen Runtime when it is missing. use `-SkipBuild` while iterating on an existing release binary. run `windows\smoke-installer.ps1` to exercise install, uninstall, shortcuts, and cleanup.
 
+### Linux
+
+Linux development and release builds require GTK3, WebKitGTK 4.1, `pkg-config`,
+and the X11 development libraries. The exact package names vary by
+distribution. Install the runtime and optional compositor notes from
+[README-linux.md](README-linux.md).
+
+Build and smoke-test the rootless x86_64 archive with:
+
+```bash
+make linux-package-no-telemetry
+```
+
+The command writes `dist/linux/Downshift-linux-x86_64-v<version>.tar.gz` and a
+matching `dist/linux/SHA256SUMS.txt`. The archive includes `install.sh`; it
+installs to the user data directory and supports `./install.sh --uninstall`.
+
+The regular GTK window is the Wayland compatibility baseline. Do not treat
+global coordinates, always-on-top, or all-workspace placement as portable
+Wayland guarantees. Validate X11, Wayland regular-window, and optional
+layer-shell behavior on a real compositor before changing those boundaries.
+
 ## UI checks
 
-the app widget uses a native context menu on macOS and Windows. GUI smoke scripts must leave logs and screenshots under `logs/` when they fail. the platform workflows upload this evidence with an unconditional artifact step.
+the app widget uses a native context menu on macOS, Windows, and Linux. GUI smoke scripts must leave logs and screenshots under `logs/` when they fail. the platform workflows upload this evidence with an unconditional artifact step.
 
 capture a short macOS demo clip from an interactive desktop session with:
 
@@ -130,4 +152,4 @@ when a tag is supplied, it must match the Cargo version exactly:
 make release TAG=v0.3.2
 ```
 
-the unified workflow in `.github/workflows/release.yml` builds macOS and Windows artifacts, runs the platform smoke gates, publishes the GitHub release, and deploys the stable release to GitHub Pages. release publishing must not bypass the macOS GUI smoke or Windows installer smoke checks.
+the unified workflow in `.github/workflows/release.yml` builds macOS, Windows, and Linux artifacts, runs the platform smoke gates, publishes the GitHub release, and deploys the stable release to GitHub Pages. release publishing must not bypass the macOS GUI smoke, Windows installer smoke, or Linux package smoke checks.

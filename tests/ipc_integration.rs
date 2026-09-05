@@ -24,24 +24,24 @@ fn ipc_json_deserializes_supported_commands() {
     ));
 
     let start_drag: IpcCommand =
-        serde_json::from_str(r#"{"cmd":"start_drag","screen_x":80,"screen_y":160}"#)
+        serde_json::from_str(r#"{"cmd":"start_drag","pointer_x":8.5,"pointer_y":16.25}"#)
             .expect("start_drag should parse");
     assert!(matches!(
         start_drag,
         IpcCommand::StartDrag {
-            screen_x: 80,
-            screen_y: 160
+            pointer_x: 8.5,
+            pointer_y: 16.25
         }
     ));
 
     let drag_to: IpcCommand =
-        serde_json::from_str(r#"{"cmd":"drag_to","screen_x":96,"screen_y":192}"#)
+        serde_json::from_str(r#"{"cmd":"drag_to","delta_x":16.5,"delta_y":32.25}"#)
             .expect("drag_to should parse");
     assert!(matches!(
         drag_to,
         IpcCommand::DragTo {
-            screen_x: 96,
-            screen_y: 192
+            delta_x: 16.5,
+            delta_y: 32.25
         }
     ));
 

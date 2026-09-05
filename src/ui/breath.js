@@ -888,34 +888,73 @@
   const drag = {
     active: false,
     pointerId: null,
+    lastClientX: 0,
+    lastClientY: 0,
+    totalDeltaX: 0,
+    totalDeltaY: 0,
+    frameId: null,
+    pendingDelta: null,
   };
 
-  ball.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) {
+  function flushDrag() {
+    drag.frameId = null;
+    if (!drag.active || !drag.pendingDelta) {
+      return;
+    }
+    const delta = drag.pendingDelta;
+    drag.pendingDelta = null;
+    post({
+      cmd: "drag_to",
+      delta_x: delta.x,
+      delta_y: delta.y,
+    });
+  }
+
+  function startDrag(event) {
+    if (event.button !== 0 || drag.active) {
       return;
     }
     drag.active = true;
     drag.pointerId = event.pointerId;
+    drag.lastClientX = event.clientX;
+    drag.lastClientY = event.clientY;
+    drag.totalDeltaX = 0;
+    drag.totalDeltaY = 0;
+    drag.pendingDelta = null;
     if (typeof ball.setPointerCapture === "function") {
       ball.setPointerCapture(event.pointerId);
     }
     post({
       cmd: "start_drag",
-      screen_x: Math.round(event.screenX),
-      screen_y: Math.round(event.screenY),
+      pointer_x: event.clientX,
+      pointer_y: event.clientY,
     });
-  });
+  }
 
-  ball.addEventListener("pointermove", (event) => {
+  function moveDrag(event) {
     if (!drag.active || event.pointerId !== drag.pointerId) {
       return;
     }
-    post({
-      cmd: "drag_to",
-      screen_x: Math.round(event.screenX),
-      screen_y: Math.round(event.screenY),
-    });
-  });
+    const clientDeltaX = event.clientX - drag.lastClientX;
+    const clientDeltaY = event.clientY - drag.lastClientY;
+    const deltaX = Number.isFinite(event.movementX)
+      ? event.movementX
+      : clientDeltaX;
+    const deltaY = Number.isFinite(event.movementY)
+      ? event.movementY
+      : clientDeltaY;
+    drag.lastClientX = event.clientX;
+    drag.lastClientY = event.clientY;
+    drag.totalDeltaX += deltaX;
+    drag.totalDeltaY += deltaY;
+    drag.pendingDelta = {
+      x: drag.totalDeltaX,
+      y: drag.totalDeltaY,
+    };
+    if (drag.frameId === null) {
+      drag.frameId = window.requestAnimationFrame(flushDrag);
+    }
+  }
 
   function endDrag(event) {
     if (!drag.active) {
@@ -931,11 +970,18 @@
     if (event && typeof ball.releasePointerCapture === "function") {
       ball.releasePointerCapture(event.pointerId);
     }
+    if (drag.frameId !== null) {
+      window.cancelAnimationFrame(drag.frameId);
+      drag.frameId = null;
+    }
+    flushDrag();
     drag.active = false;
     drag.pointerId = null;
     post({ cmd: "end_drag" });
   }
 
+  ball.addEventListener("pointerdown", startDrag);
+  ball.addEventListener("pointermove", moveDrag);
   ball.addEventListener("pointerup", endDrag);
   ball.addEventListener("pointercancel", endDrag);
 

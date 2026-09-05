@@ -1,0 +1,1058 @@
+use super::monitor::snapshot_monitor;
+use super::platform::LinuxDiagnostics;
+use crate::app_core::AppEvent;
+use crate::window_policy::{choose_linux_window_backend, LinuxSessionBackend, LinuxWindowBackend};
+use crate::window_policy::{
+    linux_drag_delta, linux_output_origin_for_placement,
+    linux_output_placement_for_origin_with_anchor, LinuxOutputSnapshot, LogicalPoint,
+    PhysicalPoint,
+};
+use downshift::{LinuxOutputPlacement, LinuxWindowAnchor, LinuxWindowMode, LINUX_APPLICATION_ID};
+use gtk::glib::translate::ToGlibPtr;
+use gtk::prelude::*;
+use std::cell::Cell;
+use std::ffi::c_void;
+use std::rc::Rc;
+use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, Position, Size};
+use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
+use winit::monitor::MonitorHandle;
+use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+use winit::window::{Window, WindowAttributes, WindowId};
+use wry::{Rect, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
+use x11rb::connection::Connection as _;
+use x11rb::protocol::xproto::ConnectionExt as _;
+use x11rb::wrapper::ConnectionExt as _;
+
+const DEFAULT_MARGIN: i32 = 24;
+
+fn default_layer_shell_placement() -> LinuxOutputPlacement {
+    LinuxOutputPlacement {
+        output_name: None,
+        output: downshift::PersistedMonitor {
+            width: 1,
+            height: 1,
+            scale_factor: 1.0,
+        },
+        anchor: downshift::LinuxWindowAnchor::TopRight,
+        margin_x: DEFAULT_MARGIN,
+        margin_y: DEFAULT_MARGIN,
+    }
+}
+
+fn layer_shell_anchor_edges(anchor: LinuxWindowAnchor) -> [bool; 4] {
+    match anchor {
+        LinuxWindowAnchor::TopLeft => [true, false, true, false],
+        LinuxWindowAnchor::TopRight => [false, true, true, false],
+        LinuxWindowAnchor::BottomLeft => [true, false, false, true],
+        LinuxWindowAnchor::BottomRight => [false, true, false, true],
+    }
+}
+
+fn layer_shell_margins(placement: &LinuxOutputPlacement) -> [i32; 4] {
+    let edges = layer_shell_anchor_edges(placement.anchor);
+    let mut margins = [0; 4];
+    margins[if edges[1] { 1 } else { 0 }] = placement.margin_x;
+    margins[if edges[2] { 2 } else { 3 }] = placement.margin_y;
+    margins
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowKind {
+    Main,
+    Child,
+}
+
+#[derive(Clone, Copy)]
+struct NativePointerPress {
+    root_x: i32,
+    root_y: i32,
+    timestamp: u32,
+}
+
+pub(crate) struct HostWindow {
+    winit_window: Window,
+    gtk_window: gtk::Window,
+    container: gtk::Fixed,
+    logical_size: Rc<Cell<LogicalSize<f64>>>,
+    physical_position: Rc<Cell<Option<PhysicalPosition<i32>>>>,
+    native_pointer_press: Rc<Cell<Option<NativePointerPress>>>,
+    scale_factor: Rc<Cell<f64>>,
+    kind: WindowKind,
+    backend: LinuxWindowBackend,
+    available_monitors: Vec<winit::monitor::MonitorHandle>,
+    diagnostics: LinuxDiagnostics,
+    layer_shell: Option<LayerShellApi>,
+    layer_shell_placement: Option<LinuxOutputPlacement>,
+    layer_shell_drag_origin: Option<PhysicalPosition<i32>>,
+    layer_shell_drag_anchor: Option<LinuxWindowAnchor>,
+}
+
+impl HostWindow {
+    pub(crate) fn create_main(
+        event_loop: &ActiveEventLoop,
+        attributes: WindowAttributes,
+        initial_position: Option<PhysicalPosition<i32>>,
+        initial_size: LogicalSize<f64>,
+        requested_mode: LinuxWindowMode,
+        placement: Option<&LinuxOutputPlacement>,
+        event_loop_proxy: &EventLoopProxy<AppEvent>,
+    ) -> Result<Self, String> {
+        Self::create(
+            event_loop,
+            attributes,
+            initial_position,
+            initial_size,
+            requested_mode,
+            placement,
+            WindowKind::Main,
+            "downshift",
+            event_loop_proxy,
+        )
+    }
+
+    pub(crate) fn create_child(
+        event_loop: &ActiveEventLoop,
+        title: &str,
+        size: LogicalSize<f64>,
+        event_loop_proxy: &EventLoopProxy<AppEvent>,
+    ) -> Result<Self, String> {
+        let attributes = Window::default_attributes()
+            .with_title(title)
+            .with_visible(false)
+            .with_resizable(false)
+            .with_inner_size(size)
+            .with_min_inner_size(size)
+            .with_max_inner_size(size);
+        Self::create(
+            event_loop,
+            attributes,
+            None,
+            size,
+            LinuxWindowMode::NormalWindow,
+            None,
+            WindowKind::Child,
+            title,
+            event_loop_proxy,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create(
+        event_loop: &ActiveEventLoop,
+        attributes: WindowAttributes,
+        initial_position: Option<PhysicalPosition<i32>>,
+        initial_size: LogicalSize<f64>,
+        requested_mode: LinuxWindowMode,
+        placement: Option<&LinuxOutputPlacement>,
+        kind: WindowKind,
+        title: &str,
+        event_loop_proxy: &EventLoopProxy<AppEvent>,
+    ) -> Result<Self, String> {
+        init_gtk()?;
+        let proxy_attributes = attributes.with_visible(false);
+        let winit_window = event_loop
+            .create_window(proxy_attributes)
+            .map_err(|error| error.to_string())?;
+        let available_monitors = event_loop.available_monitors().collect::<Vec<_>>();
+        let session = session_backend(&winit_window);
+        let layer_shell_api = (session == LinuxSessionBackend::Wayland
+            && requested_mode != LinuxWindowMode::NormalWindow)
+            .then(LayerShellApi::load)
+            .flatten();
+        let overlay_supported = layer_shell_api
+            .as_ref()
+            .is_some_and(|layer_shell| layer_shell.is_supported());
+        let decision = choose_linux_window_backend(session, requested_mode, overlay_supported);
+        let mut backend = if kind == WindowKind::Child && session == LinuxSessionBackend::X11 {
+            LinuxWindowBackend::X11
+        } else if kind == WindowKind::Child {
+            LinuxWindowBackend::WaylandNormal
+        } else {
+            decision.backend
+        };
+        let mut fallback_reason = if kind == WindowKind::Child {
+            None
+        } else {
+            decision.fallback_reason.map(str::to_string)
+        };
+        let mut layer_shell_placement =
+            (backend == LinuxWindowBackend::WaylandLayerShell).then(|| {
+                placement
+                    .cloned()
+                    .unwrap_or_else(default_layer_shell_placement)
+            });
+
+        let gtk_window = gtk::Window::new(gtk::WindowType::Toplevel);
+        gtk_window.set_title(title);
+        gtk_window.set_resizable(false);
+        if kind == WindowKind::Main {
+            gtk_window.set_decorated(false);
+            gtk_window.set_app_paintable(true);
+            gtk_window.set_keep_above(backend == LinuxWindowBackend::X11);
+            gtk_window.set_skip_taskbar_hint(true);
+            gtk_window.set_skip_pager_hint(true);
+            gtk_window.set_type_hint(gtk::gdk::WindowTypeHint::Utility);
+            if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&gtk_window) {
+                if let Some(visual) = screen.rgba_visual() {
+                    gtk_window.set_visual(Some(&visual));
+                }
+            }
+        }
+        let container = gtk::Fixed::new();
+        let logical_size = Rc::new(Cell::new(initial_size));
+        let scale_factor = Rc::new(Cell::new(1.0));
+        let requested_size_is_authoritative = Rc::new(Cell::new(false));
+        let physical_position = Rc::new(Cell::new(
+            if matches!(
+                backend,
+                LinuxWindowBackend::WaylandNormal | LinuxWindowBackend::WaylandLayerShell
+            ) {
+                None
+            } else {
+                initial_position
+            },
+        ));
+        let native_pointer_press = Rc::new(Cell::new(None));
+        container.set_size_request(
+            logical_size.get().width.round().max(1.0) as i32,
+            logical_size.get().height.round().max(1.0) as i32,
+        );
+        gtk_window.set_default_size(
+            logical_size.get().width.round().max(1.0) as i32,
+            logical_size.get().height.round().max(1.0) as i32,
+        );
+        gtk_window.add(&container);
+
+        let window_id = winit_window.id();
+        let close_proxy = event_loop_proxy.clone();
+        gtk_window.connect_delete_event(move |_, _| {
+            let _ = close_proxy.send_event(AppEvent::HostWindowClosed(window_id));
+            gtk::glib::Propagation::Proceed
+        });
+        let resize_proxy = event_loop_proxy.clone();
+        let resize_size = logical_size.clone();
+        let resize_scale = scale_factor.clone();
+        let resize_uses_requested_size = requested_size_is_authoritative.clone();
+        gtk_window.connect_size_allocate(move |window, allocation| {
+            // Layer-shell allocations can briefly reflect the child size while
+            // the compositor's configured surface size remains unchanged.
+            if !resize_uses_requested_size.get() {
+                resize_size.set(LogicalSize::new(
+                    f64::from(allocation.width()),
+                    f64::from(allocation.height()),
+                ));
+            }
+            let _ = resize_proxy.send_event(AppEvent::HostWindowResized(window_id));
+            resize_scale.set(f64::from(window.scale_factor()).max(1.0));
+        });
+        if kind == WindowKind::Main {
+            let move_proxy = event_loop_proxy.clone();
+            gtk_window.connect_configure_event(move |_, _| {
+                let _ = move_proxy.send_event(AppEvent::HostWindowMoved(window_id));
+                false
+            });
+        }
+
+        let layer_shell = if backend == LinuxWindowBackend::WaylandLayerShell {
+            match layer_shell_api {
+                Some(layer_shell) => {
+                    match layer_shell.configure(
+                        &gtk_window,
+                        layer_shell_placement.as_ref(),
+                        &available_monitors,
+                    ) {
+                        Ok(()) => Some(layer_shell),
+                        Err(error) => {
+                            backend = LinuxWindowBackend::WaylandNormal;
+                            layer_shell_placement = None;
+                            fallback_reason = Some(format!(
+                            "layer-shell configuration failed ({error}); using a regular Wayland window"
+                        ));
+                            None
+                        }
+                    }
+                }
+                None => {
+                    backend = LinuxWindowBackend::WaylandNormal;
+                    layer_shell_placement = None;
+                    fallback_reason = Some(
+                        "layer-shell was selected but its library is unavailable; using a regular Wayland window"
+                            .to_string(),
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        requested_size_is_authoritative.set(backend == LinuxWindowBackend::WaylandLayerShell);
+        gtk_window.show_all();
+        scale_factor.set(f64::from(gtk_window.scale_factor()).max(1.0));
+        if backend == LinuxWindowBackend::X11 && kind == WindowKind::Main {
+            if let Some(position) = initial_position {
+                gtk_window.move_(position.x, position.y);
+            }
+            apply_x11_window_properties(&gtk_window);
+        }
+        let diagnostics = LinuxDiagnostics {
+            session_backend: session_backend_label(session).to_string(),
+            window_backend: linux_backend_label(backend).to_string(),
+            requested_mode: linux_mode_label(requested_mode).to_string(),
+            overlay_supported,
+            fallback_reason,
+        };
+        Ok(Self {
+            winit_window,
+            gtk_window,
+            container,
+            logical_size,
+            physical_position,
+            native_pointer_press,
+            scale_factor,
+            kind,
+            backend,
+            available_monitors,
+            diagnostics,
+            layer_shell,
+            layer_shell_placement,
+            layer_shell_drag_origin: None,
+            layer_shell_drag_anchor: None,
+        })
+    }
+
+    pub(crate) fn id(&self) -> WindowId {
+        self.winit_window.id()
+    }
+
+    pub(crate) fn inner_size(&self) -> PhysicalSize<u32> {
+        self.logical_size
+            .get()
+            .to_physical(self.scale_factor.get().max(0.01))
+    }
+
+    pub(crate) fn scale_factor(&self) -> f64 {
+        self.scale_factor.get()
+    }
+
+    pub(crate) fn outer_position(&self) -> Result<PhysicalPosition<i32>, String> {
+        if self.backend == LinuxWindowBackend::X11 {
+            if let Some(gdk_window) = self.gtk_window.window() {
+                let (result, x, y) = gdk_window.origin();
+                if result != 0 {
+                    self.physical_position
+                        .set(Some(PhysicalPosition::new(x, y)));
+                }
+            }
+        }
+        self.physical_position
+            .get()
+            .ok_or_else(|| "Wayland does not expose a global window position".to_string())
+    }
+
+    pub(crate) fn current_monitor(&self) -> Option<winit::monitor::MonitorHandle> {
+        if let Some(gdk_monitor) = self.current_gdk_monitor() {
+            let geometry = gdk_monitor.geometry();
+            let model = gdk_monitor.model().map(|model| model.to_string());
+            if let Some(monitor) = self.available_monitors.iter().find(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                (position.x == geometry.x()
+                    && position.y == geometry.y()
+                    && size.width == geometry.width().max(0) as u32
+                    && size.height == geometry.height().max(0) as u32)
+                    || model
+                        .as_deref()
+                        .is_some_and(|model| monitor.name().as_deref() == Some(model))
+            }) {
+                return Some(monitor.clone());
+            }
+        }
+        self.winit_window.current_monitor()
+    }
+
+    fn current_gdk_monitor(&self) -> Option<gtk::gdk::Monitor> {
+        let gdk_window = self.gtk_window.window()?;
+        self.gtk_window.display().monitor_at_window(&gdk_window)
+    }
+
+    fn current_layer_shell_origin(&self) -> Option<PhysicalPosition<i32>> {
+        let placement = self.layer_shell_placement.as_ref()?;
+        let monitor = self
+            .current_monitor()
+            .or_else(|| self.available_monitors.first().cloned())?;
+        let output = LinuxOutputSnapshot {
+            name: monitor.name(),
+            monitor: snapshot_monitor(&monitor),
+            primary: false,
+        };
+        let origin = linux_output_origin_for_placement(
+            placement,
+            &output,
+            self.inner_size().width,
+            self.inner_size().height,
+        );
+        Some(PhysicalPosition::new(origin.x, origin.y))
+    }
+
+    pub(crate) fn set_resizable(&self, resizable: bool) {
+        self.gtk_window.set_resizable(resizable);
+    }
+
+    pub(crate) fn set_min_inner_size<S>(&self, size: Option<S>)
+    where
+        S: Into<Size>,
+    {
+        if let Some(size) = size.map(Into::into).and_then(logical_size_from_size) {
+            self.gtk_window.set_size_request(
+                size.width.round().max(1.0) as i32,
+                size.height.round().max(1.0) as i32,
+            );
+        }
+    }
+
+    pub(crate) fn set_max_inner_size<S>(&self, _size: Option<S>)
+    where
+        S: Into<Size>,
+    {
+    }
+
+    pub(crate) fn request_inner_size<S>(&self, size: S) -> Option<PhysicalSize<u32>>
+    where
+        S: Into<Size>,
+    {
+        let size = logical_size_from_size(size.into())?;
+        self.logical_size.set(size);
+        self.container.set_size_request(
+            size.width.round().max(1.0) as i32,
+            size.height.round().max(1.0) as i32,
+        );
+        // Wry updates the fixed child's allocation directly but retains its
+        // original minimum request, which can prevent layer-shell resizing.
+        for child in self.container.children() {
+            child.set_size_request(
+                size.width.round().max(1.0) as i32,
+                size.height.round().max(1.0) as i32,
+            );
+        }
+        if self.backend == LinuxWindowBackend::WaylandLayerShell {
+            // gtk-layer-shell applies the new request after a 1x1 resize.
+            self.gtk_window.resize(1, 1);
+        } else {
+            self.gtk_window.resize(
+                size.width.round().max(1.0) as i32,
+                size.height.round().max(1.0) as i32,
+            );
+        }
+        Some(self.inner_size())
+    }
+
+    pub(crate) fn set_outer_position<P>(&self, position: P)
+    where
+        P: Into<Position>,
+    {
+        let position = match position.into() {
+            Position::Physical(position) => position,
+            Position::Logical(position) => position.to_physical(self.scale_factor()),
+        };
+        if matches!(
+            self.backend,
+            LinuxWindowBackend::WaylandNormal | LinuxWindowBackend::WaylandLayerShell
+        ) {
+            return;
+        }
+        self.physical_position.set(Some(position));
+        self.gtk_window.move_(position.x, position.y);
+    }
+
+    pub(crate) fn set_visible(&self, visible: bool) {
+        if visible {
+            self.gtk_window.show_all();
+        } else {
+            self.gtk_window.hide();
+        }
+    }
+
+    pub(crate) fn close(&self) {
+        // The host owns this GTK window and closes it on the GTK main thread.
+        unsafe {
+            self.gtk_window.destroy();
+        }
+    }
+
+    pub(crate) fn focus_window(&self) {
+        self.gtk_window.present();
+        self.gtk_window.grab_focus();
+    }
+
+    pub(crate) fn begin_native_drag(&self) -> bool {
+        if self.backend != LinuxWindowBackend::WaylandNormal {
+            return false;
+        }
+        let Some(press) = self.native_pointer_press.take() else {
+            return false;
+        };
+        self.gtk_window
+            .begin_move_drag(1, press.root_x, press.root_y, press.timestamp);
+        true
+    }
+
+    pub(crate) fn begin_layer_shell_drag(&mut self) -> bool {
+        if self.backend != LinuxWindowBackend::WaylandLayerShell {
+            return false;
+        }
+        self.layer_shell_drag_origin = self.current_layer_shell_origin();
+        self.layer_shell_drag_anchor = self
+            .layer_shell_placement
+            .as_ref()
+            .map(|placement| placement.anchor);
+        self.layer_shell_drag_origin.is_some()
+    }
+
+    pub(crate) fn drag_layer_shell_by(&mut self, delta_x: f64, delta_y: f64) -> bool {
+        if self.backend != LinuxWindowBackend::WaylandLayerShell {
+            return false;
+        }
+        let Some(origin) = self.layer_shell_drag_origin else {
+            return false;
+        };
+        let Some(delta) =
+            linux_drag_delta(LogicalPoint::new(delta_x, delta_y), self.scale_factor())
+        else {
+            return false;
+        };
+        let desired_origin = PhysicalPosition::new(
+            origin.x.saturating_add(delta.x),
+            origin.y.saturating_add(delta.y),
+        );
+        let window_size = self.inner_size();
+        let current_monitor = self.current_monitor();
+        let current_index = current_monitor.as_ref().and_then(|current| {
+            let position = current.position();
+            let size = current.size();
+            self.available_monitors
+                .iter()
+                .position(|monitor| monitor.position() == position && monitor.size() == size)
+        });
+        let center_x = i64::from(desired_origin.x) + i64::from(window_size.width) / 2;
+        let center_y = i64::from(desired_origin.y) + i64::from(window_size.height) / 2;
+        let target_index = self
+            .available_monitors
+            .iter()
+            .enumerate()
+            .find(|(_, monitor)| {
+                let position = monitor.position();
+                let size = monitor.size();
+                let right = i64::from(position.x) + i64::from(size.width);
+                let bottom = i64::from(position.y) + i64::from(size.height);
+                center_x >= i64::from(position.x)
+                    && center_x < right
+                    && center_y >= i64::from(position.y)
+                    && center_y < bottom
+            })
+            .map(|(index, _)| index)
+            .or(current_index)
+            .unwrap_or(0);
+        let Some(monitor) = self.available_monitors.get(target_index) else {
+            return false;
+        };
+        let output = LinuxOutputSnapshot {
+            name: monitor.name(),
+            monitor: snapshot_monitor(monitor),
+            primary: false,
+        };
+        let placement = linux_output_placement_for_origin_with_anchor(
+            &output,
+            PhysicalPoint::new(desired_origin.x, desired_origin.y),
+            window_size.width,
+            window_size.height,
+            self.layer_shell_drag_anchor.unwrap_or_default(),
+        );
+        let placement_changed = self.layer_shell_placement.as_ref() != Some(&placement);
+        if placement_changed {
+            let output_changed = self.layer_shell_placement.as_ref().is_none_or(|current| {
+                current.output_name != placement.output_name || current.output != placement.output
+            });
+            let Some(layer_shell) = self.layer_shell.as_ref() else {
+                return false;
+            };
+            layer_shell.apply_placement(
+                &self.gtk_window,
+                &placement,
+                &self.available_monitors,
+                output_changed,
+                self.layer_shell_placement.as_ref(),
+            );
+            self.layer_shell_placement = Some(placement);
+        }
+        true
+    }
+
+    pub(crate) fn end_layer_shell_drag(&mut self) {
+        self.layer_shell_drag_origin = None;
+        self.layer_shell_drag_anchor = None;
+    }
+
+    pub(crate) fn layer_shell_placement(&self) -> Option<LinuxOutputPlacement> {
+        self.layer_shell_placement.clone()
+    }
+
+    pub(crate) fn set_cursor_hittest(&self, enabled: bool) -> Result<(), String> {
+        if self.backend != LinuxWindowBackend::X11 {
+            return Err(
+                "cursor hit testing is unavailable on this Linux window backend".to_string(),
+            );
+        }
+        let Some(gdk_window) = self.gtk_window.window() else {
+            return Err("cursor hit testing requires a realized X11 window".to_string());
+        };
+        if !gdk_window.display().supports_input_shapes() {
+            return Err("the X11 server does not support input shapes".to_string());
+        }
+
+        let region = if enabled {
+            let size = self.inner_size();
+            let rectangle = gtk::cairo::RectangleInt::new(
+                0,
+                0,
+                size.width.min(i32::MAX as u32) as i32,
+                size.height.min(i32::MAX as u32) as i32,
+            );
+            gtk::cairo::Region::create_rectangle(&rectangle)
+        } else {
+            gtk::cairo::Region::create()
+        };
+        gdk_window.input_shape_combine_region(&region, 0, 0);
+        Ok(())
+    }
+
+    pub(crate) fn gtk_window(&self) -> &gtk::Window {
+        &self.gtk_window
+    }
+
+    pub(crate) fn gtk_container(&self) -> &gtk::Fixed {
+        &self.container
+    }
+
+    pub(crate) fn diagnostics(&self) -> LinuxDiagnostics {
+        self.diagnostics.clone()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn winit_window(&self) -> &Window {
+        &self.winit_window
+    }
+
+    pub(crate) fn has_layer_shell(&self) -> bool {
+        self.layer_shell.is_some()
+    }
+}
+
+pub(crate) fn configure_created_window(window: &HostWindow) {
+    if window.kind == WindowKind::Main && window.backend == LinuxWindowBackend::X11 {
+        apply_x11_window_properties(window.gtk_window());
+    }
+}
+
+fn init_gtk() -> Result<(), String> {
+    gtk::glib::set_prgname(Some(LINUX_APPLICATION_ID));
+    if gtk::is_initialized() {
+        return Ok(());
+    }
+    gtk::init().map_err(|error| format!("failed to initialize GTK: {error}"))
+}
+
+fn logical_size_from_size(size: Size) -> Option<LogicalSize<f64>> {
+    match size {
+        Size::Logical(size) => Some(size),
+        Size::Physical(size) => Some(size.to_logical(1.0)),
+    }
+}
+
+fn session_backend(window: &Window) -> LinuxSessionBackend {
+    let Ok(display) = window.display_handle() else {
+        return LinuxSessionBackend::Unknown;
+    };
+    match display.as_raw() {
+        RawDisplayHandle::Xlib(_) => LinuxSessionBackend::X11,
+        RawDisplayHandle::Wayland(_) => LinuxSessionBackend::Wayland,
+        _ => LinuxSessionBackend::Unknown,
+    }
+}
+
+fn session_backend_label(backend: LinuxSessionBackend) -> &'static str {
+    match backend {
+        LinuxSessionBackend::X11 => "x11",
+        LinuxSessionBackend::Wayland => "wayland",
+        LinuxSessionBackend::Unknown => "unknown",
+    }
+}
+
+fn linux_backend_label(backend: LinuxWindowBackend) -> &'static str {
+    match backend {
+        LinuxWindowBackend::X11 => "x11_ewmh",
+        LinuxWindowBackend::WaylandNormal => "wayland_normal",
+        LinuxWindowBackend::WaylandLayerShell => "wayland_layer_shell",
+    }
+}
+
+fn linux_mode_label(mode: LinuxWindowMode) -> &'static str {
+    match mode {
+        LinuxWindowMode::Auto => "auto",
+        LinuxWindowMode::NormalWindow => "normal_window",
+        LinuxWindowMode::Overlay => "overlay",
+    }
+}
+
+pub(crate) fn build_webview(
+    window: &HostWindow,
+    html: &str,
+    init_script: Option<&str>,
+    transparent: bool,
+    event_loop_proxy: &EventLoopProxy<AppEvent>,
+) -> Result<WebView, String> {
+    let ipc_proxy = event_loop_proxy.clone();
+    let mut builder = WebViewBuilder::new().with_html(html).with_ipc_handler(
+        move |request: wry::http::Request<String>| {
+            let _ = ipc_proxy.send_event(AppEvent::Ipc(request.into_body()));
+        },
+    );
+    if transparent {
+        builder = builder.with_transparent(true);
+    }
+    if let Some(init_script) = init_script {
+        builder = builder.with_initialization_script(init_script);
+    }
+    let size = window.logical_size.get();
+    builder = builder.with_bounds(Rect {
+        position: LogicalPosition::new(0, 0).into(),
+        size: LogicalSize::new(size.width, size.height).into(),
+    });
+    let webview = builder
+        .build_gtk(window.gtk_container())
+        .map_err(|error| error.to_string())?;
+    let native_pointer_press = window.native_pointer_press.clone();
+    let gtk_webview = webview.webview();
+    gtk_webview.add_events(gtk::gdk::EventMask::BUTTON_PRESS_MASK);
+    gtk_webview.connect_button_press_event(move |_, event| {
+        if event.button() == 1 {
+            let (root_x, root_y) = event.root();
+            native_pointer_press.set(Some(NativePointerPress {
+                root_x: root_x.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32,
+                root_y: root_y.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32,
+                timestamp: event.time(),
+            }));
+        }
+        gtk::glib::Propagation::Proceed
+    });
+    Ok(webview)
+}
+
+pub(crate) fn diagnostics(window: Option<&HostWindow>) -> LinuxDiagnostics {
+    window
+        .map(HostWindow::diagnostics)
+        .unwrap_or_else(|| LinuxDiagnostics {
+            session_backend: "not_started".to_string(),
+            window_backend: "not_started".to_string(),
+            requested_mode: "auto".to_string(),
+            overlay_supported: false,
+            fallback_reason: None,
+        })
+}
+
+fn apply_x11_window_properties(window: &gtk::Window) {
+    let Some(gdk_window) = window.window() else {
+        return;
+    };
+    let Ok(x11_window) = gdk_window.downcast::<gdkx11::X11Window>() else {
+        return;
+    };
+    let xid = x11_window.xid() as u32;
+    let Ok((connection, _)) = x11rb::connect(None) else {
+        return;
+    };
+    let Ok(window_type) = intern_atom(&connection, b"_NET_WM_WINDOW_TYPE") else {
+        return;
+    };
+    let Ok(utility) = intern_atom(&connection, b"_NET_WM_WINDOW_TYPE_UTILITY") else {
+        return;
+    };
+    let Ok(state) = intern_atom(&connection, b"_NET_WM_STATE") else {
+        return;
+    };
+    let Ok(above) = intern_atom(&connection, b"_NET_WM_STATE_ABOVE") else {
+        return;
+    };
+    let Ok(sticky) = intern_atom(&connection, b"_NET_WM_STATE_STICKY") else {
+        return;
+    };
+    let Ok(skip_taskbar) = intern_atom(&connection, b"_NET_WM_STATE_SKIP_TASKBAR") else {
+        return;
+    };
+    let Ok(skip_pager) = intern_atom(&connection, b"_NET_WM_STATE_SKIP_PAGER") else {
+        return;
+    };
+    let Ok(desktop) = intern_atom(&connection, b"_NET_WM_DESKTOP") else {
+        return;
+    };
+    let atom_type: u32 = x11rb::protocol::xproto::AtomEnum::ATOM.into();
+    let cardinal_type: u32 = x11rb::protocol::xproto::AtomEnum::CARDINAL.into();
+    let _ = connection.change_property32(
+        x11rb::protocol::xproto::PropMode::REPLACE,
+        xid,
+        window_type,
+        atom_type,
+        &[utility],
+    );
+    let _ = connection.change_property32(
+        x11rb::protocol::xproto::PropMode::REPLACE,
+        xid,
+        state,
+        atom_type,
+        &[above, sticky, skip_taskbar, skip_pager],
+    );
+    let _ = connection.change_property32(
+        x11rb::protocol::xproto::PropMode::REPLACE,
+        xid,
+        desktop,
+        cardinal_type,
+        &[u32::MAX],
+    );
+    let _ = connection.flush();
+}
+
+fn intern_atom<C>(connection: &C, name: &[u8]) -> Result<u32, String>
+where
+    C: x11rb::connection::Connection,
+{
+    connection
+        .intern_atom(false, name)
+        .map_err(|error| error.to_string())?
+        .reply()
+        .map(|reply| reply.atom)
+        .map_err(|error| error.to_string())
+}
+
+fn gdk_monitor_for_placement(
+    window: &gtk::Window,
+    placement: &LinuxOutputPlacement,
+    available_monitors: &[winit::monitor::MonitorHandle],
+) -> Option<gtk::gdk::Monitor> {
+    let display = window.display();
+    let monitors = (0..display.n_monitors())
+        .filter_map(|index| display.monitor(index))
+        .collect::<Vec<_>>();
+    if let Some(name) = placement.output_name.as_deref() {
+        if let Some(winit_monitor) = available_monitors
+            .iter()
+            .find(|monitor| monitor.name().as_deref() == Some(name))
+        {
+            let position = winit_monitor.position();
+            let size = winit_monitor.size();
+            if let Some(monitor) = monitors.iter().find(|monitor| {
+                let geometry = monitor.geometry();
+                geometry.x() == position.x
+                    && geometry.y() == position.y
+                    && geometry.width().max(0) as u32 == size.width
+                    && geometry.height().max(0) as u32 == size.height
+            }) {
+                return Some(monitor.clone());
+            }
+        }
+        if let Some(monitor) = monitors
+            .iter()
+            .find(|monitor| monitor.model().is_some_and(|model| model.as_str() == name))
+        {
+            return Some(monitor.clone());
+        }
+    }
+    monitors
+        .iter()
+        .find(|monitor| {
+            let geometry = monitor.geometry();
+            geometry.width().max(0) as u32 == placement.output.width
+                && geometry.height().max(0) as u32 == placement.output.height
+                && (f64::from(monitor.scale_factor()) - placement.output.scale_factor).abs() < 0.01
+        })
+        .cloned()
+        .or_else(|| display.primary_monitor())
+}
+
+fn gdk_monitor_ptr(monitor: Option<&gtk::gdk::Monitor>) -> *mut c_void {
+    monitor
+        .map(|monitor| {
+            <gtk::gdk::Monitor as ToGlibPtr<*mut gtk::gdk::ffi::GdkMonitor>>::to_glib_none(monitor)
+                .0
+                .cast()
+        })
+        .unwrap_or(std::ptr::null_mut())
+}
+
+struct LayerShellApi {
+    // Keep gtk-layer-shell loaded after capability probing. It registers
+    // GDK/Wayland state that must outlive a fallback window.
+    _handle: *mut c_void,
+    is_supported_fn: unsafe extern "C" fn() -> i32,
+    init_for_window_fn: unsafe extern "C" fn(*mut c_void),
+    set_monitor_fn: unsafe extern "C" fn(*mut c_void, *mut c_void),
+    set_layer_fn: unsafe extern "C" fn(*mut c_void, i32),
+    set_anchor_fn: unsafe extern "C" fn(*mut c_void, i32, i32),
+    set_exclusive_zone_fn: unsafe extern "C" fn(*mut c_void, i32),
+    set_keyboard_interactivity_fn: unsafe extern "C" fn(*mut c_void, i32),
+    set_margin_fn: unsafe extern "C" fn(*mut c_void, i32, i32),
+}
+
+impl LayerShellApi {
+    fn load() -> Option<Self> {
+        if std::env::var("DOWNSHIFT_LINUX_DISABLE_LAYER_SHELL").as_deref() == Ok("1") {
+            return None;
+        }
+        let handle = [
+            b"libgtk-layer-shell.so.0\0".as_slice(),
+            b"libgtk-layer-shell.so\0",
+        ]
+        .iter()
+        .find_map(|name| unsafe {
+            let handle = libc::dlopen(name.as_ptr().cast(), libc::RTLD_LAZY | libc::RTLD_LOCAL);
+            (!handle.is_null()).then_some(handle)
+        })?;
+        let (
+            Some(is_supported_fn),
+            Some(init_for_window_fn),
+            Some(set_monitor_fn),
+            Some(set_layer_fn),
+            Some(set_anchor_fn),
+            Some(set_exclusive_zone_fn),
+            Some(set_keyboard_interactivity_fn),
+            Some(set_margin_fn),
+        ) = (unsafe {
+            (
+                load_symbol::<unsafe extern "C" fn() -> i32>(handle, b"gtk_layer_is_supported\0"),
+                load_symbol::<unsafe extern "C" fn(*mut c_void)>(
+                    handle,
+                    b"gtk_layer_init_for_window\0",
+                ),
+                load_symbol::<unsafe extern "C" fn(*mut c_void, *mut c_void)>(
+                    handle,
+                    b"gtk_layer_set_monitor\0",
+                ),
+                load_symbol::<unsafe extern "C" fn(*mut c_void, i32)>(
+                    handle,
+                    b"gtk_layer_set_layer\0",
+                ),
+                load_symbol::<unsafe extern "C" fn(*mut c_void, i32, i32)>(
+                    handle,
+                    b"gtk_layer_set_anchor\0",
+                ),
+                load_symbol::<unsafe extern "C" fn(*mut c_void, i32)>(
+                    handle,
+                    b"gtk_layer_set_exclusive_zone\0",
+                ),
+                load_symbol::<unsafe extern "C" fn(*mut c_void, i32)>(
+                    handle,
+                    b"gtk_layer_set_keyboard_interactivity\0",
+                ),
+                load_symbol::<unsafe extern "C" fn(*mut c_void, i32, i32)>(
+                    handle,
+                    b"gtk_layer_set_margin\0",
+                ),
+            )
+        })
+        else {
+            unsafe {
+                libc::dlclose(handle);
+            }
+            return None;
+        };
+        Some(Self {
+            _handle: handle,
+            is_supported_fn,
+            init_for_window_fn,
+            set_monitor_fn,
+            set_layer_fn,
+            set_anchor_fn,
+            set_exclusive_zone_fn,
+            set_keyboard_interactivity_fn,
+            set_margin_fn,
+        })
+    }
+
+    fn is_supported(&self) -> bool {
+        unsafe { (self.is_supported_fn)() != 0 }
+    }
+
+    fn configure(
+        &self,
+        window: &gtk::Window,
+        placement: Option<&LinuxOutputPlacement>,
+        available_monitors: &[winit::monitor::MonitorHandle],
+    ) -> Result<(), String> {
+        if !self.is_supported() {
+            return Err("the compositor does not support gtk-layer-shell".to_string());
+        }
+        let ptr: *mut c_void =
+            <gtk::Window as ToGlibPtr<*mut gtk::ffi::GtkWindow>>::to_glib_none(window)
+                .0
+                .cast();
+        let placement = placement
+            .cloned()
+            .unwrap_or_else(default_layer_shell_placement);
+        unsafe {
+            (self.init_for_window_fn)(ptr);
+            (self.set_layer_fn)(ptr, 3);
+            (self.set_exclusive_zone_fn)(ptr, -1);
+            (self.set_keyboard_interactivity_fn)(ptr, 0);
+        }
+        self.apply_placement(window, &placement, available_monitors, true, None);
+        Ok(())
+    }
+
+    fn apply_placement(
+        &self,
+        window: &gtk::Window,
+        placement: &LinuxOutputPlacement,
+        available_monitors: &[MonitorHandle],
+        set_monitor: bool,
+        previous: Option<&LinuxOutputPlacement>,
+    ) {
+        let ptr: *mut c_void =
+            <gtk::Window as ToGlibPtr<*mut gtk::ffi::GtkWindow>>::to_glib_none(window)
+                .0
+                .cast();
+        let monitor = gdk_monitor_for_placement(window, placement, available_monitors);
+        let edges = layer_shell_anchor_edges(placement.anchor);
+        let margins = layer_shell_margins(placement);
+        let previous_edges = previous
+            .map(|placement| layer_shell_anchor_edges(placement.anchor))
+            .unwrap_or([false; 4]);
+        let previous_margins = previous.map(layer_shell_margins).unwrap_or([0; 4]);
+        unsafe {
+            if set_monitor {
+                (self.set_monitor_fn)(ptr, gdk_monitor_ptr(monitor.as_ref()));
+            }
+            for edge in 0..4 {
+                if previous.is_none() || previous_edges[edge] != edges[edge] {
+                    (self.set_anchor_fn)(ptr, edge as i32, i32::from(edges[edge]));
+                }
+                if previous.is_none() || previous_margins[edge] != margins[edge] {
+                    (self.set_margin_fn)(ptr, edge as i32, margins[edge]);
+                }
+            }
+        }
+    }
+
+    fn set_monitor(&self, window: &gtk::Window, monitor: Option<&gtk::gdk::Monitor>) {
+        let ptr: *mut c_void =
+            <gtk::Window as ToGlibPtr<*mut gtk::ffi::GtkWindow>>::to_glib_none(window)
+                .0
+                .cast();
+        unsafe {
+            (self.set_monitor_fn)(ptr, gdk_monitor_ptr(monitor));
+        }
+    }
+}
+
+unsafe fn load_symbol<T: Copy>(handle: *mut c_void, name: &[u8]) -> Option<T> {
+    let symbol = libc::dlsym(handle, name.as_ptr().cast());
+    (!symbol.is_null()).then(|| std::mem::transmute_copy(&symbol))
+}

@@ -6,6 +6,8 @@ const dom = {
   macosDownloadButton: document.getElementById("macos-download-button"),
   windowsDownloadOption: document.getElementById("windows-download-option"),
   windowsDownloadButton: document.getElementById("windows-download-button"),
+  linuxDownloadOption: document.getElementById("linux-download-option"),
+  linuxDownloadButton: document.getElementById("linux-download-button"),
   downloadError: document.getElementById("download-error"),
   releaseNotesLink: document.getElementById("release-notes-link"),
   checksumLink: document.getElementById("checksum-link"),
@@ -182,13 +184,16 @@ function setDownloadButton(button, url, available, label) {
   button.classList.toggle("is-disabled", !available);
 }
 
-function applyHeroLabel(version, hasMacos, hasWindows) {
+function applyHeroLabel(version, hasMacos, hasWindows, hasLinux) {
+  const platforms = [
+    hasMacos && "macOS",
+    hasWindows && "Windows",
+    hasLinux && "Linux",
+  ].filter(Boolean);
   const platform =
-    hasMacos && hasWindows
-      ? "macOS and Windows"
-      : hasMacos
-        ? "macOS"
-        : "Windows";
+    platforms.length > 2
+      ? `${platforms.slice(0, -1).join(", ")}, and ${platforms.at(-1)}`
+      : platforms.join(" and ");
   dom.heroDownload.textContent = `Download ${version} for ${platform}`;
   dom.heroDownload.href = "#download";
   dom.heroDownload.removeAttribute("target");
@@ -199,16 +204,19 @@ function applyReadyState({
   version,
   macos_url: macosUrl,
   windows_url: windowsUrl,
+  linux_url: linuxUrl,
   release_url: releaseNotesUrl,
   checksums_url: checksumUrl,
 }) {
   const hasMacos = Boolean(macosUrl);
   const hasWindows = Boolean(windowsUrl);
+  const hasLinux = Boolean(linuxUrl);
   dom.downloadGrid.hidden = false;
   dom.macosDownloadOption.hidden = !hasMacos;
   dom.windowsDownloadOption.hidden = !hasWindows;
+  dom.linuxDownloadOption.hidden = !hasLinux;
   dom.downloadError.hidden = true;
-  applyHeroLabel(version, hasMacos, hasWindows);
+  applyHeroLabel(version, hasMacos, hasWindows, hasLinux);
 
   setDownloadButton(
     dom.macosDownloadButton,
@@ -221,6 +229,12 @@ function applyReadyState({
     windowsUrl,
     hasWindows,
     `Download ${version} for Windows (x64)`,
+  );
+  setDownloadButton(
+    dom.linuxDownloadButton,
+    linuxUrl,
+    hasLinux,
+    `Download ${version} for Linux (x86_64)`,
   );
   dom.releaseNotesLink.href = releaseNotesUrl;
 
@@ -242,6 +256,7 @@ function applyErrorState() {
   dom.downloadGrid.hidden = true;
   dom.macosDownloadOption.hidden = true;
   dom.windowsDownloadOption.hidden = true;
+  dom.linuxDownloadOption.hidden = true;
   dom.downloadError.hidden = false;
   setDownloadButton(
     dom.macosDownloadButton,
@@ -254,6 +269,12 @@ function applyErrorState() {
     "#download",
     false,
     "Download for Windows (x64)",
+  );
+  setDownloadButton(
+    dom.linuxDownloadButton,
+    "#download",
+    false,
+    "Download for Linux (x86_64)",
   );
 }
 
@@ -330,7 +351,16 @@ function validateReleaseManifest(manifest) {
 
   const hasMacos = validateAsset("macos_url", ".dmg");
   const hasWindows = validateAsset("windows_url", ".exe");
-  if (!hasMacos && !hasWindows) {
+  const hasLinux = validateAsset("linux_url", ".tar.gz");
+  if (
+    hasLinux &&
+    !manifest.linux_url.endsWith(
+      `/Downshift-linux-x86_64-v${version.slice(1)}.tar.gz`,
+    )
+  ) {
+    errors.push("linux_url is not the canonical Linux x86_64 asset");
+  }
+  if (!hasMacos && !hasWindows && !hasLinux) {
     errors.push("at least one platform asset is required");
   }
   if (manifest.checksums_url !== null && manifest.checksums_url !== undefined) {

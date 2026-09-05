@@ -4,6 +4,8 @@ use downshift::telemetry::{
 use downshift::{BreathingPattern, SavedBreathingPreset, BREATHING_PRESET_ID_CUSTOM};
 use semver::Version;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "linux")]
+use winit::window::WindowId;
 
 use crate::update_check::{UpdateCheckResult, UpdateCheckSource};
 
@@ -47,6 +49,12 @@ pub(crate) enum AppEvent {
     // the event in the shared protocol lets the event loop stay platform-neutral.
     MenuActivated(String),
     TrayIconClicked,
+    #[cfg(target_os = "linux")]
+    HostWindowClosed(WindowId),
+    #[cfg(target_os = "linux")]
+    HostWindowResized(WindowId),
+    #[cfg(target_os = "linux")]
+    HostWindowMoved(WindowId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -377,6 +385,7 @@ pub(crate) fn settings_backup_path(path: &std::path::Path) -> std::path::PathBuf
     path.with_file_name(file_name)
 }
 
+#[cfg(test)]
 pub(crate) fn drag_position(
     anchor_window: (f64, f64),
     anchor_pointer: (f64, f64),
@@ -387,6 +396,13 @@ pub(crate) fn drag_position(
     (
         (anchor_window.0 + dx).round() as i32,
         (anchor_window.1 + dy).round() as i32,
+    )
+}
+
+pub(crate) fn drag_position_from_delta(anchor_window: (f64, f64), delta: (f64, f64)) -> (i32, i32) {
+    (
+        (anchor_window.0 + delta.0).round() as i32,
+        (anchor_window.1 + delta.1).round() as i32,
     )
 }
 

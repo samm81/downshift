@@ -33,20 +33,27 @@ jobs:
     permissions:
       contents: read
 
+  linux:
+    name: Linux build and checks
+    uses: ./.github/workflows/build-linux.yml
+    permissions:
+      contents: read
+
   gate:
     name: full quality gate
     if: always()
-    needs: [macos, windows]
+    needs: [macos, windows, linux]
     runs-on: ubuntu-24.04
     steps:
-      - name: require both platform checks
+      - name: require all platform checks
         env:
           MACOS_RESULT: ${{ needs.macos.result }}
           WINDOWS_RESULT: ${{ needs.windows.result }}
+          LINUX_RESULT: ${{ needs.linux.result }}
         run: |
           set -euo pipefail
-          if [ "$MACOS_RESULT" != "success" ] || [ "$WINDOWS_RESULT" != "success" ]; then
-            echo "error: full quality failed (macOS=$MACOS_RESULT, Windows=$WINDOWS_RESULT)"
+          if [ "$MACOS_RESULT" != "success" ] || [ "$WINDOWS_RESULT" != "success" ] || [ "$LINUX_RESULT" != "success" ]; then
+            echo "error: full quality failed (macOS=$MACOS_RESULT, Windows=$WINDOWS_RESULT, Linux=$LINUX_RESULT)"
             exit 1
           fi
-          echo "full quality passed on macOS and Windows"
+          echo "full quality passed on macOS, Windows, and Linux"
