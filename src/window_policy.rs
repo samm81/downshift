@@ -1,7 +1,6 @@
-use downshift::{
-    clamp_size, LinuxOutputPlacement, LinuxWindowAnchor, LinuxWindowMode, PersistedMonitor,
-    Settings, DEFAULT_SIZE,
-};
+use downshift::{clamp_size, PersistedMonitor, Settings, DEFAULT_SIZE};
+#[cfg(target_os = "linux")]
+use downshift::{LinuxOutputPlacement, LinuxWindowAnchor, LinuxWindowMode};
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::monitor::MonitorHandle;
 
@@ -137,6 +136,7 @@ pub(crate) struct MonitorSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg(target_os = "linux")]
 pub(crate) struct LinuxOutputSnapshot {
     pub(crate) name: Option<String>,
     pub(crate) monitor: MonitorSnapshot,
@@ -144,6 +144,7 @@ pub(crate) struct LinuxOutputSnapshot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(target_os = "linux")]
 pub(crate) enum LinuxSessionBackend {
     X11,
     Wayland,
@@ -151,6 +152,7 @@ pub(crate) enum LinuxSessionBackend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(target_os = "linux")]
 pub(crate) enum LinuxWindowBackend {
     X11,
     WaylandNormal,
@@ -158,12 +160,14 @@ pub(crate) enum LinuxWindowBackend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(target_os = "linux")]
 pub(crate) struct LinuxWindowDecision {
     pub(crate) backend: LinuxWindowBackend,
     pub(crate) overlay_supported: bool,
     pub(crate) fallback_reason: Option<&'static str>,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn choose_linux_window_backend(
     session: LinuxSessionBackend,
     requested: LinuxWindowMode,
@@ -204,6 +208,7 @@ pub(crate) fn choose_linux_window_backend(
     }
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn linux_output_index_for_placement(
     placement: &LinuxOutputPlacement,
     outputs: &[LinuxOutputSnapshot],
@@ -225,6 +230,7 @@ pub(crate) fn linux_output_index_for_placement(
     outputs.iter().position(|output| output.primary)
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn linux_output_origin_for_placement(
     placement: &LinuxOutputPlacement,
     output: &LinuxOutputSnapshot,
@@ -261,6 +267,7 @@ pub(crate) fn linux_output_origin_for_placement(
     PhysicalPoint::new(desired_x, desired_y)
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn linux_output_placement_for_origin(
     output: &LinuxOutputSnapshot,
     origin: PhysicalPoint,
@@ -301,6 +308,7 @@ pub(crate) fn linux_output_placement_for_origin(
     )
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn linux_output_placement_for_origin_with_anchor(
     output: &LinuxOutputSnapshot,
     origin: PhysicalPoint,
@@ -313,6 +321,7 @@ pub(crate) fn linux_output_placement_for_origin_with_anchor(
     linux_output_placement_for_position(output, origin, width, height, anchor)
 }
 
+#[cfg(target_os = "linux")]
 fn linux_output_placement_for_position(
     output: &LinuxOutputSnapshot,
     origin: PhysicalPoint,
@@ -354,6 +363,7 @@ fn linux_output_placement_for_position(
     }
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn linux_drag_delta(delta: LogicalPoint, scale_factor: f64) -> Option<PhysicalPoint> {
     if !delta.x.is_finite()
         || !delta.y.is_finite()
@@ -747,6 +757,7 @@ mod tests {
         assert_eq!(origin, PhysicalPosition::new(944, 344));
     }
 
+    #[cfg(target_os = "linux")]
     fn output(name: &str, position: PhysicalPoint, primary: bool) -> LinuxOutputSnapshot {
         LinuxOutputSnapshot {
             name: Some(name.to_string()),
@@ -761,6 +772,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn linux_backend_selection_uses_layer_shell_when_supported() {
         let decision =
             choose_linux_window_backend(LinuxSessionBackend::Wayland, LinuxWindowMode::Auto, true);
@@ -801,6 +813,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn linux_x11_and_unknown_backends_keep_a_safe_normal_window() {
         let x11 =
             choose_linux_window_backend(LinuxSessionBackend::X11, LinuxWindowMode::Auto, true);
@@ -817,6 +830,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn linux_output_matching_prefers_name_then_geometry_then_primary() {
         let mut outputs = vec![
             output("DP-1", PhysicalPoint::new(0, 0), true),
@@ -865,6 +879,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn linux_output_placement_round_trips_anchor_and_margins() {
         let output = output("HDMI-1", PhysicalPoint::new(-1920, 20), false);
         let origin = PhysicalPoint::new(-1920 + 1920 - 96 - 32, 20 + 1080 - 96 - 18);
@@ -879,6 +894,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn fixed_drag_anchor_stays_continuous_across_output_center() {
         let output = output("HDMI-1", PhysicalPoint::new(0, 0), false);
         let right_of_center = PhysicalPoint::new(912, 100);
@@ -908,6 +924,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn fixed_drag_anchor_preserves_offscreen_origins() {
         let output = output("HDMI-1", PhysicalPoint::new(0, 0), false);
         let above_left = PhysicalPoint::new(-40, -30);
@@ -942,6 +959,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn linux_drag_delta_converts_local_logical_units_to_physical_pixels() {
         assert_eq!(
             linux_drag_delta(LogicalPoint::new(12.25, -4.5), 2.0),

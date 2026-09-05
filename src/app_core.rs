@@ -4,6 +4,7 @@ use downshift::telemetry::{
 use downshift::{BreathingPattern, SavedBreathingPreset, BREATHING_PRESET_ID_CUSTOM};
 use semver::Version;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "linux")]
 use winit::window::WindowId;
 
 use crate::update_check::{UpdateCheckResult, UpdateCheckSource};
@@ -48,8 +49,11 @@ pub(crate) enum AppEvent {
     // the event in the shared protocol lets the event loop stay platform-neutral.
     MenuActivated(String),
     TrayIconClicked,
+    #[cfg(target_os = "linux")]
     HostWindowClosed(WindowId),
+    #[cfg(target_os = "linux")]
     HostWindowResized(WindowId),
+    #[cfg(target_os = "linux")]
     HostWindowMoved(WindowId),
 }
 
@@ -381,6 +385,7 @@ pub(crate) fn settings_backup_path(path: &std::path::Path) -> std::path::PathBuf
     path.with_file_name(file_name)
 }
 
+#[cfg(test)]
 pub(crate) fn drag_position(
     anchor_window: (f64, f64),
     anchor_pointer: (f64, f64),

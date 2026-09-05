@@ -2348,6 +2348,7 @@ impl App {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn handle_host_window_closed(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId) {
         if Some(window_id) == self.window_id {
             self.save_settings();
@@ -2364,6 +2365,7 @@ impl App {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn handle_host_window_resized(&mut self, window_id: WindowId) {
         if Some(window_id) == self.window_id {
             self.enforce_fixed_widget_size();
@@ -2381,6 +2383,7 @@ impl App {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn handle_host_window_moved(&mut self, window_id: WindowId) {
         if Some(window_id) != self.window_id {
             return;
@@ -2751,10 +2754,13 @@ impl ApplicationHandler<AppEvent> for App {
                 self.telemetry_menu_action(MenuAction::TrayMenu, None);
             }
             AppEvent::MenuActivated(id) => self.handle_native_menu_activation(event_loop, &id),
+            #[cfg(target_os = "linux")]
             AppEvent::HostWindowClosed(window_id) => {
                 self.handle_host_window_closed(event_loop, window_id)
             }
+            #[cfg(target_os = "linux")]
             AppEvent::HostWindowResized(window_id) => self.handle_host_window_resized(window_id),
+            #[cfg(target_os = "linux")]
             AppEvent::HostWindowMoved(window_id) => self.handle_host_window_moved(window_id),
         }
     }
