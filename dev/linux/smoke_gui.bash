@@ -230,6 +230,26 @@ x11_window_id() {
   [[ -n "$best_window" ]] && printf '%s\n' "$best_window"
 }
 
+x11_context_menu_absent() {
+  local window_id window_name geometry width height
+  while read -r window_id; do
+    window_name="$(xdotool getwindowname "$window_id" 2>/dev/null)" || continue
+    [[ "$window_name" == downshift ]] && continue
+    geometry="$(xdotool getwindowgeometry --shell "$window_id" 2>/dev/null)" || continue
+    width="$(sed -n 's/^WIDTH=//p' <<<"$geometry")"
+    height="$(sed -n 's/^HEIGHT=//p' <<<"$geometry")"
+    [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || continue
+    ((width > 20 && height > 20)) && return 1
+  done < <(xdotool search --onlyvisible --class '^com\.samm81\.downshift$' 2>/dev/null)
+}
+
+dismiss_x11_context_menu() {
+  xdotool key --clearmodifiers Escape || true
+  xdotool mousemove --sync 10 10
+  xdotool click 1
+  wait_until "X11 context menu dismissal" x11_context_menu_absent
+}
+
 x11_geometry() {
   local window_id geometry
   window_id="$(x11_window_id)"
@@ -536,7 +556,11 @@ smoke_common_windows() {
   xdotool key --clearmodifiers Home Return
   wait_until "native pause menu action" settings_contains 'paused = true'
   send_ipc '{"cmd":"set_paused","paused":false}'
-  xdotool key --clearmodifiers Escape
+  if [[ "$SCENARIO" == x11 ]]; then
+    dismiss_x11_context_menu
+  else
+    xdotool key --clearmodifiers Escape
+  fi
 
   log "resizing widget through IPC"
   local before_window_width
