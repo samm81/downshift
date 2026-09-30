@@ -70,6 +70,24 @@
     <!-- DOWNSHIFT_RELEASE_MANIFEST_END -->
     <link rel="icon" type="image/png" href="./assets/icon.png" />
     <link rel="stylesheet" href="./styles.css" />
+    <!-- Privacy-friendly analytics by Plausible -->
+    <script
+      async
+      src="https://plausible.io/js/pa-wUnuB97Iei2qopC9zqHUE.js"
+    ></script>
+    <script>
+      ((window.plausible =
+        window.plausible ||
+        function () {
+          (plausible.q = plausible.q || []).push(arguments);
+        }),
+        (plausible.init =
+          plausible.init ||
+          function (i) {
+            plausible.o = i || {};
+          }));
+      plausible.init();
+    </script>
   </head>
   <body>
     <div class="page-vignette"></div>
@@ -102,6 +120,7 @@
           href="https://github.com/samm81/downshift"
           target="_blank"
           rel="noopener noreferrer"
+          data-track="github_click"
           aria-label="View on GitHub"
           title="View on GitHub"
           ><svg
@@ -127,7 +146,11 @@
     <main class="canvas">
       <section class="hero" id="top">
         <h2>Keep your breathing steady while you work.</h2>
-        <a id="hero-download" class="button button-primary" href="#download"
+        <a
+          id="hero-download"
+          class="button button-primary"
+          href="#download"
+          data-track="download_click"
           >Download for macOS, Windows, and Linux</a
         >
         <p class="trust-line">open source . no account</p>
@@ -268,6 +291,7 @@
               href="#download"
               target="_blank"
               rel="noopener noreferrer"
+              data-track="download_click"
               aria-disabled="true"
               >Download for macOS (Apple Silicon)</a
             >
@@ -279,6 +303,7 @@
               href="#download"
               target="_blank"
               rel="noopener noreferrer"
+              data-track="download_click"
               aria-disabled="true"
               >Download for Windows (x64)</a
             >
@@ -302,6 +327,7 @@
             href="https://github.com/samm81/downshift/releases/latest"
             target="_blank"
             rel="noopener noreferrer"
+            data-track="checksum_click"
             aria-hidden="true"
             >Checksums</a
           >
@@ -311,6 +337,7 @@
             href="https://github.com/samm81/downshift/releases/latest"
             target="_blank"
             rel="noopener noreferrer"
+            data-track="release_notes_click"
             >Release notes</a
           >
         </div>
@@ -348,6 +375,7 @@
             id="email-capture-link"
             class="button button-subtle"
             type="submit"
+            data-track="email_capture_click"
           >
             Subscribe
           </button>
@@ -363,6 +391,7 @@
           href="https://github.com/samm81/downshift"
           target="_blank"
           rel="noopener noreferrer"
+          data-track="github_click"
           >GitHub</a
         >
         <a class="footer-pill" href="#top">Built for Mac + Windows + Linux</a>

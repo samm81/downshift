@@ -1,10 +1,26 @@
 # telemetry
 
-this is a code-derived inventory of telemetry emitted by this repo as of 2026-03-24.
+this is a code-derived inventory of telemetry emitted by this repo as of 2026-09-30.
 
 scope:
 
 - the desktop app in `src/main.rs` and `src/telemetry.rs`
+- the static site in `docs/`
+
+## docs site analytics
+
+the static site loads a site-specific Plausible script from `docs/index.html`. `docs/script.js`
+queues custom events through `window.plausible`; the docs site does not use the desktop app's
+better stack or sentry sinks.
+
+custom events:
+
+- `download_click`
+- `checksum_click`
+- `email_capture_click`
+- `faq_open`
+- `github_click`
+- `release_notes_click`
 
 ## desktop app telemetry
 

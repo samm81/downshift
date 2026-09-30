@@ -8,7 +8,7 @@ deploys the staging directory as a Pages artifact.
 
 - `index.html`: single-page landing structure, content, and local release-metadata fixture
 - `styles.css`: desktop-first styling
-- `script.js`: embedded release metadata enhancement (no product-copy overrides)
+- `script.js`: embedded release metadata enhancement and Plausible event tracking (no product-copy overrides)
 - `../src/ui/polygon-animation.js`: shared animation source copied into the generated site
 - `release.json`: checked-in stable-release fixture for local preview and smoke tests
 - `assets/icon.png`: placeholder app icon (locally generated)
@@ -19,7 +19,7 @@ deploys the staging directory as a Pages artifact.
 - `index.html` is the source of truth for all user-visible product narrative and baseline links.
 - the page must remain coherent and usable with JavaScript disabled.
 - `script.js` may only enhance behavior that cannot be done statically (reading embedded release
-  metadata and wiring download links).
+  metadata, wiring download links, and analytics events).
 - the Pages workflow owns the deployed release metadata; the checked-in manifest and embedded block
   are local fixtures and are not updated by releases.
 - do not add JS-driven overrides for brand/product copy like app name, tagline, hero text, or trust claims.
@@ -85,6 +85,20 @@ The manifest contains:
 - canonical Linux x86_64 `.tar.gz` download link, when present
 - release notes link
 - optional checksum link
+
+## Plausible analytics
+
+`index.html` loads the site-specific Plausible script directly. `script.js` tracks these custom events:
+
+- `download_click`
+- `checksum_click`
+- `email_capture_click`
+- `faq_open`
+- `github_click`
+- `release_notes_click`
+
+To verify events, open the published page, interact with the download, checksum, release notes,
+email, GitHub, and FAQ controls, then check the Events view in Plausible.
 
 The manifest is deliberately small and is validated in both Node-based tooling and the browser.
 Only stable tags and HTTPS URLs for `samm81/downshift` are accepted. Static HTML has no

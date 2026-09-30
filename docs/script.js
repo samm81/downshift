@@ -25,6 +25,32 @@ const {
   terminalShapeFraction,
 } = window.downshiftPolygonAnimation;
 
+function safeTrack(eventName) {
+  if (typeof window.plausible === "function") {
+    window.plausible(eventName);
+  }
+}
+
+function wireTrackedClicks() {
+  const tracked = document.querySelectorAll("[data-track]");
+  tracked.forEach((element) => {
+    element.addEventListener("click", () => {
+      safeTrack(element.getAttribute("data-track"));
+    });
+  });
+}
+
+function wireFaqOpens() {
+  const faqItems = document.querySelectorAll("#faq details");
+  faqItems.forEach((item) => {
+    item.addEventListener("toggle", () => {
+      if (item.open) {
+        safeTrack("faq_open");
+      }
+    });
+  });
+}
+
 function updateDemoBreathingHitTarget(hitTarget, artwork, progress) {
   const terminalProgress = clamp(progress / terminalShapeFraction, 0, 1);
   const hitTargetActive =
@@ -401,6 +427,8 @@ function loadReleaseManifest() {
   }
 }
 
+wireTrackedClicks();
+wireFaqOpens();
 wireDraggableDemoBall();
 wireDemoBreathing();
 loadReleaseManifest();

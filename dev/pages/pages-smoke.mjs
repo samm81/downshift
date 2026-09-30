@@ -21,6 +21,16 @@ const DOCS_DIR = path.resolve(
   process.argv[2] || process.env.DOWNSHIFT_PAGES_DIR || "docs",
 );
 const RELEASE_MANIFEST_PATH = path.join(DOCS_DIR, "release.json");
+const PLAUSIBLE_SCRIPT_URL =
+  "https://plausible.io/js/pa-wUnuB97Iei2qopC9zqHUE.js";
+const PLAUSIBLE_EVENT_NAMES = [
+  "download_click",
+  "checksum_click",
+  "email_capture_click",
+  "faq_open",
+  "github_click",
+  "release_notes_click",
+];
 
 function assert(condition, message) {
   if (!condition) {
@@ -132,6 +142,10 @@ async function createFixture(manifest, { missing = false } = {}) {
     path.join(os.tmpdir(), "downshift-pages-smoke-"),
   );
   await fs.promises.cp(DOCS_DIR, fixture, { recursive: true });
+  await fs.promises.copyFile(
+    path.join(REPOSITORY_ROOT, "src/ui/polygon-animation.js"),
+    path.join(fixture, "polygon-animation.js"),
+  );
   const fixtureIndexPath = path.join(fixture, "index.html");
   const fixtureManifestPath = path.join(fixture, "release.json");
   const fixtureIndexHtml = await fs.promises.readFile(fixtureIndexPath, "utf8");
@@ -151,6 +165,17 @@ async function runJavaScriptCase(browser, fixture, expectations) {
   const consoleMessages = [];
   page.on("request", (request) => requests.push(request.url()));
   page.on("console", (message) => consoleMessages.push(message.text()));
+  await page.route("https://plausible.io/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: "",
+    }),
+  );
+  await page.addInitScript(() => {
+    window.__plausibleEvents = [];
+    window.plausible = (...args) => window.__plausibleEvents.push(args);
+  });
 
   try {
     await page.goto(`${server.url}/index.html`, { waitUntil: "networkidle" });
@@ -198,6 +223,24 @@ async function runJavaScriptCase(browser, fixture, expectations) {
       await downloadError.isHidden(),
       expectations.valid,
       `${expectations.name}: fallback visibility`,
+    );
+
+    await page.locator("#hero-download").click();
+    await page.locator("#faq details").first().locator("summary").click();
+    await page.waitForFunction(() => document.querySelector("#faq details")?.open);
+    await page.waitForFunction(() =>
+      window.__plausibleEvents.some(([eventName]) => eventName === "faq_open"),
+    );
+    const plausibleEventNames = await page.evaluate(() =>
+      window.__plausibleEvents.map(([eventName]) => eventName),
+    );
+    assert(
+      plausibleEventNames.includes("download_click"),
+      `${expectations.name}: download event was not tracked`,
+    );
+    assert(
+      plausibleEventNames.includes("faq_open"),
+      `${expectations.name}: FAQ event was not tracked`,
     );
 
     if (expectations.valid) {
@@ -322,6 +365,18 @@ function testManifestGenerator(manifest) {
 
 async function main() {
   const source = fs.readFileSync(path.join(DOCS_DIR, "index.html"), "utf8");
+  const script = fs.readFileSync(path.join(DOCS_DIR, "script.js"), "utf8");
+  assert(
+    source.includes(PLAUSIBLE_SCRIPT_URL),
+    "index.html is missing the Plausible script",
+  );
+  for (const eventName of PLAUSIBLE_EVENT_NAMES) {
+    assert(
+      source.includes(`data-track="${eventName}"`) ||
+        script.includes(`safeTrack("${eventName}")`),
+      `Pages source is missing Plausible event ${eventName}`,
+    );
+  }
   assert(
     !source.includes("api.github.com"),
     "index.html still contains the GitHub API endpoint",
