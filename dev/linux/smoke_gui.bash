@@ -589,11 +589,27 @@ smoke_x11_drag() {
   before="$(x11_geometry)"
   before_x="$(awk '{print $1}' <<<"$before")"
   window_id="$(x11_window_id)"
-  local x y width height
+  local x y width height display_width display_height center_x center_y target_x target_y
   read -r x y width height <<<"$before"
-  xdotool mousemove --sync "$((x + width / 2))" "$((y + height / 2))"
+  read -r display_width display_height <<<"$(xdotool getdisplaygeometry)"
+  center_x=$((x + width / 2))
+  center_y=$((y + height / 2))
+  if ((center_x >= display_width / 2)); then
+    target_x=$((center_x - 120))
+  else
+    target_x=$((center_x + 120))
+  fi
+  target_y=$((center_y + 40))
+  if ((target_y >= display_height)); then
+    target_y=$((center_y - 40))
+  fi
+  ((target_x < 0)) && target_x=0
+  ((target_x >= display_width)) && target_x=$((display_width - 1))
+  ((target_y < 0)) && target_y=0
+  ((target_y >= display_height)) && target_y=$((display_height - 1))
+  xdotool mousemove --sync "$center_x" "$center_y"
   xdotool mousedown 1
-  xdotool mousemove --sync "$((x + width / 2 + 120))" "$((y + height / 2 + 40))"
+  xdotool mousemove --sync "$target_x" "$target_y"
   xdotool mouseup 1
   x11_window_moved() {
     local current current_x
@@ -604,7 +620,7 @@ smoke_x11_drag() {
   wait_until "X11 drag movement" x11_window_moved "$before_x"
   after="$(x11_geometry)"
   after_x="$(awk '{print $1}' <<<"$after")"
-  log "X11 drag moved window x=${before_x}->${after_x} (window ${window_id})"
+  log "X11 drag moved window x=${before_x}->${after_x} (pointer ${center_x},${center_y}->${target_x},${target_y}; window ${window_id})"
 }
 
 x11_window_near_cursor() {
