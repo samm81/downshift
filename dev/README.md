@@ -34,3 +34,9 @@ legacy entrypoints are kept as thin compatibility wrappers:
 - `dev/mac/bootstrap_homebrew.bash`
 - `dev/mac/setup_dev_env.bash`
 - `dev/mac/bootstrap_gui_permissions.bash`
+
+the first-party Plausible proxy is deployed with:
+
+```bash
+make deploy/plausible
+```

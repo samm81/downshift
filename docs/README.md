@@ -88,7 +88,9 @@ The manifest contains:
 
 ## Plausible analytics
 
-`index.html` loads the site-specific Plausible script directly. `script.js` tracks these custom events:
+`index.html` loads the site-specific Plausible script through the first-party Cloudflare Worker at
+`/f3c8d1/`. The worker proxies the script and event requests to Plausible. `script.js` tracks these
+custom events:
 
 - `download_click`
 - `checksum_click`

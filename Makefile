@@ -49,6 +49,7 @@ PAGES_STAMP := $(PAGES_DIR)/.build.stamp
 PAGES_PREVIEW_HOST ?= 127.0.0.1
 PAGES_PREVIEW_BIND ?= 0.0.0.0
 PAGES_PREVIEW_PORT ?= 4173
+WRANGLER_CONFIG := infra/cloudflare/wrangler.jsonc
 TAG ?=
 RESET ?=
 TAG_VERSION := $(patsubst v%,%,$(TAG))
@@ -98,6 +99,7 @@ endif
 	run run-no-telemetry \
 	smoke-windows-vm \
 	pages-build pages-preview pages-check pages-smoke \
+	deploy/plausible \
 	app-macos app-macos-no-telemetry \
 	format format-check test lint check verify-rust verify-release \
 	sign-app sign-app-no-telemetry \
@@ -336,6 +338,9 @@ pages-check: pages-build ## validate the local GitHub Pages artifact
 
 pages-smoke: pages-check ## run the GitHub Pages browser smoke test
 	npm run smoke:pages -- "$(PAGES_DIR)"
+
+deploy/plausible: ## deploy the first-party Plausible proxy
+	npx --yes wrangler deploy --config "$(WRANGLER_CONFIG)"
 
 run: build-debug ## run the telemetry-enabled debug app
 	@if [ -n "$(RUN_RESET)" ]; then \

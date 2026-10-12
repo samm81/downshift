@@ -21,8 +21,8 @@ const DOCS_DIR = path.resolve(
   process.argv[2] || process.env.DOWNSHIFT_PAGES_DIR || "docs",
 );
 const RELEASE_MANIFEST_PATH = path.join(DOCS_DIR, "release.json");
-const PLAUSIBLE_SCRIPT_URL =
-  "https://plausible.io/js/pa-wUnuB97Iei2qopC9zqHUE.js";
+const PLAUSIBLE_SCRIPT_PATH = "/f3c8d1/script.js";
+const PLAUSIBLE_EVENT_PATH = "/f3c8d1/event";
 const PLAUSIBLE_EVENT_NAMES = [
   "download_click",
   "checksum_click",
@@ -165,7 +165,7 @@ async function runJavaScriptCase(browser, fixture, expectations) {
   const consoleMessages = [];
   page.on("request", (request) => requests.push(request.url()));
   page.on("console", (message) => consoleMessages.push(message.text()));
-  await page.route("https://plausible.io/**", (route) =>
+  await page.route(`**${PLAUSIBLE_SCRIPT_PATH}`, (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/javascript",
@@ -367,8 +367,12 @@ async function main() {
   const source = fs.readFileSync(path.join(DOCS_DIR, "index.html"), "utf8");
   const script = fs.readFileSync(path.join(DOCS_DIR, "script.js"), "utf8");
   assert(
-    source.includes(PLAUSIBLE_SCRIPT_URL),
-    "index.html is missing the Plausible script",
+    source.includes(`src="${PLAUSIBLE_SCRIPT_PATH}"`),
+    "index.html is missing the first-party Plausible script",
+  );
+  assert(
+    source.includes(`endpoint: "${PLAUSIBLE_EVENT_PATH}"`),
+    "index.html is missing the first-party Plausible event endpoint",
   );
   for (const eventName of PLAUSIBLE_EVENT_NAMES) {
     assert(

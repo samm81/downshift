@@ -1,0 +1,12 @@
+{
+  "name": "downshift-page-proxy",
+  "main": "./plausible-proxy.js",
+  "compatibility_date": "2026-10-12",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "getdownshift.app/f3c8d1/*",
+      "zone_name": "getdownshift.app"
+    }
+  ]
+}
