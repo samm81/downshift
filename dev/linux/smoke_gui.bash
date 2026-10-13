@@ -590,18 +590,23 @@ smoke_x11_drag() {
   before_x="$(awk '{print $1}' <<<"$before")"
   window_id="$(x11_window_id)"
   local x y width height display_width display_height center_x center_y target_x target_y
+  local drag_x drag_y
   read -r x y width height <<<"$before"
   read -r display_width display_height <<<"$(xdotool getdisplaygeometry)"
   center_x=$((x + width / 2))
   center_y=$((y + height / 2))
+  drag_x=$((width / 4))
+  drag_y=$((height / 6))
+  ((drag_x < 1)) && drag_x=1
+  ((drag_y < 1)) && drag_y=1
   if ((center_x >= display_width / 2)); then
-    target_x=$((center_x - 120))
+    target_x=$((center_x - drag_x))
   else
-    target_x=$((center_x + 120))
+    target_x=$((center_x + drag_x))
   fi
-  target_y=$((center_y + 40))
+  target_y=$((center_y + drag_y))
   if ((target_y >= display_height)); then
-    target_y=$((center_y - 40))
+    target_y=$((center_y - drag_y))
   fi
   ((target_x < 0)) && target_x=0
   ((target_x >= display_width)) && target_x=$((display_width - 1))
