@@ -617,7 +617,7 @@ smoke_x11_drag() {
   sleep 0.1
   xdotool mousedown 1
   sleep 0.1
-  xdotool mousemove --sync "$target_x" "$target_y"
+  xdotool mousemove_relative --sync "$((target_x - center_x))" "$((target_y - center_y))"
   sleep 0.1
   xdotool mouseup 1
   x11_window_moved() {
