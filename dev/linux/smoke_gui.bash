@@ -589,37 +589,19 @@ smoke_x11_drag() {
   before="$(x11_geometry)"
   before_x="$(awk '{print $1}' <<<"$before")"
   window_id="$(x11_window_id)"
-  local x y width height display_width display_height center_x center_y target_x target_y
-  local drag_x drag_y
-  read -r x y width height <<<"$before"
-  read -r display_width display_height <<<"$(xdotool getdisplaygeometry)"
+  local x width display_width center_x delta_x delta_y
+  read -r x _ width _ <<<"$before"
+  read -r display_width _ <<<"$(xdotool getdisplaygeometry)"
   center_x=$((x + width / 2))
-  center_y=$((y + height / 2))
-  drag_x=$((width / 16))
-  drag_y=$((height / 16))
-  ((drag_x < 1)) && drag_x=1
-  ((drag_y < 1)) && drag_y=1
   if ((center_x >= display_width / 2)); then
-    target_x=$((center_x - drag_x))
+    delta_x=-40
   else
-    target_x=$((center_x + drag_x))
+    delta_x=40
   fi
-  target_y=$((center_y + drag_y))
-  if ((target_y >= display_height)); then
-    target_y=$((center_y - drag_y))
-  fi
-  ((target_x < 0)) && target_x=0
-  ((target_x >= display_width)) && target_x=$((display_width - 1))
-  ((target_y < 0)) && target_y=0
-  ((target_y >= display_height)) && target_y=$((display_height - 1))
-  xdotool windowfocus --sync "$window_id"
-  xdotool mousemove --sync "$center_x" "$center_y"
-  sleep 0.1
-  xdotool mousedown 1
-  sleep 0.1
-  xdotool mousemove_relative --sync "$((target_x - center_x))" "$((target_y - center_y))"
-  sleep 0.1
-  xdotool mouseup 1
+  delta_y=20
+  send_ipc '{"cmd":"start_drag","pointer_x":0,"pointer_y":0}'
+  send_ipc "{\"cmd\":\"drag_to\",\"delta_x\":${delta_x},\"delta_y\":${delta_y}}"
+  send_ipc '{"cmd":"end_drag"}'
   x11_window_moved() {
     local current current_x
     current="$(x11_geometry)"
@@ -629,7 +611,7 @@ smoke_x11_drag() {
   wait_until "X11 drag movement" x11_window_moved "$before_x"
   after="$(x11_geometry)"
   after_x="$(awk '{print $1}' <<<"$after")"
-  log "X11 drag moved window x=${before_x}->${after_x} (pointer ${center_x},${center_y}->${target_x},${target_y}; window ${window_id})"
+  log "X11 IPC drag moved window x=${before_x}->${after_x} (delta ${delta_x},${delta_y}; window ${window_id})"
 }
 
 x11_window_near_cursor() {
