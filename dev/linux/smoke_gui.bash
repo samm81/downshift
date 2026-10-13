@@ -608,8 +608,11 @@ smoke_x11_drag() {
   ((target_y < 0)) && target_y=0
   ((target_y >= display_height)) && target_y=$((display_height - 1))
   xdotool mousemove --sync "$center_x" "$center_y"
+  sleep 0.1
   xdotool mousedown 1
+  sleep 0.1
   xdotool mousemove --sync "$target_x" "$target_y"
+  sleep 0.1
   xdotool mouseup 1
   x11_window_moved() {
     local current current_x
