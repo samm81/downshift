@@ -612,6 +612,7 @@ smoke_x11_drag() {
   ((target_x >= display_width)) && target_x=$((display_width - 1))
   ((target_y < 0)) && target_y=0
   ((target_y >= display_height)) && target_y=$((display_height - 1))
+  xdotool windowfocus --sync "$window_id"
   xdotool mousemove --sync "$center_x" "$center_y"
   sleep 0.1
   xdotool mousedown 1
