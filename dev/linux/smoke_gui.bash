@@ -595,8 +595,8 @@ smoke_x11_drag() {
   read -r display_width display_height <<<"$(xdotool getdisplaygeometry)"
   center_x=$((x + width / 2))
   center_y=$((y + height / 2))
-  drag_x=$((width / 4))
-  drag_y=$((height / 6))
+  drag_x=$((width / 16))
+  drag_y=$((height / 16))
   ((drag_x < 1)) && drag_x=1
   ((drag_y < 1)) && drag_y=1
   if ((center_x >= display_width / 2)); then
